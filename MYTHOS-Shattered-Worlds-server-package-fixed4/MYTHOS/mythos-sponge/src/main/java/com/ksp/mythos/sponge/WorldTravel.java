@@ -15,6 +15,7 @@ import org.spongepowered.api.command.Command;
 import org.spongepowered.api.command.CommandCause;
 import org.spongepowered.api.command.CommandResult;
 import org.spongepowered.api.command.parameter.Parameter;
+import org.spongepowered.api.command.selector.Selector;
 import org.spongepowered.api.data.Keys;
 import org.spongepowered.api.entity.living.player.server.ServerPlayer;
 import org.spongepowered.api.scheduler.Task;
@@ -84,15 +85,37 @@ final class WorldTravel {
     }
 
     Command.Parameterized teleportCommand() {
-        final var world = Parameter.resourceKey().key("world").build();
-        final var player = Parameter.player().key("player").optional().build();
-        return Command.builder().addParameter(world).addParameter(player).executor(context -> {
+        final var arguments = Parameter.remainingJoinedStrings().key("arguments").optional().build();
+        return Command.builder().addParameter(arguments).executor(context -> {
             if (!canManage(context.cause())) return denied();
-            final var key = parseKey(context.requireOne(world).asString());
+            final String input = context.one(arguments).orElse("").strip();
+            if (input.isEmpty()) return error("Usage: /mythosworldtp <world> [online-player]");
+            final String[] words = input.split("\\s+", 2);
+            final var key = parseKey(words[0]);
             if (key.isEmpty() || !known(key.get())) return error("Unknown world. Use /mythosworld to list world keys.");
-            final var recipient = context.one(player).or(() -> context.cause().first(ServerPlayer.class));
-            if (recipient.isEmpty()) return error("Console usage: mythosworldtp <world> <online-player>");
-            teleport(recipient.get(), new Destination(key.get(), null), context::sendMessage);
+
+            final ServerPlayer recipient;
+            if (words.length == 1) {
+                final var caller = context.cause().first(ServerPlayer.class);
+                if (caller.isEmpty()) return error("Console usage: mythosworldtp <world> <online-player>");
+                recipient = caller.get();
+            } else if (words[1].startsWith("@")) {
+                try {
+                    final var selected = Selector.parse(words[1]).select(context.cause());
+                    if (selected.size() != 1 || !(selected.iterator().next() instanceof ServerPlayer player)) {
+                        return error("The selector must match exactly one online player.");
+                    }
+                    recipient = player;
+                } catch (IllegalArgumentException exception) {
+                    return error("Invalid player selector.");
+                }
+            } else {
+                final var online = Sponge.server().onlinePlayers().stream()
+                        .filter(player -> player.name().equalsIgnoreCase(words[1])).findFirst();
+                if (online.isEmpty()) return error("Player " + words[1] + " is not online.");
+                recipient = online.get();
+            }
+            teleport(recipient, new Destination(key.get(), null), context::sendMessage);
             return CommandResult.success();
         }).build();
     }
