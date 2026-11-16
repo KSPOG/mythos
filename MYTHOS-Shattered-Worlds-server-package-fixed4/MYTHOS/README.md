@@ -126,18 +126,24 @@ Get the hash in PowerShell with `(Get-FileHash .\build\resource-packs\MYTHOS-res
 
 ### Armour
 
-Staff with `mythos.command.givearmor` can use `/mythosgivearmor <online-player> <armor-id>`. Both sets can be worn by any class.
+Staff with `mythos.command.givearmor` can use `/mythosgivearmor <online-player> <armor-id>`. Any class can wear these sets. The themes below describe their intended playstyles. Each piece has its own enchantment. Leather colours show on vanilla clients.
 
-| Set | Item IDs | Base |
+| Set | Item IDs | Base and specialty |
 | --- | --- | --- |
-| Warden | `warden_helm`, `warden_chestplate`, `warden_leggings`, `warden_boots` | Iron |
-| Riftweave | `riftweave_hood`, `riftweave_tunic`, `riftweave_leggings`, `riftweave_boots` | Purple-dyed leather |
-
-Each piece has a defensive enchantment. Gear uses vanilla item bases and persistent model data. MYTHOS gear is distributed through staff commands.
+| Warden | `warden_helm`, `warden_chestplate`, `warden_leggings`, `warden_boots` | Iron, general defence |
+| Riftweave | `riftweave_hood`, `riftweave_tunic`, `riftweave_leggings`, `riftweave_boots` | Purple leather, protection from fire and projectiles |
+| Ironbastion | `ironbastion_helm`, `ironbastion_chestplate`, `ironbastion_leggings`, `ironbastion_boots` | Iron, frontline defence and blast protection |
+| Ashforged | `ashforged_helm`, `ashforged_chestplate`, `ashforged_leggings`, `ashforged_boots` | Iron, protection from fire and blasts |
+| Trailwarden | `trailwarden_hood`, `trailwarden_tunic`, `trailwarden_leggings`, `trailwarden_boots` | Green leather, protection from arrows and falls |
+| Nightveil | `nightveil_hood`, `nightveil_tunic`, `nightveil_leggings`, `nightveil_boots` | Dark leather, Swift Sneak leggings |
+| Frostglass | `frostglass_hood`, `frostglass_tunic`, `frostglass_leggings`, `frostglass_boots` | Light blue leather, protection from arrows and blasts |
+| Dawnweave | `dawnweave_hood`, `dawnweave_tunic`, `dawnweave_leggings`, `dawnweave_boots` | Cream leather, general defence and fire protection |
+| Sunward | `sunward_helm`, `sunward_chestplate`, `sunward_leggings`, `sunward_boots` | Gold, Thorns chestplate |
+| Gravebloom | `gravebloom_hood`, `gravebloom_tunic`, `gravebloom_leggings`, `gravebloom_boots` | Teal leather, Respiration and Depth Strider |
 
 ### Give every weapon and armour piece
 
-Owners can run `/mythosgiveallgear` in game for themselves or `/mythosgiveallgear <online-player>` to specify a recipient. From the server console, run `mythosgiveallgear <online-player>` while the recipient is online. The command gives one of each configured weapon and each MYTHOS armour piece in named shulker boxes. The default catalog has 40 pieces, so the recipient needs two empty inventory slots. Place and open the boxes to retrieve the gear.
+Owners can run `/mythosgiveallgear` in game for themselves or `/mythosgiveallgear <online-player>` to specify a recipient. From the server console, run `mythosgiveallgear <online-player>` while the recipient is online. The command gives one of each configured weapon and each MYTHOS armour piece in named shulker boxes. The default catalog has 72 pieces (32 weapons and 40 armour pieces), so the recipient needs three empty inventory slots. Place and open the boxes to retrieve the gear.
 
 The rank preset grants `mythos.command.giveallgear` to Owner. If you already imported the ranks, run this once from the server console.
 
@@ -153,7 +159,7 @@ After rebuilding and restarting, look for `MYTHOS bulk gear command registered` 
 2. Trade the staff to a Warrior. Check that it stays in their inventory and casting is denied.
 3. Give the Warrior a Frontier Longbow. Move it into and out of a chest, then try to draw it. Give the same bow to a Ranger and verify that it fires with ordinary arrows. With the pack enabled, draw each custom bow and a vanilla bow to verify all models.
 4. Give and equip a Riftweave piece. Check its dye and enchantment after reconnecting.
-5. As Owner, give the full gear set and place both crates. Check they contain 27 and 13 pieces, and that a weapon retains its name, spell, and stats. Test with one empty slot and verify no crate is delivered. Confirm a Tester cannot run the bulk command.
+5. As Owner, give the full gear set and place all three crates. Check they contain 27, 27 and 18 pieces, and that a weapon retains its name, spell, and stats. Test with two empty slots and verify no crate is delivered. Confirm a Tester cannot run the bulk command.
 
 ## Build
 
