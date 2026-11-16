@@ -19,6 +19,7 @@ import org.spongepowered.api.command.CommandResult;
 import org.spongepowered.api.command.parameter.Parameter;
 import org.spongepowered.api.entity.living.player.server.ServerPlayer;
 import org.spongepowered.api.scheduler.ScheduledTask;
+import org.spongepowered.api.registry.RegistryTypes;
 import org.spongepowered.api.scheduler.Task;
 import org.spongepowered.api.util.Ticks;
 import org.spongepowered.api.world.BlockChangeFlags;
@@ -29,7 +30,25 @@ import org.spongepowered.plugin.PluginContainer;
 final class HubPreviewBuilder {
     private static final int BATCH_SIZE = 2048;
     private static final long BATCH_NANOS = 8_000_000;
-    private record Block(Vector3i offset, BlockState state) {}
+    private enum Stage { CHECK, PLACE, VERIFY }
+
+    private record Block(Vector3i offset, BlockState state, String specification) {
+        boolean matches(final BlockState current) {
+            if (!current.type().equals(this.state.type())) return false;
+            // Fence connections, stair shape, and leaf distance can change after a neighbor is placed.
+            final int propertiesStart = this.specification.indexOf('[');
+            if (propertiesStart < 0) return true;
+            final String serialized = current.asString();
+            final int start = serialized.indexOf('[');
+            if (start < 0) return false;
+            final var actual = List.of(serialized.substring(start + 1, serialized.length() - 1).split(","));
+            for (final String property : this.specification.substring(propertiesStart + 1,
+                    this.specification.length() - 1).split(",")) {
+                if (!actual.contains(property)) return false;
+            }
+            return true;
+        }
+    }
 
     private final PluginContainer plugin;
     private final Logger logger;
@@ -106,7 +125,7 @@ final class HubPreviewBuilder {
         private final Consumer<Component> reply;
         private int next;
         private int progress = 25;
-        private boolean placing;
+        private Stage stage = Stage.CHECK;
 
         Placement(final ServerWorld world, final Vector3i anchor, final Consumer<Component> reply) {
             this.world = world;
@@ -125,18 +144,21 @@ final class HubPreviewBuilder {
                 for (int count = 0; count < BATCH_SIZE && this.next < blueprint.size(); count++) {
                     final Block block = blueprint.get(this.next);
                     final Vector3i pos = this.anchor.add(block.offset());
-                    // The server's world block access loads the relevant chunk when needed.
                     final BlockState current = this.world.block(pos);
-                    if (!current.equals(block.state())) {
-                        if (!isAir(current)) {
-                            stop(task, "Blocked at " + coordinates(pos) + ". "
-                                    + (this.placing ? "Earlier placement batches were kept." : "No preview blocks were placed."));
+                    if (!block.matches(current)) {
+                        if (this.stage == Stage.VERIFY || !isAir(current)) {
+                            stop(task, mismatch(pos, block, current, this.stage == Stage.CHECK
+                                    ? "Site check blocked; no preview blocks were placed"
+                                    : "Build incomplete; previously placed blocks were kept"));
                             return;
                         }
-                        if (this.placing && !this.world.setBlock(pos, block.state(), BlockChangeFlags.NOTIFY_CLIENTS)
-                                && !this.world.block(pos).equals(block.state())) {
-                            stop(task, "Could not place a block at " + coordinates(pos) + ". Earlier batches were kept.");
-                            return;
+                        if (this.stage == Stage.PLACE) {
+                            this.world.setBlock(pos, block.state(), BlockChangeFlags.NOTIFY_CLIENTS);
+                            final var actual = this.world.block(pos);
+                            if (!block.matches(actual)) {
+                                stop(task, mismatch(pos, block, actual, "Block placement did not stick"));
+                                return;
+                            }
                         }
                     }
                     this.next++;
@@ -144,28 +166,35 @@ final class HubPreviewBuilder {
                 }
                 final int percent = this.next * 100 / blueprint.size();
                 if (percent >= this.progress && percent < 100) {
-                    report((this.placing ? "Placement" : "Site check") + " " + percent + "%.");
+                    final String step = switch (this.stage) {
+                        case CHECK -> "Site check";
+                        case PLACE -> "Placement";
+                        case VERIFY -> "Verification";
+                    };
+                    report(step + " " + percent + "%.");
                     this.progress += 25;
                 }
                 if (this.next < blueprint.size()) return;
-                if (!this.placing) {
-                    this.placing = true;
+                if (this.stage != Stage.VERIFY) {
+                    this.stage = this.stage == Stage.CHECK ? Stage.PLACE : Stage.VERIFY;
                     this.next = 0;
                     this.progress = 25;
-                    report("Site check complete. Placing Skyreach.");
+                    report(this.stage == Stage.PLACE ? "Site check complete. Placing Skyreach."
+                            : "Placement finished. Verifying every planned block.");
                     return;
                 }
                 final var arrival = this.anchor.add(0, 1, 11);
-                if (this.world.block(arrival.sub(0, 1, 0)).type() != BlockTypes.GOLD_BLOCK.get()
-                        || this.world.block(this.anchor.add(0, 48, -21)).type() != BlockTypes.SEA_LANTERN.get()) {
-                    stop(task, "Placement ended but a verification block is missing.");
-                    return;
-                }
                 stop(task, "Complete. Preview arrival: " + coordinates(arrival) + " in " + this.world.key().asString() + ".");
             } catch (RuntimeException exception) {
                 logger.error("Skyreach build stopped at block {}", this.next, exception);
                 stop(task, "Build stopped. Check the server log for details.");
             }
+        }
+
+        private String mismatch(final Vector3i pos, final Block block, final BlockState actual, final String detail) {
+            return detail + " at " + coordinates(pos) + " in " + this.world.key().asString()
+                    + ". Expected " + block.specification() + ", found " + actual.type().key(RegistryTypes.BLOCK_TYPE).asString()
+                    + " (" + actual.asString() + ").";
         }
 
         void report(final String message) {
@@ -203,7 +232,7 @@ final class HubPreviewBuilder {
                 final int end = words[0].equals("fill") ? offset(words[4]) : start;
                 final var state = palette.computeIfAbsent(words[words.length - 1], BlockState::fromString);
                 for (int x = start; x <= end; x++) {
-                    blocks.add(new Block(new Vector3i(x, y, z), state));
+                    blocks.add(new Block(new Vector3i(x, y, z), state, words[words.length - 1]));
                 }
             }
         }

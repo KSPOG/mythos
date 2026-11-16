@@ -133,7 +133,7 @@ Build the MYTHOS plugin and restart the server. From the server console, use thi
 buildhub mythos:c1 0 160 0
 ```
 
-Owners can also run `/buildhub` in game while flying one block above the intended center floor, or supply the world key and coordinates. The console logs the site check, placement progress, and the arrival coordinates on completion. At the example anchor, the arrival is `0 161 11`. The footprint spans X −68 to 70, Y 128 to 208, and Z −56 to 71. Existing blocks at planned coordinates must be air or match the blueprint. If placement stops after the site check, completed batches can remain in the world.
+Owners can also run `/buildhub` in game while flying one block above the intended center floor, or supply the world key and coordinates. The console logs site check, placement and verification progress, and arrival coordinates on completion. Completed geometry is verified against the blueprint. If a block is missing or incorrect, the log lists its position and expected and observed states. At the example anchor, the arrival is `0 161 11`. The footprint spans X −68 to 70, Y 128 to 208, and Z −56 to 71. Existing blocks at planned coordinates must be air or match the blueprint. If placement stops after the site check, completed batches can remain in the world.
 
 This is a preview structure. Use existing MYTHOS commands to define gate frames and pairs. The [Skyreach v2 datapack](datapacks/MYTHOS-Skyreach-v2.zip) includes the gate coordinates for the example anchor.
 
