@@ -78,7 +78,25 @@ if (-not (Get-ChildItem -LiteralPath $Mods -Filter 'LuckPerms*.jar' -File)) {
 
 $LuckPermsData = Join-Path $Server 'luckperms'
 New-Item -ItemType Directory -Force -Path $LuckPermsData | Out-Null
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'permissions/mythos-ranks.json') -Destination $LuckPermsData -Force
+$RankPreset = Join-Path $PSScriptRoot 'permissions/mythos-ranks.json'
+$RankImport = Join-Path $LuckPermsData 'mythos-ranks.json.gz'
+$RankTemp = "$RankImport.tmp"
+try {
+    $Output = [IO.File]::Create($RankTemp)
+    try {
+        $Gzip = [IO.Compression.GZipStream]::new($Output, [IO.Compression.CompressionMode]::Compress, $true)
+        try {
+            $InputFile = [IO.File]::OpenRead($RankPreset)
+            try { $InputFile.CopyTo($Gzip) }
+            finally { $InputFile.Dispose() }
+        } finally { $Gzip.Dispose() }
+    } finally { $Output.Dispose() }
+    Move-Item -LiteralPath $RankTemp -Destination $RankImport -Force
+} finally {
+    if (Test-Path -LiteralPath $RankTemp) {
+        Remove-Item -LiteralPath $RankTemp
+    }
+}
 
 $Eula = Join-Path $Server 'eula.txt'
 if (-not (Test-Path $Eula)) { Set-Content -Path $Eula -Value 'eula=false' -Encoding ASCII }
@@ -101,7 +119,7 @@ if (-not (Test-Path $Properties)) {
 
 Write-Host ''
 Write-Host 'Forge, SpongeForge and LuckPerms setup complete.' -ForegroundColor Green
-Write-Host 'To load the MYTHOS rank presets, run lp import mythos-ranks.json in the running server console.'
+Write-Host 'To load the MYTHOS rank presets, run lp import "mythos-ranks.json.gz" in the running server console.'
 Write-Host 'The first server start will generate the world and configuration.'
 Write-Host 'The Minecraft EULA remains eula=false until you accept it yourself.'
 Write-Host "Edit: $Eula"

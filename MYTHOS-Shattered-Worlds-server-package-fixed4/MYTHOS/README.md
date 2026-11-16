@@ -43,10 +43,10 @@ The installer does not open a public firewall port or enable offline mode. Keep 
 
 MYTHOS uses [LuckPerms for Sponge](https://luckperms.net/download) for groups and permissions. The Windows installer adds LuckPerms 5.5.91 for SpongeAPI 12 if there is no LuckPerms JAR in `server/mods`. On an existing server, stop it, run `install.bat` and `build.bat`, then start it again.
 
-The installer stages the group preset at `server/luckperms/mythos-ranks.json`. In the **running server console**, run:
+The installer stages the group preset as a GZIP archive at `server/luckperms/mythos-ranks.json.gz`. In the **running server console**, run:
 
 ```text
-lp import mythos-ranks.json
+lp import "mythos-ranks.json.gz"
 ```
 
 The import adds the predefined groups and permissions to the current LuckPerms data. On a server with existing groups, check for overlapping names before importing. Existing extra permissions are retained by a normal import. Use the console to check effective permissions if a player already has other groups or OP status.
