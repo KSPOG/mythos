@@ -137,13 +137,15 @@ Each piece has a defensive enchantment. Gear uses vanilla item bases and persist
 
 ### Give every weapon and armour piece
 
-Owners can run `/mythosgiveallgear <online-player>`. The command gives one of each configured weapon and each MYTHOS armour piece in named shulker boxes. The default catalog has 40 pieces, so the recipient needs two empty inventory slots. Place and open the boxes to retrieve the gear.
+Owners can run `/mythosgiveallgear` in game for themselves or `/mythosgiveallgear <online-player>` to specify a recipient. From the server console, run `mythosgiveallgear <online-player>` while the recipient is online. The command gives one of each configured weapon and each MYTHOS armour piece in named shulker boxes. The default catalog has 40 pieces, so the recipient needs two empty inventory slots. Place and open the boxes to retrieve the gear.
 
 The rank preset grants `mythos.command.giveallgear` to Owner. If you already imported the ranks, run this once from the server console.
 
 ```text
 lp group owner permission set mythos.command.giveallgear true
 ```
+
+After rebuilding and restarting, look for `MYTHOS bulk gear command registered` in the startup log to confirm that the server loaded the updated plugin.
 
 ### In-game smoke test
 

@@ -9,6 +9,7 @@ import com.ksp.mythos.core.weapon.WeaponDefinition;
 import net.kyori.adventure.text.Component;
 import org.apache.logging.log4j.Logger;
 import org.spongepowered.api.Server;
+import org.spongepowered.api.Sponge;
 import org.spongepowered.api.adventure.ChatTypes;
 import org.spongepowered.api.command.Command;
 import org.spongepowered.api.command.CommandResult;
@@ -123,7 +124,8 @@ public final class MythosPlugin {
         event.register(this.container, setClassCommand(classArgument), "mythossetclass");
         event.register(this.container, giveGearCommand(false), "mythosgiveweapon");
         event.register(this.container, giveGearCommand(true), "mythosgivearmor");
-        event.register(this.container, giveAllGearCommand(), "mythosgiveallgear");
+        final var bulkGear = event.register(this.container, giveAllGearCommand(), "mythosgiveallgear");
+        this.logger.info("MYTHOS bulk gear command registered: {}", bulkGear.mapping().allAliases());
         event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
                 .map(this::castHeldSpell)
                 .orElseGet(() -> CommandResult.error(Component.text("Only a player can cast a spell."))))
@@ -207,12 +209,25 @@ public final class MythosPlugin {
     }
 
     private Command.Parameterized giveAllGearCommand() {
-        final Parameter.Value<ServerPlayer> targetArgument = Parameter.player().key("player").build();
+        final Parameter.Value<String> targetArgument = Parameter.string().key("player").optional().build();
         return Command.builder()
-                .permission("mythos.command.giveallgear")
                 .addParameter(targetArgument)
                 .executor(context -> {
-                    final ServerPlayer target = context.requireOne(targetArgument);
+                    final var cause = context.cause();
+                    if (cause.subject() != Sponge.systemSubject()
+                            && !cause.hasPermission("mythos.command.giveallgear")) {
+                        return CommandResult.error(Component.text("You need the MYTHOS Owner bulk gear permission."));
+                    }
+
+                    final Optional<String> name = context.one(targetArgument);
+                    final Optional<ServerPlayer> recipient = name.isPresent()
+                            ? Sponge.server().player(name.get()) : cause.first(ServerPlayer.class);
+                    if (recipient.isEmpty()) {
+                        return CommandResult.error(Component.text(name.isPresent()
+                                ? name.get() + " is not online."
+                                : "Usage from the server console: mythosgiveallgear <online-player>"));
+                    }
+                    final ServerPlayer target = recipient.get();
                     final List<ItemStack> gear = new ArrayList<>();
                     for (final MythosWeapon weapon : this.customWeapons) {
                         final var item = weapon.create();
