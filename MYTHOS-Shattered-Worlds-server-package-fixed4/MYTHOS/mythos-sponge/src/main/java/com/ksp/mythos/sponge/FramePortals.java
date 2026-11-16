@@ -22,7 +22,7 @@ import org.spongepowered.api.world.server.ServerLocation;
 import org.spongepowered.math.vector.Vector3i;
 
 final class FramePortals {
-    private record Frame(ResourceKey world, Vector3i low, Vector3i high, String peer) {
+    private record Frame(ResourceKey world, Vector3i low, Vector3i high, String peer, Vector3i arrival) {
         static Frame between(final ResourceKey world, final Vector3i a, final Vector3i b) {
             final Vector3i low = new Vector3i(Math.min(a.x(), b.x()), Math.min(a.y(), b.y()), Math.min(a.z(), b.z()));
             final Vector3i high = new Vector3i(Math.max(a.x(), b.x()), Math.max(a.y(), b.y()), Math.max(a.z(), b.z()));
@@ -31,20 +31,38 @@ final class FramePortals {
             if ((dx == 0) == (dz == 0) || width < 2 || width > 32 || dy < 3 || dy > 32) {
                 throw new IllegalArgumentException("Select diagonal outer corners of a vertical frame with a walkable opening (maximum 33 blocks across or tall).");
             }
-            return new Frame(world, low, high, null);
+            return new Frame(world, low, high, null, null);
         }
 
         Frame link(final String name) {
-            return new Frame(this.world, this.low, this.high, name);
+            return new Frame(this.world, this.low, this.high, name, this.arrival);
+        }
+
+        Frame withArrival(final Vector3i position) {
+            if (position != null && Math.abs((long) depth(position) - depth(this.low)) < 2) {
+                throw new IllegalArgumentException("Stand at least two blocks out from the frame, on the side players should use.");
+            }
+            return new Frame(this.world, this.low, this.high, this.peer, position);
+        }
+
+        private int depth(final Vector3i position) {
+            return this.low.z() == this.high.z() ? position.z() : position.x();
         }
 
         boolean contains(final ServerLocation location) {
             if (!this.world.equals(location.worldKey())) return false;
             final var pos = location.blockPosition();
             final boolean alongX = this.low.z() == this.high.z();
-            return pos.y() > this.low.y() && pos.y() < this.high.y()
-                    && (alongX ? pos.z() == this.low.z() && pos.x() > this.low.x() && pos.x() < this.high.x()
-                    : pos.x() == this.low.x() && pos.z() > this.low.z() && pos.z() < this.high.z());
+            final int across = alongX ? pos.x() : pos.z();
+            if (across <= (alongX ? this.low.x() : this.low.z())
+                    || across >= (alongX ? this.high.x() : this.high.z())
+                    || pos.y() >= this.high.y()) return false;
+
+            final long offset = (long) depth(pos) - depth(this.low);
+            if (this.arrival == null) return offset == 0 && pos.y() > this.low.y();
+            final int front = Integer.compare(depth(this.arrival), depth(this.low));
+            // A backed gate can stop the player's body a block before the framed plane.
+            return pos.y() >= this.low.y() && (offset == 0 || offset == front);
         }
 
         boolean overlaps(final Frame other) {
@@ -55,6 +73,7 @@ final class FramePortals {
         }
 
         WorldTravel.Destination exit() {
+            if (this.arrival != null) return new WorldTravel.Destination(this.world, this.arrival);
             final int x = this.low.x() + (this.high.x() - this.low.x()) / 2;
             final int z = this.low.z() + (this.high.z() - this.low.z()) / 2;
             return new WorldTravel.Destination(this.world, new Vector3i(x + (this.low.x() == this.high.x() ? 1 : 0),
@@ -84,10 +103,11 @@ final class FramePortals {
         for (final String id : data.stringPropertyNames().stream().sorted().toList()) {
             try {
                 final String[] parts = data.getProperty(id).split(" ", -1);
-                if (!validId(id) || parts.length != 8) throw new IllegalArgumentException();
+                if (!validId(id) || (parts.length != 8 && parts.length != 11)) throw new IllegalArgumentException();
                 final Frame frame = Frame.between(ResourceKey.resolve(parts[0]), position(parts, 1), position(parts, 4));
                 if (this.frames.values().stream().anyMatch(frame::overlaps)) throw new IllegalArgumentException("Overlapping frames");
-                this.frames.put(id, frame.link(parts[7].equals("-") ? null : parts[7]));
+                this.frames.put(id, frame.link(parts[7].equals("-") ? null : parts[7])
+                        .withArrival(parts.length == 11 ? position(parts, 8) : null));
             } catch (RuntimeException exception) {
                 throw new IOException("Invalid portal " + id + " in " + file, exception);
             }
@@ -115,23 +135,25 @@ final class FramePortals {
                 if (this.frames.isEmpty()) context.sendMessage(Component.text("No portal frames defined."));
                 this.frames.forEach((id, frame) -> context.sendMessage(Component.text(id + " at "
                         + frame.world().asString() + " " + format(frame.low()) + " → " + format(frame.high())
-                        + (frame.peer() == null ? " (unlinked)" : " — paired with " + frame.peer()))));
+                        + (frame.peer() == null ? " (unlinked)" : " — paired with " + frame.peer())
+                        + (frame.arrival() == null ? "" : " | arrival " + format(frame.arrival())))));
                 return CommandResult.success();
             }
             final String[] words = normalize(input).split("\\s+");
             final var player = context.cause().first(ServerPlayer.class);
             final String action = words[0];
             final int expected = switch (action) {
-                case "define", "unlink", "remove" -> 2;
+                case "define", "setarrival", "unlink", "remove" -> 2;
                 case "link" -> 3;
                 case "cancel" -> 1;
                 default -> 0;
             };
             if (words.length != expected) {
-                return WorldTravel.error("Usage: /mythosportal [define <frame> | link <frame> <frame> | unlink <frame> | remove <frame> | cancel]");
+                return WorldTravel.error("Usage: /mythosportal [define <frame> | link <frame> <frame> | setarrival <frame> | unlink <frame> | remove <frame> | cancel]");
             }
             return switch (action) {
                 case "define" -> define(words[1], player.orElse(null), context::sendMessage);
+                case "setarrival" -> setArrival(words[1], player.orElse(null), context::sendMessage);
                 case "link" -> pair(words[1], words[2], context::sendMessage);
                 case "unlink", "remove" -> disconnect(words[1], action.equals("remove"), context::sendMessage);
                 case "cancel" -> {
@@ -149,6 +171,32 @@ final class FramePortals {
         if (!validId(id)) return WorldTravel.error("Use an ID such as chapter_gate.");
         this.selecting.put(player.uniqueId(), new Selection(id, null));
         reply.accept(Component.text("With an empty main hand, right-click a lower outer corner and the opposite upper outer corner."));
+        return CommandResult.success();
+    }
+
+    private CommandResult setArrival(final String id, final ServerPlayer player, final Consumer<Component> reply) {
+        if (player == null) return WorldTravel.error("Set a portal arrival in game.");
+        final Frame frame = this.frames.get(id);
+        if (frame == null) return WorldTravel.error("Unknown frame " + id + ".");
+        final ServerLocation location = player.serverLocation();
+        if (!frame.world().equals(location.worldKey())) {
+            return WorldTravel.error("Stand in the same world as frame " + id + ".");
+        }
+        final Frame updatedFrame;
+        try {
+            updatedFrame = frame.withArrival(location.blockPosition());
+        } catch (IllegalArgumentException exception) {
+            return WorldTravel.error(exception.getMessage());
+        }
+        if (this.frames.values().stream().anyMatch(other -> other.contains(location))) {
+            return WorldTravel.error("Choose an arrival spot outside other portal openings.");
+        }
+
+        final var updated = new LinkedHashMap<>(this.frames);
+        updated.put(id, updatedFrame);
+        if (!save(updated)) return saveError();
+        reply.accept(Component.text("Saved " + id + " arrival and entrance side at "
+                + format(updatedFrame.arrival()) + "."));
         return CommandResult.success();
     }
 
@@ -203,7 +251,10 @@ final class FramePortals {
             }
             final var updated = new LinkedHashMap<>(this.frames);
             final Frame old = updated.get(selection.name());
-            updated.put(selection.name(), frame.link(old == null ? null : old.peer()));
+            final Frame linked = frame.link(old == null ? null : old.peer());
+            updated.put(selection.name(), old != null && old.world().equals(frame.world())
+                    && old.low().equals(frame.low()) && old.high().equals(frame.high())
+                    ? linked.withArrival(old.arrival()) : linked);
             if (save(updated)) {
                 this.selecting.remove(id);
                 if (old != null && old.peer() != null) preloadWorlds();
@@ -230,10 +281,12 @@ final class FramePortals {
             final Frame peer = this.frames.get(source.peer());
             if (peer == null) return;
             final String name = entry.getKey();
+            final int search = peer.arrival() == null ? 2 : 0;
             this.travel.teleport(player, peer.exit(), player::sendMessage,
                     current -> source.contains(current) && source.equals(this.frames.get(name))
                             && peer.equals(this.frames.get(source.peer())),
-                    arrival -> this.frames.values().stream().noneMatch(frame -> frame.contains(arrival)), 2, 2, false);
+                    arrival -> this.frames.values().stream().noneMatch(frame -> frame.contains(arrival)),
+                    search, search, false);
             return;
         }
     }
@@ -252,7 +305,8 @@ final class FramePortals {
     private boolean save(final Map<String, Frame> updated) {
         final Properties data = new Properties();
         updated.forEach((name, frame) -> data.setProperty(name, frame.world().asString() + " " + format(frame.low())
-                + " " + format(frame.high()) + " " + (frame.peer() == null ? "-" : frame.peer())));
+                + " " + format(frame.high()) + " " + (frame.peer() == null ? "-" : frame.peer())
+                + (frame.arrival() == null ? "" : " " + format(frame.arrival()))));
         try {
             Files.createDirectories(this.file.getParent());
             final Path temp = this.file.resolveSibling(this.file.getFileName() + ".tmp");
