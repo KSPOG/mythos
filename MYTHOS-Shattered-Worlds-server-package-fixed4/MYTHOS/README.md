@@ -14,7 +14,7 @@ The official Sponge download page currently marks `1.21.1-52.1.5-12.0.3` as the 
 ## Windows quick start
 
 1. Install a 64-bit Java 21 runtime (not a different major version) and ensure `java` is on `PATH`.
-2. Run `install.bat`. It downloads the matching Forge installer, installs the dedicated server, and downloads the official SpongeForge universal JAR into `server\mods`.
+2. Run `install.bat`. It downloads the matching Forge installer, installs the dedicated server, and installs SpongeForge and LuckPerms for Sponge into `server\mods`.
 3. Run `build.bat`. It downloads Gradle 8.10.2 into the local `.tools` folder if needed, builds the modules and copies `Mythos.jar` into `server\mods`.
 4. Read Mojang's EULA at https://www.minecraft.net/eula. If you agree, edit `server\eula.txt` and set `eula=true`. The installer deliberately does not accept it for you.
 5. Run `start.bat` (or `server\start.bat`).
@@ -38,6 +38,25 @@ The installer does not open a public firewall port or enable offline mode. Keep 
 - Server-side validation for weapon interactions and attacks.
 - Vanilla weapon categories are registered and checked by the same class policy.
 - Dependency-free policy regression tests.
+
+## Permissions and chat ranks
+
+MYTHOS uses [LuckPerms for Sponge](https://luckperms.net/download) for groups and permissions. The Windows installer adds LuckPerms 5.5.91 for SpongeAPI 12 if there is no LuckPerms JAR in `server/mods`. On an existing server, stop it, run `install.bat` and `build.bat`, then start it again.
+
+After KiritoSanPlays has joined at least once, run these commands in the server console:
+
+```text
+lp creategroup owner
+lp group owner meta setprefix 100 "[Owner]"
+lp group owner permission set mythos.command.setclass true
+lp group owner permission set mythos.command.giveweapon true
+lp group owner permission set mythos.command.givearmor true
+lp user KiritoSanPlays parent add owner
+```
+
+The next public chat message shows `[Owner] KiritoSanPlays` as the sender. Prefix text is displayed literally. Tab-list and overhead names use their existing format. The commands above grant MYTHOS testing permissions. Manage ranks from the console. To let this trusted owner manage LuckPerms in game as well, run `lp group owner permission set luckperms.* true` in the console.
+
+Use the same group and prefix commands for other roles. To remove the owner role, run `lp user KiritoSanPlays parent remove owner`. Supporter groups should carry cosmetic metadata only.
 
 ## Staff class testing
 

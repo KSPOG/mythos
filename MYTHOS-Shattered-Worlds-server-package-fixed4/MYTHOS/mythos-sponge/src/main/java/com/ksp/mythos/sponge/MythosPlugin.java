@@ -9,6 +9,7 @@ import com.ksp.mythos.core.weapon.WeaponDefinition;
 import net.kyori.adventure.text.Component;
 import org.apache.logging.log4j.Logger;
 import org.spongepowered.api.Server;
+import org.spongepowered.api.adventure.ChatTypes;
 import org.spongepowered.api.command.Command;
 import org.spongepowered.api.command.CommandResult;
 import org.spongepowered.api.command.parameter.Parameter;
@@ -24,6 +25,7 @@ import org.spongepowered.api.event.item.inventory.InteractItemEvent;
 import org.spongepowered.api.event.item.inventory.UseItemStackEvent;
 import org.spongepowered.api.event.lifecycle.RegisterCommandEvent;
 import org.spongepowered.api.event.lifecycle.StartedEngineEvent;
+import org.spongepowered.api.event.message.PlayerChatEvent;
 import org.spongepowered.api.item.ItemType;
 import org.spongepowered.api.item.ItemTypes;
 import org.spongepowered.api.item.enchantment.Enchantment;
@@ -124,6 +126,18 @@ public final class MythosPlugin {
                 .map(this::castHeldSpell)
                 .orElseGet(() -> CommandResult.error(Component.text("Only a player can cast a spell."))))
                 .build(), "mythoscast");
+    }
+
+    @Listener
+    public void onPublicChat(final PlayerChatEvent.Submit event) {
+        if (event.isCancelled() || !event.chatType().location().equals(ChatTypes.CHAT.location())) {
+            return;
+        }
+        event.player()
+                .flatMap(player -> player.option("prefix", event.cause()))
+                .map(String::strip)
+                .filter(prefix -> !prefix.isEmpty())
+                .ifPresent(prefix -> event.setSender(Component.text(prefix + " ").append(event.sender())));
     }
 
     private Command.Parameterized setClassCommand(final Parameter.Value<String> classArgument) {
