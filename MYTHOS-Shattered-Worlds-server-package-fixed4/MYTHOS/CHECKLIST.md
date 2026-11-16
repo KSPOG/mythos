@@ -4,7 +4,9 @@
 
 - [x] Implement the spawn hub builder, class previews, arrival protection, and survival exit.
 - [x] Add the Rift Sanctum architecture, interactive class shrines, and an in-place upgrade.
-- [ ] Verify the upgraded hub on the live server, including first join, shrine previews, protection, exit, and restart.
+- [x] Add the placeable Skyreach v2 datapack to the repository.
+- [ ] Place Skyreach v2 in a test world, review it from player height, set the official arrival, activate class stations, and link its gates.
+- [ ] Verify the live hub, including first join, shrine previews, protection, exit, and restart.
 - [x] Implement multi-world creation/loading, world teleport, and paired walk-through portal frames.
 - [ ] Verify world travel, frame traversal in both directions, and portal persistence on the live server.
 - [ ] Add a one-time starter kit and combat tutorial for each class.

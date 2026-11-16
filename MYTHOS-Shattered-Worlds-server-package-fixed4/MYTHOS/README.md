@@ -125,6 +125,20 @@ Frame pairs are saved in `server/config/mythos/frame-portals.properties`. Use th
 
 For a live check, pair two frames across worlds, walk through and return, then restart and verify the pairing persists. Test an obstructed exit and confirm a regular player can travel while Owner commands remain restricted.
 
+## Skyreach v2 test build
+
+The [Skyreach v2 datapack](datapacks/MYTHOS-Skyreach-v2.zip) places the floating-island hub in Minecraft Java 1.21.1. It has five physical portal frames. The ZIP includes the frame coordinates for the example anchor below.
+
+1. Copy the intact ZIP from `datapacks/` in this project to `server/<level-name>/datapacks/`. The directory named by `level-name` in `server/server.properties` is the primary save, even when placing Skyreach in another world.
+2. Restart the server and run `datapack list enabled` in the server console. Look for `file/MYTHOS-Skyreach-v2.zip`.
+3. Join a clear test world as OP, fly near `0 160 0`, and run the command below. It places the build in the world you are currently in and writes blocks across its footprint. The arrival plaza is at `0 161 11`.
+
+```text
+/execute positioned 0 160 0 run function mythos_skyreach_v2:build
+```
+
+For the server console, with the player online in the desired test world, run `execute as KiritoSanPlays at @s positioned 0 160 0 run function mythos_skyreach_v2:build`. Define, pair, and set arrival points for the gates with the existing MYTHOS portal commands.
+
 ## Staff class testing
 
 Grant trusted staff the `mythos.command.setclass` permission. Run `/mythossetclass <online-player> <class>` in game or omit the slash in the server console. For example, `/mythossetclass YourName ranger` switches your own class. The assignment is saved and takes effect immediately for weapon use and spellcasting. Inventory and active spell cooldowns are preserved.
