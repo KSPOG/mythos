@@ -27,6 +27,8 @@ import org.spongepowered.api.world.teleport.TeleportHelperFilters;
 import org.spongepowered.api.world.teleport.TeleportHelperFilter;
 import org.spongepowered.api.util.Tristate;
 import org.spongepowered.api.block.BlockState;
+import org.spongepowered.api.block.BlockTypes;
+import org.spongepowered.api.fluid.FluidTypes;
 import org.spongepowered.math.vector.Vector3i;
 import org.spongepowered.plugin.PluginContainer;
 
@@ -116,6 +118,36 @@ final class WorldTravel {
                 recipient = online.get();
             }
             teleport(recipient, new Destination(key.get(), null), context::sendMessage);
+            return CommandResult.success();
+        }).build();
+    }
+
+    Command.Parameterized topCommand() {
+        return Command.builder().executor(context -> {
+            if (!canManage(context.cause())) return denied();
+            final var caller = context.cause().first(ServerPlayer.class);
+            if (caller.isEmpty()) return error("Run /top in game.");
+            final ServerPlayer player = caller.get();
+            if (this.teleporting.containsKey(player.uniqueId())) {
+                return error("A world teleport is already in progress.");
+            }
+
+            final ServerWorld world = player.world();
+            final Vector3i column = player.serverLocation().blockPosition();
+            // WORLD_SURFACE returns the first air level above the highest non-air block.
+            final int y = world.highestYAt(column.x(), column.z());
+            if (y <= world.min().y()) return error("There is no surface in this column.");
+            if (column.y() > y) return error("You are already above the highest block in this column.");
+
+            final BlockState floor = world.block(column.x(), y - 1, column.z());
+            final var surface = ServerLocation.of(world, column.x() + 0.5, y, column.z() + 0.5);
+            if (!insideBorder(world, surface) || !floor.get(Keys.IS_SOLID).orElse(false)
+                    || floor.fluidState().type() != FluidTypes.EMPTY.get()
+                    || floor.type() == BlockTypes.CACTUS.get() || floor.type() == BlockTypes.MAGMA_BLOCK.get()) {
+                return error("There is no safe surface directly above you. Move to another column and try /top again.");
+            }
+            if (!player.setLocation(surface)) return error("Could not teleport to the surface.");
+            context.sendMessage(Component.text("Teleported to the surface at Y=" + y + "."));
             return CommandResult.success();
         }).build();
     }

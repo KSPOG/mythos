@@ -114,6 +114,7 @@ public final class MythosPlugin {
         event.register(this.container, this.hub.upgradeCommand(), "mythosupgradehub");
         event.register(this.container, this.worldTravel.worldsCommand(), "mythosworld");
         event.register(this.container, this.worldTravel.teleportCommand(), "mythosworldtp");
+        event.register(this.container, this.worldTravel.topCommand(), "top", "mythostop");
         event.register(this.container, this.portals.command(), "mythosportal");
         event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
                 .map(player -> {
