@@ -1,0 +1,2 @@
+# mythos
+mc server
