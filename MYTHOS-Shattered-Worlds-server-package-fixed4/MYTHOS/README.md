@@ -47,20 +47,36 @@ Any class can pick up, carry, store, or trade weapon items. MYTHOS checks the pl
 
 Staff with the `mythos.command.giveweapon` permission can issue `/mythosgiveweapon <online-player> <weapon-id>`. Use the short ID or prefix it with `mythos:`. Giving a weapon to a player of any class is allowed.
 
-| Weapon ID | Eligible classes |
-| --- | --- |
-| `dawnbringer` | Warrior, Berserker |
-| `frontier_longbow` | Ranger |
-| `ember_staff` | Mage |
-| `assassins_edge` | Assassin |
-| `clerics_relic` | Cleric |
-| `paladins_oath` | Paladin |
-| `war_sunderer` | Berserker |
-| `summoners_focus` | Summoner |
+| Weapon ID | Eligible classes | Spell | Cooldown |
+| --- | --- | --- | ---: |
+| `dawnbringer` | Warrior, Berserker | Bulwark grants Resistance I for 6 seconds | 20 s |
+| `frontier_longbow` | Ranger | Windstep grants Speed II for 6 seconds | 18 s |
+| `ember_staff` | Mage | Ember Bolt deals 6 damage to a hostile mob in sight within 16 blocks | 8 s |
+| `assassins_edge` | Assassin | Veilstep grants Invisibility for 4 seconds | 20 s |
+| `clerics_relic` | Cleric | Mend grants Regeneration II for 5 seconds | 22 s |
+| `paladins_oath` | Paladin | Aegis grants Absorption I for 10 seconds | 25 s |
+| `war_sunderer` | Berserker | Battle Fury grants Strength I for 6 seconds | 25 s |
+| `summoners_focus` | Summoner | Spirit Ascent grants Slow Falling for 8 seconds | 18 s |
 
-Starter weapons use vanilla item bases and persistent custom model data to identify them on the server. They use vanilla combat behavior. The staff and focus currently work as melee items. Custom abilities, custom drop tables, and a MYTHOS marketplace are later features.
+Hold the weapon in your main hand and run `/mythoscast`. The server checks your class and starts a shared per-player cooldown on each successful cast. Swapping weapons or reconnecting during the cooldown does not reset it. Cooldowns are in memory and reset on server restart.
 
-For a live check, give a Warrior a Frontier Longbow, then confirm they can move it into a chest and back into either hand. Try drawing it with arrows in inventory and verify that it stays in inventory without firing. Give the same bow to a Ranger and verify that it fires normally.
+### Armour
+
+Staff with `mythos.command.givearmor` can use `/mythosgivearmor <online-player> <armor-id>`. Both sets can be worn by any class.
+
+| Set | Item IDs | Base |
+| --- | --- | --- |
+| Warden | `warden_helm`, `warden_chestplate`, `warden_leggings`, `warden_boots` | Iron |
+| Riftweave | `riftweave_hood`, `riftweave_tunic`, `riftweave_leggings`, `riftweave_boots` | Purple-dyed leather |
+
+Each piece has a defensive enchantment. Gear uses vanilla item bases and persistent model data. The sword and axe weapons have Sharpness I and the longbow has Power I. The staff and focus use their spells for their main effects. The starter gear is distributed through staff commands.
+
+### In-game smoke test
+
+1. Give a Mage an Ember Staff, aim at a hostile mob and cast. Check that a wall blocks the spell and a second successful cast must wait for the cooldown.
+2. Trade the staff to a Warrior. Check that it stays in their inventory and casting is denied.
+3. Give the Warrior a Frontier Longbow. Move it into and out of a chest, then try to draw it. Give the same bow to a Ranger and verify that it fires.
+4. Give and equip a Riftweave piece. Check its dye and enchantment after reconnecting.
 
 ## Build
 

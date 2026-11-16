@@ -15,17 +15,19 @@ import org.spongepowered.api.command.parameter.Parameter;
 import org.spongepowered.api.data.Keys;
 import org.spongepowered.api.data.type.HandTypes;
 import org.spongepowered.api.entity.living.player.server.ServerPlayer;
-import org.spongepowered.api.event.Listener;
-import org.spongepowered.api.event.entity.AttackEntityEvent;
 import org.spongepowered.api.event.EventContextKeys;
+import org.spongepowered.api.event.Listener;
 import org.spongepowered.api.event.block.InteractBlockEvent;
 import org.spongepowered.api.event.cause.entity.damage.source.DamageSource;
+import org.spongepowered.api.event.entity.AttackEntityEvent;
 import org.spongepowered.api.event.item.inventory.InteractItemEvent;
 import org.spongepowered.api.event.item.inventory.UseItemStackEvent;
 import org.spongepowered.api.event.lifecycle.RegisterCommandEvent;
 import org.spongepowered.api.event.lifecycle.StartedEngineEvent;
 import org.spongepowered.api.item.ItemType;
 import org.spongepowered.api.item.ItemTypes;
+import org.spongepowered.api.item.enchantment.Enchantment;
+import org.spongepowered.api.item.enchantment.EnchantmentTypes;
 import org.spongepowered.api.item.inventory.ItemStack;
 import org.spongepowered.api.item.inventory.ItemStackLike;
 import org.spongepowered.api.item.inventory.transaction.InventoryTransactionResult;
@@ -38,8 +40,13 @@ import org.spongepowered.plugin.builtin.jvm.Plugin;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /** SpongeForge adapter. Gameplay decisions are delegated to mythos-core. */
@@ -49,6 +56,7 @@ public final class MythosPlugin {
     private final PluginContainer container;
     private final WeaponCatalog weapons = new WeaponCatalog();
     private final WeaponPolicy weaponPolicy = new WeaponPolicy(this.weapons);
+    private final Map<UUID, Long> spellReadyAt = new HashMap<>();
     private ClassStore classStore;
 
     @Inject
@@ -106,40 +114,73 @@ public final class MythosPlugin {
                 })
                 .build();
         event.register(this.container, chooseClass, "mythosclass", "mclass");
-        event.register(this.container, giveWeaponCommand(), "mythosgiveweapon");
+        event.register(this.container, giveGearCommand(false), "mythosgiveweapon");
+        event.register(this.container, giveGearCommand(true), "mythosgivearmor");
+        event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
+                .map(this::castHeldSpell)
+                .orElseGet(() -> CommandResult.error(Component.text("Only a player can cast a spell."))))
+                .build(), "mythoscast");
     }
 
-    private Command.Parameterized giveWeaponCommand() {
+    private Command.Parameterized giveGearCommand(final boolean armor) {
         final Parameter.Value<ServerPlayer> targetArgument = Parameter.player().key("player").build();
-        final Parameter.Value<String> weaponArgument = Parameter.string().key("weapon").build();
+        final Parameter.Value<String> itemArgument = Parameter.string().key("item").build();
         return Command.builder()
-                .permission("mythos.command.giveweapon")
+                .permission(armor ? "mythos.command.givearmor" : "mythos.command.giveweapon")
                 .addParameter(targetArgument)
-                .addParameter(weaponArgument)
+                .addParameter(itemArgument)
                 .executor(context -> {
                     final ServerPlayer target = context.requireOne(targetArgument);
-                    final String id = context.requireOne(weaponArgument).toLowerCase(Locale.ROOT);
-                    final Optional<StarterWeapon> match = Arrays.stream(StarterWeapon.WEAPONS)
-                            .filter(weapon -> weapon.id().equals(id) || ("mythos:" + id).equals(weapon.id()))
-                            .findFirst();
-                    if (match.isEmpty()) {
-                        return CommandResult.error(Component.text("Available weapons: " + Arrays.stream(StarterWeapon.WEAPONS)
-                                .map(StarterWeapon::id).collect(Collectors.joining(", "))));
+                    final String id = context.requireOne(itemArgument).toLowerCase(Locale.ROOT);
+                    final Optional<ItemStack> item = armor
+                            ? MythosArmor.find(id).flatMap(MythosArmor::create)
+                            : Arrays.stream(StarterWeapon.WEAPONS)
+                                    .filter(weapon -> weapon.id().equals(id) || ("mythos:" + id).equals(weapon.id()))
+                                    .findFirst().flatMap(StarterWeapon::create);
+                    if (item.isEmpty()) {
+                        final String available = armor
+                                ? Arrays.stream(MythosArmor.values()).map(MythosArmor::id).collect(Collectors.joining(", "))
+                                : Arrays.stream(StarterWeapon.WEAPONS).map(StarterWeapon::id).collect(Collectors.joining(", "));
+                        return CommandResult.error(Component.text("Could not create that item. Available IDs: " + available));
                     }
-
-                    final StarterWeapon weapon = match.get();
-                    final ItemStack stack = ItemStack.of(weapon.base());
-                    if (!stack.offer(Keys.CUSTOM_MODEL_DATA, weapon.model()).isSuccessful()
-                            || !stack.offer(Keys.CUSTOM_NAME, Component.text(weapon.name())).isSuccessful()) {
-                        return CommandResult.error(Component.text("Could not create " + weapon.name() + "."));
+                    if (target.inventory().offer(item.get()).type() != InventoryTransactionResult.Type.SUCCESS) {
+                        return CommandResult.error(Component.text("Could not deliver the item. Check the player's inventory space."));
                     }
-                    if (target.inventory().offer(stack).type() != InventoryTransactionResult.Type.SUCCESS) {
-                        return CommandResult.error(Component.text("Could not deliver the weapon. Check the player's inventory space."));
-                    }
-                    context.sendMessage(Component.text("Gave " + weapon.name() + " to " + target.name() + "."));
+                    context.sendMessage(Component.text("Gave " + id + " to " + target.name() + "."));
                     return CommandResult.success();
                 })
                 .build();
+    }
+
+    private CommandResult castHeldSpell(final ServerPlayer player) {
+        final ItemStack stack = player.itemInHand(HandTypes.MAIN_HAND.get());
+        final Optional<StarterWeapon> heldWeapon = starterWeapon(stack);
+        if (heldWeapon.isEmpty()) {
+            return CommandResult.error(Component.text("Hold a MYTHOS weapon in your main hand to cast its spell."));
+        }
+        final StarterWeapon weapon = heldWeapon.get();
+        final var decision = this.weaponPolicy.evaluate(characterClass(player), weapon.id(), WeaponPolicy.Action.USE);
+        if (!decision.allowed()) {
+            return CommandResult.error(Component.text(decision.reason()));
+        }
+
+        final long now = System.nanoTime();
+        final long remaining = this.spellReadyAt.getOrDefault(player.uniqueId(), now) - now;
+        if (remaining > 0) {
+            final long seconds = TimeUnit.NANOSECONDS.toSeconds(remaining - 1) + 1;
+            return CommandResult.error(Component.text("Your spell is ready in " + seconds + "s."));
+        }
+
+        final ClassSpell spell = weapon.spell();
+        if (!spell.apply(player)) {
+            return CommandResult.error(Component.text(spell == ClassSpell.EMBER_BOLT
+                    ? "Aim at a hostile mob within 16 blocks with a clear line of sight."
+                    : "That spell could not improve your active effect."));
+        }
+        this.spellReadyAt.values().removeIf(readyAt -> now - readyAt >= 0);
+        this.spellReadyAt.put(player.uniqueId(), now + spell.cooldown().toNanos());
+        player.sendMessage(Component.text("Cast " + spell.displayName() + "."));
+        return CommandResult.success();
     }
 
     // Inventory transactions are unrestricted. Only actual weapon use is blocked.
@@ -216,30 +257,55 @@ public final class MythosPlugin {
     }
 
     private String weaponId(final ItemStackLike stack) {
-        final ItemType base = stack.type();
+        return starterWeapon(stack).map(StarterWeapon::id)
+                .orElseGet(() -> stack.type().key(RegistryTypes.ITEM_TYPE).asString());
+    }
+
+    private static Optional<StarterWeapon> starterWeapon(final ItemStackLike stack) {
+        if (stack.isEmpty()) return Optional.empty();
         final int model = stack.get(Keys.CUSTOM_MODEL_DATA).orElse(0);
-        if (model != 0) {
-            for (final StarterWeapon weapon : StarterWeapon.WEAPONS) {
-                if (weapon.model() == model && weapon.base().get() == base) {
-                    return weapon.id();
-                }
-            }
-        }
-        return base.key(RegistryTypes.ITEM_TYPE).asString();
+        if (model == 0) return Optional.empty();
+        return Arrays.stream(StarterWeapon.WEAPONS)
+                .filter(weapon -> weapon.model() == model && weapon.base().get() == stack.type())
+                .findFirst();
     }
 
     private record StarterWeapon(String id, String name, DefaultedRegistryReference<ItemType> base,
-                                 int model, WeaponCategory category) {
+                                 int model, WeaponCategory category, ClassSpell spell) {
         private static final StarterWeapon[] WEAPONS = {
-            new StarterWeapon("mythos:dawnbringer", "Dawnbringer", ItemTypes.IRON_SWORD, 71001, WeaponCategory.GREATSWORD),
-            new StarterWeapon("mythos:frontier_longbow", "Frontier Longbow", ItemTypes.BOW, 71002, WeaponCategory.BOW),
-            new StarterWeapon("mythos:ember_staff", "Ember Staff", ItemTypes.BLAZE_ROD, 71003, WeaponCategory.STAFF),
-            new StarterWeapon("mythos:assassins_edge", "Assassin's Edge", ItemTypes.STONE_SWORD, 71004, WeaponCategory.DAGGER),
-            new StarterWeapon("mythos:clerics_relic", "Cleric's Relic", ItemTypes.GOLDEN_SWORD, 71005, WeaponCategory.HOLY_STAFF),
-            new StarterWeapon("mythos:paladins_oath", "Paladin's Oath", ItemTypes.IRON_SWORD, 71006, WeaponCategory.HOLY_WEAPON),
-            new StarterWeapon("mythos:war_sunderer", "War Sunderer", ItemTypes.IRON_AXE, 71007, WeaponCategory.GREATAXE),
-            new StarterWeapon("mythos:summoners_focus", "Summoner's Focus", ItemTypes.BONE, 71008, WeaponCategory.SUMMONING_STAFF)
+            new StarterWeapon("mythos:dawnbringer", "Dawnbringer", ItemTypes.IRON_SWORD, 71001,
+                    WeaponCategory.GREATSWORD, ClassSpell.BULWARK),
+            new StarterWeapon("mythos:frontier_longbow", "Frontier Longbow", ItemTypes.BOW, 71002,
+                    WeaponCategory.BOW, ClassSpell.WINDSTEP),
+            new StarterWeapon("mythos:ember_staff", "Ember Staff", ItemTypes.BLAZE_ROD, 71003,
+                    WeaponCategory.STAFF, ClassSpell.EMBER_BOLT),
+            new StarterWeapon("mythos:assassins_edge", "Assassin's Edge", ItemTypes.STONE_SWORD, 71004,
+                    WeaponCategory.DAGGER, ClassSpell.VEILSTEP),
+            new StarterWeapon("mythos:clerics_relic", "Cleric's Relic", ItemTypes.GOLDEN_SWORD, 71005,
+                    WeaponCategory.HOLY_STAFF, ClassSpell.MEND),
+            new StarterWeapon("mythos:paladins_oath", "Paladin's Oath", ItemTypes.IRON_SWORD, 71006,
+                    WeaponCategory.HOLY_WEAPON, ClassSpell.AEGIS),
+            new StarterWeapon("mythos:war_sunderer", "War Sunderer", ItemTypes.IRON_AXE, 71007,
+                    WeaponCategory.GREATAXE, ClassSpell.BATTLE_FURY),
+            new StarterWeapon("mythos:summoners_focus", "Summoner's Focus", ItemTypes.BONE, 71008,
+                    WeaponCategory.SUMMONING_STAFF, ClassSpell.SPIRIT_ASCENT)
         };
+
+        Optional<ItemStack> create() {
+            final ItemStack stack = ItemStack.of(this.base);
+            if (!stack.offer(Keys.CUSTOM_MODEL_DATA, this.model).isSuccessful()
+                    || !stack.offer(Keys.CUSTOM_NAME, Component.text(this.name)).isSuccessful()
+                    || !stack.offer(Keys.LORE, List.of(Component.text(this.spell.displayName() + " • /mythoscast"))).isSuccessful()) {
+                return Optional.empty();
+            }
+
+            if (this.category == WeaponCategory.STAFF || this.category == WeaponCategory.SUMMONING_STAFF) {
+                return stack.offer(Keys.MAX_STACK_SIZE, 1).isSuccessful() ? Optional.of(stack) : Optional.empty();
+            }
+            final var enchantment = this.category == WeaponCategory.BOW ? EnchantmentTypes.POWER : EnchantmentTypes.SHARPNESS;
+            return stack.offer(Keys.APPLIED_ENCHANTMENTS, List.of(Enchantment.of(enchantment, 1))).isSuccessful()
+                    ? Optional.of(stack) : Optional.empty();
+        }
     }
 
     private void registerStarterWeapons() {
