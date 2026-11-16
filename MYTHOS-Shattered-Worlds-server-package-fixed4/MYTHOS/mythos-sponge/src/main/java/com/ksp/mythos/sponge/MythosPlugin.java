@@ -31,8 +31,6 @@ import java.util.Optional;
 /** SpongeForge adapter. Gameplay decisions are delegated to mythos-core. */
 @Plugin("mythos")
 public final class MythosPlugin {
-    private static final Parameter.Value<String> CLASS_ARGUMENT = Parameter.string().key("class").build();
-
     private final Logger logger;
     private final PluginContainer container;
     private final WeaponCatalog weapons = new WeaponCatalog();
@@ -58,15 +56,16 @@ public final class MythosPlugin {
 
     @Listener
     public void onRegisterCommands(final RegisterCommandEvent<Command.Parameterized> event) {
+        final Parameter.Value<String> classArgument = Parameter.string().key("class").build();
         final Command.Parameterized chooseClass = Command.builder()
-                .addParameter(CLASS_ARGUMENT)
+                .addParameter(classArgument)
                 .executor(context -> {
                     final Optional<ServerPlayer> player = context.cause().first(ServerPlayer.class);
                     if (player.isEmpty()) {
                         context.sendMessage(Component.text("This command can only be used by a player."));
                         return CommandResult.success();
                     }
-                    final Optional<CharacterClass> parsed = CharacterClass.fromId(context.requireOne(CLASS_ARGUMENT));
+                    final Optional<CharacterClass> parsed = CharacterClass.fromId(context.requireOne(classArgument));
                     if (parsed.isEmpty()) {
                         context.sendMessage(Component.text("Unknown class. Available: warrior, berserker, ranger, assassin, mage, cleric, paladin, summoner."));
                         return CommandResult.success();
