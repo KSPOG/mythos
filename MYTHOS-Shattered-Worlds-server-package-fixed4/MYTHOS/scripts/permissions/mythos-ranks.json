@@ -40,6 +40,7 @@
         { "key": "group.admin", "value": true },
         { "key": "group.tester", "value": true },
         { "key": "mythos.command.buildhub", "value": true },
+        { "key": "mythos.command.worldmanage", "value": true },
         { "key": "mythos.command.giveallgear", "value": true },
         { "key": "luckperms.*", "value": true }
       ]

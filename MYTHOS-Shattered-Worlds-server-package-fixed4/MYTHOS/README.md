@@ -93,6 +93,31 @@ The plaza protects players from damage, blocks hostile spawns, and restricts blo
 
 For a live test, use a fresh vanilla Java 1.21.1 account to verify first arrival, class selection and the survival exit. Try breaking a plaza block and taking damage with a regular account. Rejoin after exploring to verify that returning players keep their location. Restart the server and check that `/mythoshub` still works.
 
+## Worlds and block portals
+
+Worlds are separate dimensions on the same SpongeForge server. Players keep their inventory and MYTHOS class between worlds. The Owner rank can manage worlds and portal links. If you previously imported the ranks, grant the permission from the server console.
+
+```text
+lp group owner permission set mythos.command.worldmanage true
+```
+
+| Command | What it does |
+| --- | --- |
+| `/mythosworld` | List world keys |
+| `/mythosworld create chapter_one` | Create or load a normal-terrain world named `mythos:chapter_one` |
+| `/mythosworld load mythos:chapter_one` | Load an existing world |
+| `/mythosworldtp mythos:chapter_one` | Teleport yourself to a safe spot near that world's spawn |
+| `/mythosworldtp minecraft:overworld KiritoSanPlays` | Teleport an online player to the Overworld spawn area |
+| `/mythosportal link chapter_gate mythos:chapter_one` | Select a block that sends players to the chapter world spawn |
+| `/mythosportal link chapter_gate mythos:chapter_one 100 72 -40` | Select a block that sends players near specific arrival coordinates |
+| `/mythosportal` | List saved portals and their source blocks |
+| `/mythosportal unlink chapter_gate` | Remove the link |
+| `/mythosportal cancel` | Cancel block selection |
+
+After running `/mythosportal link`, right-click the desired block with an empty main hand. Run the same link command with the same ID to change the block or destination. The selected block is now usable by ordinary players with an empty main hand. The link is saved under `server/config/mythos/block-portals.properties` and checks the block's world, coordinates, and type. For a return portal, configure a separate block in the destination world, or use the existing `/mythoshub` if a hub is configured. World administration and teleport commands also work in the console, where commands omit the slash and teleport requires a player name.
+
+For a live check, create a world, teleport there and back, link a decorative block, and verify a regular account can use it while Owner commands remain restricted. Restart and retest the link.
+
 ## Staff class testing
 
 Grant trusted staff the `mythos.command.setclass` permission. Run `/mythossetclass <online-player> <class>` in game or omit the slash in the server console. For example, `/mythossetclass YourName ranger` switches your own class. The assignment is saved and takes effect immediately for weapon use and spellcasting. Inventory and active spell cooldowns are preserved.

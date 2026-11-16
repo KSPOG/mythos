@@ -67,6 +67,8 @@ public final class MythosPlugin {
     private final Map<UUID, Long> spellReadyAt = new HashMap<>();
     private ClassStore classStore;
     private SpawnHub hub;
+    private WorldTravel worldTravel;
+    private BlockPortals portals;
     private List<MythosWeapon> customWeapons = List.of();
 
     @Inject
@@ -94,13 +96,19 @@ public final class MythosPlugin {
         if (this.hub == null) {
             try {
                 this.hub = new SpawnHub(Path.of("config", "mythos", "spawn-hub.properties"));
+                this.worldTravel = new WorldTravel(this.container, this.logger);
+                this.portals = new BlockPortals(Path.of("config", "mythos", "block-portals.properties"),
+                        this.worldTravel, this.logger);
             } catch (IOException exception) {
-                throw new IllegalStateException("Could not load the MYTHOS spawn hub", exception);
+                throw new IllegalStateException("Could not load the MYTHOS hub and portal configuration", exception);
             }
         }
         final var buildHub = event.register(this.container, this.hub.buildCommand(), "mythosbuildhub");
         this.logger.info("MYTHOS hub build command registered: {}", buildHub.mapping().allAliases());
         event.register(this.container, this.hub.upgradeCommand(), "mythosupgradehub");
+        event.register(this.container, this.worldTravel.worldsCommand(), "mythosworld");
+        event.register(this.container, this.worldTravel.teleportCommand(), "mythosworldtp");
+        event.register(this.container, this.portals.command(), "mythosportal");
         event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
                 .map(player -> {
                     if (!this.hub.arrive(player)) {
@@ -426,13 +434,25 @@ public final class MythosPlugin {
     }
 
     @Listener
+    public void onLeave(final ServerSideConnectionEvent.Leave event) {
+        final UUID id = event.player().uniqueId();
+        if (this.portals != null) this.portals.forget(id);
+        if (this.worldTravel != null) this.worldTravel.forget(id);
+    }
+
+    @Listener
     public void onBlockInteraction(final InteractBlockEvent.Secondary event) {
         final Optional<ServerPlayer> player = event.cause().first(ServerPlayer.class);
         if (player.isEmpty()) return;
         final ServerPlayer user = player.get();
         if (this.hub != null && !event.isCancelled()
                 && event.context().get(EventContextKeys.USED_HAND).orElse(null) == HandTypes.MAIN_HAND.get()) {
-            final var shrine = event.block().location().flatMap(this.hub::classAt);
+            final var location = event.block().location();
+            if (this.portals != null && location.filter(block -> this.portals.interact(user, block)).isPresent()) {
+                event.setCancelled(true);
+                return;
+            }
+            final var shrine = location.flatMap(this.hub::classAt);
             if (shrine.isPresent()) {
                 SpawnHub.showClass(user, shrine.get(), characterClass(user) == null);
                 event.setCancelled(true);
