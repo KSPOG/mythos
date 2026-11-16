@@ -1,0 +1,33 @@
+# id	name	base	category	spell	model	melee damage	attacks/sec	durability	bow Power	rarity
+dawnbringer	Dawnbringer	iron_sword	greatsword	bulwark	71001	8	1.15	300	0	rare
+frontier_longbow	Frontier Longbow	bow	bow	windstep	71002	0	0	400	1	common
+ember_staff	Ember Staff	blaze_rod	staff	ember_bolt	71003	0	0	0	0	common
+assassins_edge	Assassin's Edge	stone_sword	dagger	veilstep	71004	4.5	2.2	160	0	common
+clerics_relic	Cleric's Relic	golden_sword	holy_staff	mend	71005	4	1.5	155	0	uncommon
+paladins_oath	Paladin's Oath	iron_sword	holy_weapon	aegis	71006	6.5	1.55	280	0	rare
+war_sunderer	War Sunderer	iron_axe	greataxe	battle_fury	71007	10	0.8	300	0	epic
+summoners_focus	Summoner's Focus	bone	summoning_staff	spirit_ascent	71008	0	0	0	0	common
+frostglass_staff	Frostglass Staff	blaze_rod	staff	frost_ward	71009	0	0	0	0	uncommon
+thornwood_shortbow	Thornwood Shortbow	bow	shortbow	high_step	71010	0	0	350	1	uncommon
+sentinels_blade	Sentinel's Blade	iron_sword	sword	aegis	71011	6	1.8	260	0	common
+ironroot_axe	Ironroot Axe	iron_axe	axe	bulwark	71012	8	1.05	320	0	common
+rampart_glaive	Rampart Glaive	iron_sword	polearm	bulwark	71013	7.5	1.35	330	0	uncommon
+quake_maul	Quake Maul	iron_axe	hammer	battle_fury	71014	11	0.7	390	0	epic
+slag_splitter	Slag Splitter	iron_axe	greataxe	battle_fury	71015	9	1.0	310	0	uncommon
+ashfall_claymore	Ashfall Claymore	iron_sword	greatsword	battle_fury	71016	9.5	0.95	350	0	rare
+silverleaf_bow	Silverleaf Bow	bow	bow	aegis	71017	0	0	320	2	rare
+nightbriar_bow	Nightbriar Bow	bow	shortbow	veilstep	71018	0	0	460	1	uncommon
+viper_fang	Viper Fang	stone_sword	dagger	veilstep	71019	4	2.6	195	0	common
+gloamblade	Gloamblade	stone_sword	dual_blades	windstep	71020	5	2.0	220	0	uncommon
+glassneedle	Glassneedle	stone_sword	dagger	windstep	71021	5.5	1.85	130	0	rare
+starfall_staff	Starfall Staff	blaze_rod	staff	star_surge	71022	0	0	0	0	epic
+cinder_wand	Cinder Wand	blaze_rod	wand	ember_bolt	71023	0	0	0	0	uncommon
+dawn_chalice	Dawn Chalice	blaze_rod	holy_staff	mend	71024	0	0	0	0	common
+hymnweaver_staff	Hymnweaver Staff	blaze_rod	holy_staff	sanctuary	71025	0	0	0	0	rare
+bellkeeper_mace	Bellkeeper Mace	iron_axe	mace	mend	71026	6.5	1.05	300	0	uncommon
+sunward_blade	Sunward Blade	iron_sword	holy_weapon	sanctuary	71027	7.5	1.35	320	0	epic
+vigil_mace	Vigil Mace	iron_axe	mace	aegis	71028	8	0.95	340	0	rare
+oathkeeper	Oathkeeper	iron_sword	holy_weapon	bulwark	71029	6	1.75	405	0	rare
+gravebloom_staff	Gravebloom Staff	bone	summoning_staff	mend	71030	0	0	0	0	uncommon
+echo_scepter	Echo Scepter	bone	summoning_staff	high_step	71031	0	0	0	0	rare
+riftwood_staff	Riftwood Staff	bone	summoning_staff	riftstep	71032	0	0	0	0	legendary

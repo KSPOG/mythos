@@ -19,6 +19,11 @@ enum ClassSpell {
     WINDSTEP("Windstep", 18, PotionEffectTypes.SPEED, 6, 1),
     VEILSTEP("Veilstep", 20, PotionEffectTypes.INVISIBILITY, 4, 0),
     EMBER_BOLT("Ember Bolt", 8, null, 0, 0),
+    FROST_WARD("Frost Ward", 22, PotionEffectTypes.RESISTANCE, 4, 1),
+    HIGH_STEP("High Step", 18, PotionEffectTypes.JUMP_BOOST, 6, 1),
+    STAR_SURGE("Star Surge", 22, PotionEffectTypes.SPEED, 9, 1),
+    SANCTUARY("Sanctuary", 28, PotionEffectTypes.REGENERATION, 9, 0),
+    RIFTSTEP("Riftstep", 24, PotionEffectTypes.SPEED, 5, 2),
     MEND("Mend", 22, PotionEffectTypes.REGENERATION, 5, 1),
     AEGIS("Aegis", 25, PotionEffectTypes.ABSORPTION, 10, 0),
     SPIRIT_ASCENT("Spirit Ascent", 18, PotionEffectTypes.SLOW_FALLING, 8, 0);

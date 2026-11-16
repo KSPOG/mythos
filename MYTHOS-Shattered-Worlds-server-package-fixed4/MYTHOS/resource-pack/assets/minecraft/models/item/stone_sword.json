@@ -1,0 +1,44 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "minecraft:item/stone_sword"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 71004
+      },
+      "model": "mythos:item/assassins_edge"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71005
+      },
+      "model": "mythos:item/plain_stone_sword"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71019
+      },
+      "model": "mythos:item/viper_fang"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71020
+      },
+      "model": "mythos:item/gloamblade"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71021
+      },
+      "model": "mythos:item/glassneedle"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71022
+      },
+      "model": "mythos:item/plain_stone_sword"
+    }
+  ]
+}

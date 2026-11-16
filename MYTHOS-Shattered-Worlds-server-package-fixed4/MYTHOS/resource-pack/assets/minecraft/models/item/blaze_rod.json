@@ -1,0 +1,62 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "minecraft:item/blaze_rod"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 71003
+      },
+      "model": "mythos:item/ember_staff"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71004
+      },
+      "model": "mythos:item/plain_blaze_rod"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71009
+      },
+      "model": "mythos:item/frostglass_staff"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71010
+      },
+      "model": "mythos:item/plain_blaze_rod"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71022
+      },
+      "model": "mythos:item/starfall_staff"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71023
+      },
+      "model": "mythos:item/cinder_wand"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71024
+      },
+      "model": "mythos:item/dawn_chalice"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71025
+      },
+      "model": "mythos:item/hymnweaver_staff"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71026
+      },
+      "model": "mythos:item/plain_blaze_rod"
+    }
+  ]
+}

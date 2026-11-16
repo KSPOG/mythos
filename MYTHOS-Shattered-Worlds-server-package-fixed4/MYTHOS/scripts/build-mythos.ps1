@@ -37,4 +37,5 @@ try {
     New-Item -ItemType Directory -Force -Path $Mods | Out-Null
     Copy-Item $Jar (Join-Path $Mods 'Mythos.jar') -Force
     Write-Host "Installed MYTHOS plugin: $(Join-Path $Mods 'Mythos.jar')" -ForegroundColor Green
+    Write-Host "MYTHOS resource pack: $(Join-Path $Root 'build\resource-packs\MYTHOS-resource-pack.zip')" -ForegroundColor Green
 } finally { Pop-Location }

@@ -1,0 +1,74 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "minecraft:item/iron_axe"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 71007
+      },
+      "model": "mythos:item/war_sunderer"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71008
+      },
+      "model": "mythos:item/plain_iron_axe"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71012
+      },
+      "model": "mythos:item/ironroot_axe"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71013
+      },
+      "model": "mythos:item/plain_iron_axe"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71014
+      },
+      "model": "mythos:item/quake_maul"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71015
+      },
+      "model": "mythos:item/slag_splitter"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71016
+      },
+      "model": "mythos:item/plain_iron_axe"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71026
+      },
+      "model": "mythos:item/bellkeeper_mace"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71027
+      },
+      "model": "mythos:item/plain_iron_axe"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71028
+      },
+      "model": "mythos:item/vigil_mace"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71029
+      },
+      "model": "mythos:item/plain_iron_axe"
+    }
+  ]
+}

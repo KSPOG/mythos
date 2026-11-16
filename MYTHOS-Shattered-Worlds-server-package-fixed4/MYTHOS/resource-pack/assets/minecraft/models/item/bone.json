@@ -1,0 +1,44 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "minecraft:item/bone"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 71008
+      },
+      "model": "mythos:item/summoners_focus"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71009
+      },
+      "model": "mythos:item/plain_bone"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71030
+      },
+      "model": "mythos:item/gravebloom_staff"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71031
+      },
+      "model": "mythos:item/echo_scepter"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71032
+      },
+      "model": "mythos:item/riftwood_staff"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71033
+      },
+      "model": "mythos:item/plain_bone"
+    }
+  ]
+}

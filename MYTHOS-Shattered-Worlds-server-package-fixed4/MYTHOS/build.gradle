@@ -10,3 +10,15 @@ allprojects {
         maven { url = uri('https://repo.spongepowered.org/repository/maven-public/') }
     }
 }
+
+tasks.register('resourcePackZip', Zip) {
+    from('resource-pack')
+    archiveFileName = 'MYTHOS-resource-pack.zip'
+    destinationDirectory = layout.buildDirectory.dir('resource-packs')
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
+tasks.named('assemble') {
+    dependsOn tasks.named('resourcePackZip')
+}

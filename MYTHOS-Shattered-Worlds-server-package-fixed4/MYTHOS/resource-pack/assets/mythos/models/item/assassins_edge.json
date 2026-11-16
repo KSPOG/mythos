@@ -1,0 +1,120 @@
+{
+  "textures": {
+    "skin": "mythos:item/assassins_edge",
+    "particle": "mythos:item/assassins_edge"
+  },
+  "display": {
+    "gui": {
+      "rotation": [
+        17,
+        -22,
+        -35
+      ],
+      "scale": [
+        0.85,
+        0.85,
+        0.85
+      ]
+    },
+    "ground": {
+      "translation": [
+        0,
+        3,
+        0
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "fixed": {
+      "rotation": [
+        0,
+        0,
+        -35
+      ],
+      "scale": [
+        0.88,
+        0.88,
+        0.88
+      ]
+    },
+    "firstperson_righthand": {
+      "rotation": [
+        0,
+        -22,
+        -20
+      ],
+      "translation": [
+        2,
+        2,
+        1
+      ],
+      "scale": [
+        0.93,
+        0.93,
+        0.93
+      ]
+    },
+    "firstperson_lefthand": {
+      "rotation": [
+        0,
+        22,
+        20
+      ],
+      "translation": [
+        2,
+        2,
+        1
+      ],
+      "scale": [
+        0.93,
+        0.93,
+        0.93
+      ]
+    },
+    "thirdperson_righthand": {
+      "rotation": [
+        0,
+        0,
+        -15
+      ],
+      "translation": [
+        0,
+        3,
+        0
+      ],
+      "scale": [
+        1.05,
+        1.05,
+        1.05
+      ]
+    },
+    "thirdperson_lefthand": {
+      "rotation": [
+        0,
+        0,
+        15
+      ],
+      "translation": [
+        0,
+        3,
+        0
+      ],
+      "scale": [
+        1.05,
+        1.05,
+        1.05
+      ]
+    }
+  },
+  "elements": [
+    {"from": [7.325, 3, 7.275], "to": [8.675, 5.8, 8.725], "faces": {"north": {"uv": [0.5, 8.5, 7.5, 15.5], "texture": "#skin"}, "south": {"uv": [0.5, 8.5, 7.5, 15.5], "texture": "#skin"}, "east": {"uv": [0.5, 8.5, 7.5, 15.5], "texture": "#skin"}, "west": {"uv": [0.5, 8.5, 7.5, 15.5], "texture": "#skin"}, "up": {"uv": [0.5, 8.5, 7.5, 15.5], "texture": "#skin"}, "down": {"uv": [0.5, 8.5, 7.5, 15.5], "texture": "#skin"}}},
+    {"from": [6.9, 3, 7.0], "to": [9.1, 3.65, 9.0], "faces": {"north": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "south": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "east": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "west": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "up": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "down": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}}},
+    {"from": [5.625, 5.25, 7.275], "to": [10.375, 6.2, 8.725], "faces": {"north": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "south": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "east": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "west": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "up": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "down": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}}},
+    {"from": [6.725, 6.05, 7.4], "to": [9.275, 13.6, 8.6], "faces": {"north": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "south": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "east": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "west": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "up": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}, "down": {"uv": [0.5, 0.5, 7.5, 7.5], "texture": "#skin"}}},
+    {"from": [7.52825, 6.15, 7.355], "to": [8.47175, 13.25, 8.645], "faces": {"north": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "south": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "east": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "west": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "up": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "down": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}}},
+    {"from": [7.1075, 13.2, 7.575], "to": [8.8925, 14.2, 8.425], "faces": {"north": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "south": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "east": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "west": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "up": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}, "down": {"uv": [8.5, 0.5, 15.5, 7.5], "texture": "#skin"}}, "rotation": {"origin": [8, 13.6, 8], "axis": "z", "angle": 45}}
+  ]
+}

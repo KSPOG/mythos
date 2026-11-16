@@ -80,22 +80,49 @@ To test access, try the command as a regular player and then as staff. As staff,
 
 Any class can pick up, carry, store, or trade weapon items. MYTHOS checks the player's class when they try to use a registered weapon or attack. Bows and crossbows require Ranger. Unknown held items are rejected for melee attacks. Empty-hand attacks are allowed.
 
-### Starter weapons
+### Custom weapons and spells
 
-Staff with the `mythos.command.giveweapon` permission can issue `/mythosgiveweapon <online-player> <weapon-id>`. Use the short ID or prefix it with `mythos:`. Giving a weapon to a player of any class is allowed.
+The catalog has 32 weapons across the eight classes, including four bows, three axes, six swords, eleven staffs or wands, and specialist weapons. Use `/mythosgiveweapon <online-player> <weapon-id>` with `mythos.command.giveweapon`. The server accepts both the short ID and the `mythos:` prefix. The bundled catalog lists every ID and its stats.
 
-| Weapon ID | Eligible classes | Spell | Cooldown |
-| --- | --- | --- | ---: |
-| `dawnbringer` | Warrior, Berserker | Bulwark grants Resistance I for 6 seconds | 20 s |
-| `frontier_longbow` | Ranger | Windstep grants Speed II for 6 seconds | 18 s |
-| `ember_staff` | Mage | Ember Bolt deals 6 damage to a hostile mob in sight within 16 blocks | 8 s |
-| `assassins_edge` | Assassin | Veilstep grants Invisibility for 4 seconds | 20 s |
-| `clerics_relic` | Cleric | Mend grants Regeneration II for 5 seconds | 22 s |
-| `paladins_oath` | Paladin | Aegis grants Absorption I for 10 seconds | 25 s |
-| `war_sunderer` | Berserker | Battle Fury grants Strength I for 6 seconds | 25 s |
-| `summoners_focus` | Summoner | Spirit Ascent grants Slow Falling for 8 seconds | 18 s |
+| Class | Weapons to try |
+| --- | --- |
+| Warrior | `sentinels_blade`, `ironroot_axe`, `rampart_glaive`, `dawnbringer` |
+| Berserker | `war_sunderer`, `slag_splitter`, `ashfall_claymore`, `quake_maul` |
+| Ranger | `frontier_longbow`, `thornwood_shortbow`, `silverleaf_bow`, `nightbriar_bow` |
+| Assassin | `assassins_edge`, `viper_fang`, `gloamblade`, `glassneedle` |
+| Mage | `ember_staff`, `frostglass_staff`, `starfall_staff`, `cinder_wand` |
+| Cleric | `clerics_relic`, `dawn_chalice`, `hymnweaver_staff`, `bellkeeper_mace` |
+| Paladin | `paladins_oath`, `sunward_blade`, `oathkeeper`, `vigil_mace` |
+| Summoner | `summoners_focus`, `gravebloom_staff`, `echo_scepter`, `riftwood_staff` |
 
-Hold the weapon in your main hand and run `/mythoscast`. The server checks your class and starts a shared per-player cooldown on each successful cast. Swapping weapons or reconnecting during the cooldown does not reset it. Cooldowns are in memory and reset on server restart.
+Right-click with a staff or wand in your main hand to cast. For Ember Bolt, aim at a hostile mob within 16 blocks with a clear line of sight. It uses no ammunition. The Ranger bows use vanilla ammunition and draw timing, including the Shortbow. Hold any MYTHOS weapon in your main hand and use `/mythoscast` to invoke its spell. The server checks your class and applies a shared per-player cooldown on a successful cast. Swapping weapons or reconnecting during the cooldown does not reset it. Cooldowns reset on server restart.
+
+### Edit weapon stats and rarity
+
+On first startup MYTHOS writes `server/config/mythos/weapons.tsv` from the [bundled catalog](mythos-sponge/src/main/resources/mythos-weapons.tsv). Edit this file with a tab-aware editor and restart the server. Fields include melee damage, attacks per second, maximum durability, bow Power (0–5), spell and rarity. Melee damage and attack speed are the unbuffed player totals before hit cooldown and target modifiers. Zero leaves the corresponding vanilla attribute or durability unchanged. Spell names reference the built-in spell definitions. Keep existing IDs, model numbers and base item types stable. If you add an entry, give it a new ID and model number and add its matching pack assets.
+
+| Rarity | Name color |
+| --- | --- |
+| Common | White |
+| Uncommon | Green |
+| Rare | Aqua |
+| Epic | Light purple |
+| Legendary | Gold |
+
+Newly issued stacks receive the configured stats and color. Previously issued weapons keep their saved names, stats, and enchantments. Reissue one to apply the current stats and rarity color. Existing model IDs still display the new artwork when the resource pack is loaded.
+
+### Install the custom weapon models
+
+Run `build.bat` and copy `build\resource-packs\MYTHOS-resource-pack.zip` to `%APPDATA%\.minecraft\resourcepacks`. Enable the pack under **Options → Resource Packs** in Minecraft Java 1.21.1. The server-side plugin handles gameplay and class checks. The resource pack supplies each weapon's 3D model and PNG texture, including three draw stages per bow.
+
+To offer the pack to players on join, host the actual ZIP at a direct HTTPS download URL and set these entries in `server/server.properties`. Restart the server after saving.
+
+```properties
+resource-pack=https://your-host.example/MYTHOS-resource-pack.zip
+resource-pack-sha1=REPLACE_WITH_THE_ZIP_SHA1
+```
+
+Get the hash in PowerShell with `(Get-FileHash .\build\resource-packs\MYTHOS-resource-pack.zip -Algorithm SHA1).Hash.ToLowerInvariant()`. Update the hash each time you upload a changed ZIP.
 
 ### Armour
 
@@ -106,13 +133,13 @@ Staff with `mythos.command.givearmor` can use `/mythosgivearmor <online-player> 
 | Warden | `warden_helm`, `warden_chestplate`, `warden_leggings`, `warden_boots` | Iron |
 | Riftweave | `riftweave_hood`, `riftweave_tunic`, `riftweave_leggings`, `riftweave_boots` | Purple-dyed leather |
 
-Each piece has a defensive enchantment. Gear uses vanilla item bases and persistent model data. The sword and axe weapons have Sharpness I and the longbow has Power I. The staff and focus use their spells for their main effects. The starter gear is distributed through staff commands.
+Each piece has a defensive enchantment. Gear uses vanilla item bases and persistent model data. MYTHOS gear is distributed through staff commands.
 
 ### In-game smoke test
 
-1. Give a Mage an Ember Staff, aim at a hostile mob and cast. Check that a wall blocks the spell and a second successful cast must wait for the cooldown.
+1. Give a Mage an Ember Staff, aim at a hostile mob and right-click. Check a near and a distant target. Check that a wall blocks the spell and a second successful cast must wait for the cooldown.
 2. Trade the staff to a Warrior. Check that it stays in their inventory and casting is denied.
-3. Give the Warrior a Frontier Longbow. Move it into and out of a chest, then try to draw it. Give the same bow to a Ranger and verify that it fires.
+3. Give the Warrior a Frontier Longbow. Move it into and out of a chest, then try to draw it. Give the same bow to a Ranger and verify that it fires with ordinary arrows. With the pack enabled, draw each custom bow and a vanilla bow to verify all models.
 4. Give and equip a Riftweave piece. Check its dye and enchantment after reconnecting.
 
 ## Build

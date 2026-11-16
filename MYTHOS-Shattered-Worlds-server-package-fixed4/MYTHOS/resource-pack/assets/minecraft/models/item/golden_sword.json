@@ -1,0 +1,20 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "minecraft:item/golden_sword"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 71005
+      },
+      "model": "mythos:item/clerics_relic"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 71006
+      },
+      "model": "mythos:item/plain_golden_sword"
+    }
+  ]
+}
