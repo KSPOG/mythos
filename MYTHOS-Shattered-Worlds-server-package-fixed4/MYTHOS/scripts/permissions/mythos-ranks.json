@@ -1,0 +1,46 @@
+{
+  "groups": {
+    "default": {
+      "nodes": [
+        { "key": "prefix.10.[Member]", "value": true }
+      ]
+    },
+    "supporter": {
+      "nodes": [
+        { "key": "prefix.20.[Supporter]", "value": true }
+      ]
+    },
+    "tester": {
+      "nodes": [
+        { "key": "prefix.50.[Tester]", "value": true },
+        { "key": "mythos.command.setclass", "value": true },
+        { "key": "mythos.command.giveweapon", "value": true },
+        { "key": "mythos.command.givearmor", "value": true }
+      ]
+    },
+    "moderator": {
+      "nodes": [
+        { "key": "prefix.60.[Moderator]", "value": true },
+        { "key": "minecraft.command.kick", "value": true }
+      ]
+    },
+    "admin": {
+      "nodes": [
+        { "key": "prefix.80.[Admin]", "value": true },
+        { "key": "group.moderator", "value": true },
+        { "key": "minecraft.command.ban", "value": true },
+        { "key": "minecraft.command.banlist", "value": true },
+        { "key": "minecraft.command.pardon", "value": true },
+        { "key": "minecraft.command.whitelist", "value": true }
+      ]
+    },
+    "owner": {
+      "nodes": [
+        { "key": "prefix.100.[Owner]", "value": true },
+        { "key": "group.admin", "value": true },
+        { "key": "group.tester", "value": true },
+        { "key": "luckperms.*", "value": true }
+      ]
+    }
+  }
+}

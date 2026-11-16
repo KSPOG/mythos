@@ -76,6 +76,10 @@ if (-not (Get-ChildItem -LiteralPath $Mods -Filter 'LuckPerms*.jar' -File)) {
     Write-Host 'Existing LuckPerms installation found in server\mods.'
 }
 
+$LuckPermsData = Join-Path $Server 'luckperms'
+New-Item -ItemType Directory -Force -Path $LuckPermsData | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'permissions/mythos-ranks.json') -Destination $LuckPermsData -Force
+
 $Eula = Join-Path $Server 'eula.txt'
 if (-not (Test-Path $Eula)) { Set-Content -Path $Eula -Value 'eula=false' -Encoding ASCII }
 
@@ -97,6 +101,7 @@ if (-not (Test-Path $Properties)) {
 
 Write-Host ''
 Write-Host 'Forge, SpongeForge and LuckPerms setup complete.' -ForegroundColor Green
+Write-Host 'To load the MYTHOS rank presets, run lp import mythos-ranks.json in the running server console.'
 Write-Host 'The first server start will generate the world and configuration.'
 Write-Host 'The Minecraft EULA remains eula=false until you accept it yourself.'
 Write-Host "Edit: $Eula"

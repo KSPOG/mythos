@@ -43,20 +43,32 @@ The installer does not open a public firewall port or enable offline mode. Keep 
 
 MYTHOS uses [LuckPerms for Sponge](https://luckperms.net/download) for groups and permissions. The Windows installer adds LuckPerms 5.5.91 for SpongeAPI 12 if there is no LuckPerms JAR in `server/mods`. On an existing server, stop it, run `install.bat` and `build.bat`, then start it again.
 
-After KiritoSanPlays has joined at least once, run these commands in the server console:
+The installer stages the group preset at `server/luckperms/mythos-ranks.json`. In the **running server console**, run:
 
 ```text
-lp creategroup owner
-lp group owner meta setprefix 100 "[Owner]"
-lp group owner permission set mythos.command.setclass true
-lp group owner permission set mythos.command.giveweapon true
-lp group owner permission set mythos.command.givearmor true
+lp import mythos-ranks.json
+```
+
+The import adds the predefined groups and permissions to the current LuckPerms data. On a server with existing groups, check for overlapping names before importing. Existing extra permissions are retained by a normal import. Use the console to check effective permissions if a player already has other groups or OP status.
+
+| Group | Public chat prefix | Permissions included |
+| --- | --- | --- |
+| `default` | [Member] | Normal gameplay, including class selection and casting with eligible gear |
+| `supporter` | [Supporter] | Cosmetic chat prefix only |
+| `tester` | [Tester] | Change player classes and issue MYTHOS weapons and armour. Use on a test server. |
+| `moderator` | [Moderator] | Kick players |
+| `admin` | [Admin] | Moderator permissions, player bans and pardons, ban list, and whitelist management |
+| `owner` | [Owner] | Admin and Tester permissions, plus full LuckPerms administration. Only grant to trusted owners. |
+
+Once the import has completed and KiritoSanPlays has joined at least once, assign the owner role from the console:
+
+```text
 lp user KiritoSanPlays parent add owner
 ```
 
-The next public chat message shows `[Owner] KiritoSanPlays` as the sender. Prefix text is displayed literally. Tab-list and overhead names use their existing format. The commands above grant MYTHOS testing permissions. Manage ranks from the console. To let this trusted owner manage LuckPerms in game as well, run `lp group owner permission set luckperms.* true` in the console.
+The next public chat message should show `[Owner] KiritoSanPlays`. To assign another rank, use `lp user <name> parent add <group>`. To revoke it, use `lp user <name> parent remove <group>`. Staff prefixes outrank Supporter and Member. Tab-list and overhead names use their existing format.
 
-Use the same group and prefix commands for other roles. To remove the owner role, run `lp user KiritoSanPlays parent remove owner`. Supporter groups should carry cosmetic metadata only.
+For a smoke test, confirm an ordinary non-OP player can select a class but cannot run the staff class or item commands. Check that a supporter has the same gameplay permissions, a moderator can kick, an admin can manage the whitelist, and the owner can assign ranks and test equipment. Verify the prefix by sending a public chat message.
 
 ## Staff class testing
 
