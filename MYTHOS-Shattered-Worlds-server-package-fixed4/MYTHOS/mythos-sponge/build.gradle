@@ -1,0 +1,51 @@
+plugins {
+    id 'java'
+    id 'org.spongepowered.gradle.plugin' version '2.5.1'
+}
+
+dependencies {
+    implementation project(':mythos-core')
+    compileOnly 'org.spongepowered:spongeapi:12.0.0'
+    compileOnly 'org.apache.logging.log4j:log4j-api:2.23.1'
+}
+
+sponge {
+    apiVersion '12.0.0'
+    minecraftVersion '1.21.1'
+    license 'MIT'
+    loader {
+        name 'java_plain'
+        version '1.0'
+    }
+    plugin('mythos') {
+        displayName 'MYTHOS: Shattered Worlds'
+        entrypoint 'com.ksp.mythos.sponge.MythosPlugin'
+        description 'Server-side MMORPG foundation for Minecraft 1.21.1.'
+        dependency('spongeapi') {
+            loadOrder 'AFTER'
+            optional false
+        }
+    }
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+jar {
+    from(project(':mythos-core').sourceSets.main.output)
+    archiveBaseName = 'Mythos'
+    manifest {
+        attributes(
+            'Implementation-Title': 'MYTHOS Shattered Worlds',
+            'Implementation-Version': project.version,
+            'Minecraft-Version': '1.21.1',
+            'SpongeForge-Version': '1.21.1-52.1.5-12.0.3'
+        )
+    }
+}

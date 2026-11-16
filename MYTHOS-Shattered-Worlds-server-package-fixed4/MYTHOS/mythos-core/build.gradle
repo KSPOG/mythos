@@ -1,0 +1,22 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+}
+
+ tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+// The core has no runtime dependency on Minecraft or SpongeAPI.
+// Its test harness is deliberately dependency-free so policy tests can run offline.
+tasks.register('policyTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.ksp.mythos.core.WeaponPolicyTest'
+    enableAssertions = true
+}
+check.dependsOn policyTest
