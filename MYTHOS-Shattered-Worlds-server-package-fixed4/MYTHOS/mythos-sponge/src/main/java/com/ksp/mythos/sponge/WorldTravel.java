@@ -84,11 +84,11 @@ final class WorldTravel {
     }
 
     Command.Parameterized teleportCommand() {
-        final var world = Parameter.string().key("world").build();
+        final var world = Parameter.resourceKey().key("world").build();
         final var player = Parameter.player().key("player").optional().build();
         return Command.builder().addParameter(world).addParameter(player).executor(context -> {
             if (!canManage(context.cause())) return denied();
-            final var key = parseKey(context.requireOne(world));
+            final var key = parseKey(context.requireOne(world).asString());
             if (key.isEmpty() || !known(key.get())) return error("Unknown world. Use /mythosworld to list world keys.");
             final var recipient = context.one(player).or(() -> context.cause().first(ServerPlayer.class));
             if (recipient.isEmpty()) return error("Console usage: mythosworldtp <world> <online-player>");
