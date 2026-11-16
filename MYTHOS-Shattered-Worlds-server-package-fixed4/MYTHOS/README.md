@@ -74,16 +74,18 @@ For a smoke test, confirm an ordinary non-OP player can select a class but canno
 
 The [project checklist](CHECKLIST.md) tracks the chapter and launch milestones.
 
-The Owner rank can build a 21×21 arrival plaza with a lodestone, lit paths and perimeter walls. If the ranks were already imported, grant the build permission once from the server console.
+The Owner rank can build the Rift Sanctum, a 21×21 arrival plaza with a floating amethyst shard, blackstone arches, lit paths and eight interactive class shrines. If the ranks were already imported, grant the build permission once from the server console.
 
 ```text
 lp group owner permission set mythos.command.buildhub true
 ```
 
-1. Join in Creative mode and hover above clear ground or water in the Overworld. Choose an open 21×21 area with your feet at the intended arrival height. The hub needs air from one block below your feet through three blocks above them. Build at least 21 blocks to one side of the Overworld spawn so the survival exit is outside the hub.
+1. Join in Creative mode and hover above clear ground or water in the Overworld. Choose an open 21×21 area with your feet at the intended arrival height. The plaza needs air from one block below your feet through three blocks above it, plus overhead clearance for the shard and arches up to nine blocks above your feet. Build at least 21 blocks to one side of the Overworld spawn so the survival exit is outside the hub.
 2. Run `/mythosbuildhub` once. If the site is obstructed, the command reports the blocked coordinates before placing anything. The build saves the site to `server/config/mythos/spawn-hub.properties`.
 3. Run `/mythoshub` to arrive at the lodestone. First-time players arrive there automatically. `/mythosclasses` shows class descriptions and lets new players prepare a selection in chat before they confirm it with Enter.
 4. Click **Explore the survival world** or run `/mythosleavehub` to go to a safe spot near the existing Overworld spawn.
+
+If you already built the original plaza, use `/mythoshub` followed by `/mythosupgradehub` as Owner. This adds the Sanctum structures in place. The command checks each destination before building and reports coordinates if a decoration obstructs the upgrade. Right-click a class shrine to see its class preview.
 
 If the game reports an unknown command, try `/mythosclasses`. If that is also unknown, rebuild and restart from this project folder. The startup log should include `MYTHOS hub build command registered`. If the build command reports a missing permission, use the LuckPerms command above from the server console.
 

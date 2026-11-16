@@ -100,6 +100,7 @@ public final class MythosPlugin {
         }
         final var buildHub = event.register(this.container, this.hub.buildCommand(), "mythosbuildhub");
         this.logger.info("MYTHOS hub build command registered: {}", buildHub.mapping().allAliases());
+        event.register(this.container, this.hub.upgradeCommand(), "mythosupgradehub");
         event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
                 .map(player -> {
                     if (!this.hub.arrive(player)) {
@@ -176,6 +177,9 @@ public final class MythosPlugin {
         if (characterClass(player) == null) {
             SpawnHub.showClasses(player, Optional.empty());
         }
+        player.sendMessage(Component.text("Right-click a class shrine to preview its class.")
+                .append(Component.text(" [View all classes]", NamedTextColor.AQUA)
+                        .clickEvent(ClickEvent.runCommand("/mythosclasses"))));
         player.sendMessage(Component.text("Chapter 1 quests are in development."));
         player.sendMessage(Component.text("[Explore the survival world]", NamedTextColor.GREEN)
                 .clickEvent(ClickEvent.runCommand("/mythosleavehub")));
@@ -426,6 +430,15 @@ public final class MythosPlugin {
         final Optional<ServerPlayer> player = event.cause().first(ServerPlayer.class);
         if (player.isEmpty()) return;
         final ServerPlayer user = player.get();
+        if (this.hub != null && !event.isCancelled()
+                && event.context().get(EventContextKeys.USED_HAND).orElse(null) == HandTypes.MAIN_HAND.get()) {
+            final var shrine = event.block().location().flatMap(this.hub::classAt);
+            if (shrine.isPresent()) {
+                SpawnHub.showClass(user, shrine.get(), characterClass(user) == null);
+                event.setCancelled(true);
+                return;
+            }
+        }
         final ItemStackLike stack = event.context().get(EventContextKeys.USED_ITEM)
                 .<ItemStackLike>map(item -> item)
                 .orElseGet(() -> user.itemInHand(event.context().get(EventContextKeys.USED_HAND)
