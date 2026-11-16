@@ -39,6 +39,12 @@ The installer does not open a public firewall port or enable offline mode. Keep 
 - Vanilla weapon categories are registered and checked by the same class policy.
 - Dependency-free policy regression tests.
 
+## Staff class testing
+
+Grant trusted staff the `mythos.command.setclass` permission. Run `/mythossetclass <online-player> <class>` in game or omit the slash in the server console. For example, `/mythossetclass YourName ranger` switches your own class. The assignment is saved and takes effect immediately for weapon use and spellcasting. Inventory and active spell cooldowns are preserved.
+
+To test access, try the command as a regular player and then as staff. As staff, switch an online player from Ranger to Mage while they carry a bow. Verify the bow stays in their inventory and they can no longer fire it. Restart the server and verify the Mage assignment persists.
+
 ## Class-specific weapon enforcement
 
 Any class can pick up, carry, store, or trade weapon items. MYTHOS checks the player's class when they try to use a registered weapon or attack. Bows and crossbows require Ranger. Unknown held items are rejected for melee attacks. Empty-hand attacks are allowed.

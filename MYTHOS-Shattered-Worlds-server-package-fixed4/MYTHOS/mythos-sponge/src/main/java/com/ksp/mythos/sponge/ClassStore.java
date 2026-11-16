@@ -32,15 +32,23 @@ final class ClassStore {
     synchronized boolean assignIfAbsent(final UUID playerId, final CharacterClass characterClass) throws IOException {
         final String key = playerId.toString();
         if (this.values.containsKey(key)) return false;
-        this.values.setProperty(key, characterClass.id());
-        this.save();
+        this.assign(playerId, characterClass);
         return true;
     }
 
-    private void save() throws IOException {
+    synchronized void assign(final UUID playerId, final CharacterClass characterClass) throws IOException {
+        final String key = playerId.toString();
+        final Properties updated = new Properties();
+        updated.putAll(this.values);
+        updated.setProperty(key, characterClass.id());
+        this.save(updated);
+        this.values.setProperty(key, characterClass.id());
+    }
+
+    private void save(final Properties updated) throws IOException {
         final Path temporary = this.file.resolveSibling(this.file.getFileName() + ".tmp");
         try (OutputStream output = Files.newOutputStream(temporary)) {
-            this.values.store(output, "MYTHOS character class assignments; server-authoritative");
+            updated.store(output, "MYTHOS character class assignments; server-authoritative");
         }
         try {
             Files.move(temporary, this.file, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
