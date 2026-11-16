@@ -19,6 +19,7 @@ import org.spongepowered.api.command.selector.Selector;
 import org.spongepowered.api.data.Keys;
 import org.spongepowered.api.entity.living.player.server.ServerPlayer;
 import org.spongepowered.api.scheduler.Task;
+import org.spongepowered.api.world.HeightTypes;
 import org.spongepowered.api.world.border.WorldBorder;
 import org.spongepowered.api.world.server.ServerLocation;
 import org.spongepowered.api.world.server.ServerWorld;
@@ -29,6 +30,7 @@ import org.spongepowered.api.util.Tristate;
 import org.spongepowered.api.block.BlockState;
 import org.spongepowered.api.block.BlockTypes;
 import org.spongepowered.api.fluid.FluidTypes;
+import org.spongepowered.api.tag.BlockTypeTags;
 import org.spongepowered.math.vector.Vector3i;
 import org.spongepowered.plugin.PluginContainer;
 
@@ -132,24 +134,60 @@ final class WorldTravel {
                 return error("A world teleport is already in progress.");
             }
 
-            final ServerWorld world = player.world();
-            final Vector3i column = player.serverLocation().blockPosition();
-            // WORLD_SURFACE returns the first air level above the highest non-air block.
-            final int y = world.highestYAt(column.x(), column.z());
-            if (y <= world.min().y()) return error("There is no surface in this column.");
-            if (column.y() > y) return error("You are already above the highest block in this column.");
-
-            final BlockState floor = world.block(column.x(), y - 1, column.z());
-            final var surface = ServerLocation.of(world, column.x() + 0.5, y, column.z() + 0.5);
-            if (!insideBorder(world, surface) || !floor.get(Keys.IS_SOLID).orElse(false)
-                    || floor.fluidState().type() != FluidTypes.EMPTY.get()
-                    || floor.type() == BlockTypes.CACTUS.get() || floor.type() == BlockTypes.MAGMA_BLOCK.get()) {
-                return error("There is no safe surface directly above you. Move to another column and try /top again.");
-            }
-            if (!player.setLocation(surface)) return error("Could not teleport to the surface.");
-            context.sendMessage(Component.text("Teleported to the surface at Y=" + y + "."));
+            final var column = player.serverLocation().blockPosition();
+            final var surface = nearbySurface(player.world(), column);
+            if (surface.isEmpty()) return error("No safe surface at or above you within 16 blocks.");
+            final var destination = surface.get();
+            if (!player.setLocation(destination)) return error("Could not teleport to the surface.");
+            final var block = destination.blockPosition();
+            context.sendMessage(Component.text("Teleported to the surface at " + block.x() + ", " + block.y() + ", " + block.z() + "."));
             return CommandResult.success();
         }).build();
+    }
+
+    private static Optional<ServerLocation> nearbySurface(final ServerWorld world, final Vector3i column) {
+        final int radius = 16;
+        final var filter = TeleportHelperFilters.NO_PORTAL.get();
+        final var motionBlocking = HeightTypes.MOTION_BLOCKING.get();
+        final var empty = FluidTypes.EMPTY.get();
+        int bestDistance = radius * radius + 1;
+        ServerLocation best = null;
+
+        for (int ix = 0; ix <= 2 * radius; ix++) {
+            final int dx = (ix + 1) / 2 * (ix % 2 == 0 ? -1 : 1);
+            for (int iz = 0; iz <= 2 * radius; iz++) {
+                final int dz = (iz + 1) / 2 * (iz % 2 == 0 ? -1 : 1);
+                final int distance = dx * dx + dz * dz;
+                if (distance >= bestDistance) continue;
+
+                final int x = column.x() + dx;
+                final int z = column.z() + dz;
+                // Ignore flowers and other nonblocking decorations, while retaining water and lava in the heightmap.
+                final var horizontal = ServerLocation.of(world, x + 0.5, column.y(), z + 0.5);
+                if (!insideBorder(world, horizontal)) continue;
+
+                final int y = world.height(motionBlocking, x, z);
+                if (y <= world.min().y() || y < column.y()) continue;
+
+                final var destination = ServerLocation.of(world, x + 0.5, y, z + 0.5);
+                final BlockState floor = world.block(x, y - 1, z);
+                final BlockState feet = world.block(x, y, z);
+                final BlockState head = world.block(x, y + 1, z);
+                if (!floor.get(Keys.IS_SOLID).orElse(false)
+                        || !filter.isSafeFloorMaterial(floor)
+                        || floor.type() == BlockTypes.CACTUS.get() || floor.type() == BlockTypes.MAGMA_BLOCK.get()
+                        || floor.fluidState().type() != empty || feet.fluidState().type() != empty
+                        || head.fluidState().type() != empty || !filter.isSafeBodyMaterial(feet)
+                        || !filter.isSafeBodyMaterial(head) || feet.type().is(BlockTypeTags.FIRE)
+                        || head.type().is(BlockTypeTags.FIRE)) {
+                    continue;
+                }
+                if (distance == 0) return Optional.of(destination);
+                best = destination;
+                bestDistance = distance;
+            }
+        }
+        return Optional.ofNullable(best);
     }
 
     private void prepare(final ResourceKey key, final boolean create, final Consumer<Component> reply) {

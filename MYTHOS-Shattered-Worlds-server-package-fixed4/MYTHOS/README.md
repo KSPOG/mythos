@@ -106,7 +106,7 @@ lp group owner permission set mythos.command.worldmanage true
 | `/mythosworld` | List world keys |
 | `/mythosworld create chapter_one` | Create or load a normal-terrain world named `mythos:chapter_one` |
 | `/mythosworld load mythos:chapter_one` | Load an existing world |
-| `/top` or `/mythostop` | Owner-only. Move up to the highest safe block in your current column and world |
+| `/top` or `/mythostop` | Owner-only. Move up to the surface in your current world. If the current column is unsafe, search within 16 blocks |
 | `/mythosworldtp mythos:chapter_one` | Teleport yourself to a safe spot near that world's spawn |
 | `/mythosworldtp minecraft:overworld KiritoSanPlays` | Teleport an online player to the Overworld spawn area |
 | `/mythosportal define chapter_gate` | Select the frame in your current world |
