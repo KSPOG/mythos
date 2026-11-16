@@ -35,17 +35,32 @@ The installer does not open a public firewall port or enable offline mode. Keep 
 - Central class-to-weapon-category policy.
 - Server-owned weapon registry with namespaced IDs.
 - One-time `/mythosclass <class>` selection, persisted by UUID in an atomic properties file.
-- Equipment-change validation and attack-time validation in the Sponge adapter.
+- Server-side validation for weapon interactions and attacks.
 - Vanilla weapon categories are registered and checked by the same class policy.
 - Dependency-free policy regression tests.
 
 ## Class-specific weapon enforcement
 
-Weapon permissions are decided by server code, not item display names or lore. The same policy is called for equipment changes and attack validation. The policy module fails closed when a player has no class. Unknown held items are rejected by the Sponge attack adapter, except an empty hand.
+Any class can pick up, carry, store, or trade weapon items. MYTHOS checks the player's class when they try to use a registered weapon or attack. Bows and crossbows require Ranger. Unknown held items are rejected for melee attacks. Empty-hand attacks are allowed.
 
-The initial custom weapon IDs are logical catalog entries; they are not new Minecraft registry items. On a vanilla client, future custom weapons must be represented using existing vanilla item types plus server-owned persistent item metadata and, optionally, a server resource pack. A resource pack can change presentation but cannot enforce permissions.
+### Starter weapons
 
-**Important testing boundary:** the core policy is independently testable. The Sponge adapter still requires a full Gradle compile against SpongeAPI 12.0.0 and live SpongeForge integration tests. Ranged projectile attribution, inventory click/swap edge cases, offhand behaviour, creative mode, death/respawn and item transfer paths must be tested before public release. Do not treat the starter as production-ready.
+Staff with the `mythos.command.giveweapon` permission can issue `/mythosgiveweapon <online-player> <weapon-id>`. Use the short ID or prefix it with `mythos:`. Giving a weapon to a player of any class is allowed.
+
+| Weapon ID | Eligible classes |
+| --- | --- |
+| `dawnbringer` | Warrior, Berserker |
+| `frontier_longbow` | Ranger |
+| `ember_staff` | Mage |
+| `assassins_edge` | Assassin |
+| `clerics_relic` | Cleric |
+| `paladins_oath` | Paladin |
+| `war_sunderer` | Berserker |
+| `summoners_focus` | Summoner |
+
+Starter weapons use vanilla item bases and persistent custom model data to identify them on the server. They use vanilla combat behavior. The staff and focus currently work as melee items. Custom abilities, custom drop tables, and a MYTHOS marketplace are later features.
+
+For a live check, give a Warrior a Frontier Longbow, then confirm they can move it into a chest and back into either hand. Try drawing it with arrows in inventory and verify that it stays in inventory without firing. Give the same bow to a Ranger and verify that it fires normally.
 
 ## Build
 
