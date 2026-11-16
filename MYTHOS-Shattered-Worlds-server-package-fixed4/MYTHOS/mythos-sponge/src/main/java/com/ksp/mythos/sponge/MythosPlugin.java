@@ -29,6 +29,7 @@ import org.spongepowered.api.event.lifecycle.RegisterCommandEvent;
 import org.spongepowered.api.event.lifecycle.StartedEngineEvent;
 import org.spongepowered.api.event.message.PlayerChatEvent;
 import org.spongepowered.api.item.inventory.ItemStack;
+import org.spongepowered.api.item.inventory.Slot;
 import org.spongepowered.api.item.inventory.ItemStackLike;
 import org.spongepowered.api.item.inventory.transaction.InventoryTransactionResult;
 import org.spongepowered.api.registry.RegistryTypes;
@@ -38,6 +39,7 @@ import org.spongepowered.plugin.builtin.jvm.Plugin;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -121,6 +123,7 @@ public final class MythosPlugin {
         event.register(this.container, setClassCommand(classArgument), "mythossetclass");
         event.register(this.container, giveGearCommand(false), "mythosgiveweapon");
         event.register(this.container, giveGearCommand(true), "mythosgivearmor");
+        event.register(this.container, giveAllGearCommand(), "mythosgiveallgear");
         event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
                 .map(this::castHeldSpell)
                 .orElseGet(() -> CommandResult.error(Component.text("Only a player can cast a spell."))))
@@ -198,6 +201,63 @@ public final class MythosPlugin {
                         return CommandResult.error(Component.text("Could not deliver the item. Check the player's inventory space."));
                     }
                     context.sendMessage(Component.text("Gave " + id + " to " + target.name() + "."));
+                    return CommandResult.success();
+                })
+                .build();
+    }
+
+    private Command.Parameterized giveAllGearCommand() {
+        final Parameter.Value<ServerPlayer> targetArgument = Parameter.player().key("player").build();
+        return Command.builder()
+                .permission("mythos.command.giveallgear")
+                .addParameter(targetArgument)
+                .executor(context -> {
+                    final ServerPlayer target = context.requireOne(targetArgument);
+                    final List<ItemStack> gear = new ArrayList<>();
+                    for (final MythosWeapon weapon : this.customWeapons) {
+                        final var item = weapon.create();
+                        if (item.isEmpty()) {
+                            return CommandResult.error(Component.text("Could not create " + weapon.id() + "."));
+                        }
+                        gear.add(item.get());
+                    }
+                    for (final MythosArmor armor : MythosArmor.values()) {
+                        final var item = armor.create();
+                        if (item.isEmpty()) {
+                            return CommandResult.error(Component.text("Could not create " + armor.id() + "."));
+                        }
+                        gear.add(item.get());
+                    }
+                    final int requiredSlots = GearCrates.countFor(gear.size());
+                    final List<? extends Slot> slots = target.inventory().primary().slots().stream()
+                            .filter(slot -> slot.peek().isEmpty()).limit(requiredSlots).toList();
+                    if (slots.size() < requiredSlots) {
+                        return CommandResult.error(Component.text(target.name() + " needs " + requiredSlots
+                                + " empty inventory slots for the gear crates."));
+                    }
+
+                    final List<ItemStack> crates;
+                    try {
+                        crates = GearCrates.pack(gear);
+                    } catch (RuntimeException exception) {
+                        this.logger.error("Could not pack the MYTHOS gear crates", exception);
+                        return CommandResult.error(Component.text("Could not pack the gear crates. Check the server log."));
+                    }
+
+                    final List<InventoryTransactionResult> deliveries = new ArrayList<>();
+                    for (int index = 0; index < crates.size(); index++) {
+                        final var result = slots.get(index).set(crates.get(index));
+                        deliveries.add(result);
+                        if (result.type() != InventoryTransactionResult.Type.SUCCESS) {
+                            for (final var delivery : deliveries.reversed()) {
+                                delivery.revert();
+                            }
+                            return CommandResult.error(Component.text("Could not deliver the gear crates to "
+                                    + target.name() + "."));
+                        }
+                    }
+                    context.sendMessage(Component.text("Gave " + target.name() + " " + gear.size()
+                            + " MYTHOS gear pieces in " + crates.size() + " shulker boxes."));
                     return CommandResult.success();
                 })
                 .build();

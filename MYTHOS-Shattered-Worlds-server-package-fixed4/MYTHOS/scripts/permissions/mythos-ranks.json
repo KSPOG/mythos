@@ -39,6 +39,7 @@
         { "key": "prefix.100.[Owner]", "value": true },
         { "key": "group.admin", "value": true },
         { "key": "group.tester", "value": true },
+        { "key": "mythos.command.giveallgear", "value": true },
         { "key": "luckperms.*", "value": true }
       ]
     }

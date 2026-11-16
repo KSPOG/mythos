@@ -58,7 +58,7 @@ The import adds the predefined groups and permissions to the current LuckPerms d
 | `tester` | [Tester] | Change player classes and issue MYTHOS weapons and armour. Use on a test server. |
 | `moderator` | [Moderator] | Kick players |
 | `admin` | [Admin] | Moderator permissions, player bans and pardons, ban list, and whitelist management |
-| `owner` | [Owner] | Admin and Tester permissions, plus full LuckPerms administration. Only grant to trusted owners. |
+| `owner` | [Owner] | Admin and Tester permissions, plus bulk gear issuing and full LuckPerms administration. Only grant to trusted owners. |
 
 Once the import has completed and KiritoSanPlays has joined at least once, assign the owner role from the console:
 
@@ -135,12 +135,23 @@ Staff with `mythos.command.givearmor` can use `/mythosgivearmor <online-player> 
 
 Each piece has a defensive enchantment. Gear uses vanilla item bases and persistent model data. MYTHOS gear is distributed through staff commands.
 
+### Give every weapon and armour piece
+
+Owners can run `/mythosgiveallgear <online-player>`. The command gives one of each configured weapon and each MYTHOS armour piece in named shulker boxes. The default catalog has 40 pieces, so the recipient needs two empty inventory slots. Place and open the boxes to retrieve the gear.
+
+The rank preset grants `mythos.command.giveallgear` to Owner. If you already imported the ranks, run this once from the server console.
+
+```text
+lp group owner permission set mythos.command.giveallgear true
+```
+
 ### In-game smoke test
 
 1. Give a Mage an Ember Staff, aim at a hostile mob and right-click. Check a near and a distant target. Check that a wall blocks the spell and a second successful cast must wait for the cooldown.
 2. Trade the staff to a Warrior. Check that it stays in their inventory and casting is denied.
 3. Give the Warrior a Frontier Longbow. Move it into and out of a chest, then try to draw it. Give the same bow to a Ranger and verify that it fires with ordinary arrows. With the pack enabled, draw each custom bow and a vanilla bow to verify all models.
 4. Give and equip a Riftweave piece. Check its dye and enchantment after reconnecting.
+5. As Owner, give the full gear set and place both crates. Check they contain 27 and 13 pieces, and that a weapon retains its name, spell, and stats. Test with one empty slot and verify no crate is delivered. Confirm a Tester cannot run the bulk command.
 
 ## Build
 
