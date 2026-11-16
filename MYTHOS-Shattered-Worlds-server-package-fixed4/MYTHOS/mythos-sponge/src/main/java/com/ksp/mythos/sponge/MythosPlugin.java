@@ -98,7 +98,8 @@ public final class MythosPlugin {
                 throw new IllegalStateException("Could not load the MYTHOS spawn hub", exception);
             }
         }
-        event.register(this.container, this.hub.buildCommand(), "mythosbuildhub");
+        final var buildHub = event.register(this.container, this.hub.buildCommand(), "mythosbuildhub");
+        this.logger.info("MYTHOS hub build command registered: {}", buildHub.mapping().allAliases());
         event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
                 .map(player -> {
                     if (!this.hub.arrive(player)) {

@@ -106,9 +106,12 @@ final class SpawnHub {
     }
 
     Command.Parameterized buildCommand() {
-        return Command.builder().permission(MANAGE).executor(context -> {
+        return Command.builder().executor(context -> {
             final Optional<ServerPlayer> player = context.cause().first(ServerPlayer.class);
             if (player.isEmpty()) return CommandResult.error(Component.text("Run /mythosbuildhub in game at the hub site."));
+            if (!player.get().hasPermission(MANAGE)) {
+                return CommandResult.error(Component.text("You need the MYTHOS Owner hub build permission."));
+            }
             if (configured()) return CommandResult.error(Component.text("A spawn hub is already configured."));
             final ServerLocation origin = player.get().serverLocation();
             final ServerLocation center = origin.withPosition(origin.blockPosition().toDouble());

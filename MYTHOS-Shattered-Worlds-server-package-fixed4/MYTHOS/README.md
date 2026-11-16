@@ -85,6 +85,8 @@ lp group owner permission set mythos.command.buildhub true
 3. Run `/mythoshub` to arrive at the lodestone. First-time players arrive there automatically. `/mythosclasses` shows class descriptions and lets new players prepare a selection in chat before they confirm it with Enter.
 4. Click **Explore the survival world** or run `/mythosleavehub` to go to a safe spot near the existing Overworld spawn.
 
+If the game reports an unknown command, try `/mythosclasses`. If that is also unknown, rebuild and restart from this project folder. The startup log should include `MYTHOS hub build command registered`. If the build command reports a missing permission, use the LuckPerms command above from the server console.
+
 The plaza protects players from damage, blocks hostile spawns, and restricts block changes within the plaza. Owners with the build permission can decorate it. Keep the center lodestone and the two air blocks above it clear for arrivals.
 
 For a live test, use a fresh vanilla Java 1.21.1 account to verify first arrival, class selection and the survival exit. Try breaking a plaza block and taking damage with a regular account. Rejoin after exploring to verify that returning players keep their location. Restart the server and check that `/mythoshub` still works.
