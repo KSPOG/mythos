@@ -115,7 +115,9 @@ record MythosWeapon(String id, String name, String base, WeaponCategory category
         if (!stack.offer(Keys.CUSTOM_MODEL_DATA, this.model).isSuccessful()
                 || !stack.offer(Keys.CUSTOM_NAME, title).isSuccessful()
                 || !stack.offer(Keys.LORE, lore).isSuccessful()
-                || (castsOnRightClick() && !stack.offer(Keys.MAX_STACK_SIZE, 1).isSuccessful())
+                // Sponge rejects stack-size writes on damageable items, including swords already limited to one.
+                || ((castsOnRightClick() || this.durability > 0) && stack.maxStackQuantity() > 1
+                        && !stack.offer(Keys.MAX_STACK_SIZE, 1).isSuccessful())
                 || (this.durability > 0 && !stack.offer(Keys.MAX_DURABILITY, this.durability).isSuccessful())
                 || (this.power > 0 && !stack.offer(Keys.APPLIED_ENCHANTMENTS,
                         List.of(Enchantment.of(EnchantmentTypes.POWER, this.power))).isSuccessful())) {
