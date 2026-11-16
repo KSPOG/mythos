@@ -5,8 +5,8 @@
 - [x] Implement the spawn hub builder, class previews, arrival protection, and survival exit.
 - [x] Add the Rift Sanctum architecture, interactive class shrines, and an in-place upgrade.
 - [ ] Verify the upgraded hub on the live server, including first join, shrine previews, protection, exit, and restart.
-- [x] Implement multi-world creation/loading, world teleport, and in-game block portal linking.
-- [ ] Verify world travel and portal persistence on the live server.
+- [x] Implement multi-world creation/loading, world teleport, and paired walk-through portal frames.
+- [ ] Verify world travel, frame traversal in both directions, and portal persistence on the live server.
 - [ ] Add a one-time starter kit and combat tutorial for each class.
 - [ ] Build Chapter 1 with a quest hub, exploration zone, dungeon, and boss.
 - [ ] Persist quest progress, checkpoints, and reward claims.

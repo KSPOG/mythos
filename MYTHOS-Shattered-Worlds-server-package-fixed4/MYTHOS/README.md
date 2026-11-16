@@ -93,7 +93,7 @@ The plaza protects players from damage, blocks hostile spawns, and restricts blo
 
 For a live test, use a fresh vanilla Java 1.21.1 account to verify first arrival, class selection and the survival exit. Try breaking a plaza block and taking damage with a regular account. Rejoin after exploring to verify that returning players keep their location. Restart the server and check that `/mythoshub` still works.
 
-## Worlds and block portals
+## Worlds and portal frames
 
 Worlds are separate dimensions on the same SpongeForge server. Players keep their inventory and MYTHOS class between worlds. The Owner rank can manage worlds and portal links. If you previously imported the ranks, grant the permission from the server console.
 
@@ -108,15 +108,18 @@ lp group owner permission set mythos.command.worldmanage true
 | `/mythosworld load mythos:chapter_one` | Load an existing world |
 | `/mythosworldtp mythos:chapter_one` | Teleport yourself to a safe spot near that world's spawn |
 | `/mythosworldtp minecraft:overworld KiritoSanPlays` | Teleport an online player to the Overworld spawn area |
-| `/mythosportal link chapter_gate mythos:chapter_one` | Select a block that sends players to the chapter world spawn |
-| `/mythosportal link chapter_gate mythos:chapter_one 100 72 -40` | Select a block that sends players near specific arrival coordinates |
-| `/mythosportal` | List saved portals and their source blocks |
-| `/mythosportal unlink chapter_gate` | Remove the link |
-| `/mythosportal cancel` | Cancel block selection |
+| `/mythosportal define chapter_gate` | Select the frame in your current world |
+| `/mythosportal link chapter_gate chapter_return` | Pair two defined frames in both directions |
+| `/mythosportal` | List frame positions and links |
+| `/mythosportal unlink chapter_gate` | Disconnect both ends and keep the frames |
+| `/mythosportal remove chapter_gate` | Remove a frame's registration |
+| `/mythosportal cancel` | Cancel corner selection |
 
-After running `/mythosportal link`, right-click the desired block with an empty main hand. Run the same link command with the same ID to change the block or destination. The selected block is now usable by ordinary players with an empty main hand. The link is saved under `server/config/mythos/block-portals.properties` and checks the block's world, coordinates, and type. For a return portal, configure a separate block in the destination world, or use the existing `/mythoshub` if a hub is configured. World administration and teleport commands also work in the console, where commands omit the slash and teleport requires a player name.
+Build a vertical rectangular frame in each world with an open passage at least one block wide and two blocks high. Run `/mythosportal define <name>` at each frame and right-click the **lower outside corner** and **opposite upper outside corner** with an empty main hand. Run the link command after defining both. Players travel by walking into either opening. Keep a safe floor and two blocks of headroom beside the destination frame. Arrivals are placed beside the frame to prevent an immediate return trip.
 
-For a live check, create a world, teleport there and back, link a decorative block, and verify a regular account can use it while Owner commands remain restricted. Restart and retest the link.
+Frame pairs are saved in `server/config/mythos/frame-portals.properties`. Use the define command with the same name to move or resize an existing frame while retaining its link. Earlier single-block links need to be defined again as frame pairs. World management and world teleport commands remain available from the console, where commands omit the slash and teleport requires a player name.
+
+For a live check, pair two frames across worlds, walk through and return, then restart and verify the pairing persists. Test an obstructed exit and confirm a regular player can travel while Owner commands remain restricted.
 
 ## Staff class testing
 

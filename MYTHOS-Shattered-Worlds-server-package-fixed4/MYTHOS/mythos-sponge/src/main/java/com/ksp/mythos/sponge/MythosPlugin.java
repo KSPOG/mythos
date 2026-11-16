@@ -11,6 +11,8 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.apache.logging.log4j.Logger;
 import org.spongepowered.api.Server;
+import org.spongepowered.api.scheduler.Task;
+import org.spongepowered.api.util.Ticks;
 import org.spongepowered.api.Sponge;
 import org.spongepowered.api.adventure.ChatTypes;
 import org.spongepowered.api.command.Command;
@@ -68,7 +70,7 @@ public final class MythosPlugin {
     private ClassStore classStore;
     private SpawnHub hub;
     private WorldTravel worldTravel;
-    private BlockPortals portals;
+    private FramePortals portals;
     private List<MythosWeapon> customWeapons = List.of();
 
     @Inject
@@ -81,6 +83,10 @@ public final class MythosPlugin {
     public void onServerStarted(final StartedEngineEvent<Server> event) {
         try {
             this.classStore = new ClassStore(Path.of("config", "mythos", "character-classes.properties"));
+            this.portals.preloadWorlds();
+            final var server = event.engine();
+            server.scheduler().submit(Task.builder().plugin(this.container).interval(Ticks.of(1))
+                    .execute(() -> server.onlinePlayers().forEach(this.portals::check)).build(), "MYTHOS frame portals");
             this.logger.info("MYTHOS core loaded with {} classes and {} custom weapons.", CharacterClass.values().length, this.customWeapons.size());
         } catch (IOException exception) {
             throw new IllegalStateException("Could not initialize MYTHOS character storage", exception);
@@ -97,7 +103,7 @@ public final class MythosPlugin {
             try {
                 this.hub = new SpawnHub(Path.of("config", "mythos", "spawn-hub.properties"));
                 this.worldTravel = new WorldTravel(this.container, this.logger);
-                this.portals = new BlockPortals(Path.of("config", "mythos", "block-portals.properties"),
+                this.portals = new FramePortals(Path.of("config", "mythos", "frame-portals.properties"),
                         this.worldTravel, this.logger);
             } catch (IOException exception) {
                 throw new IllegalStateException("Could not load the MYTHOS hub and portal configuration", exception);
@@ -448,7 +454,8 @@ public final class MythosPlugin {
         if (this.hub != null && !event.isCancelled()
                 && event.context().get(EventContextKeys.USED_HAND).orElse(null) == HandTypes.MAIN_HAND.get()) {
             final var location = event.block().location();
-            if (this.portals != null && location.filter(block -> this.portals.interact(user, block)).isPresent()) {
+            if (this.portals != null && user.itemInHand(HandTypes.MAIN_HAND.get()).isEmpty()
+                    && location.filter(block -> this.portals.select(user, block)).isPresent()) {
                 event.setCancelled(true);
                 return;
             }

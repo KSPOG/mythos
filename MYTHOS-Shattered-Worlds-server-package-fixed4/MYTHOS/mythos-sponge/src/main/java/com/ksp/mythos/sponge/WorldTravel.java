@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import net.kyori.adventure.text.Component;
 import org.apache.logging.log4j.Logger;
 import org.spongepowered.api.ResourceKey;
@@ -22,6 +23,9 @@ import org.spongepowered.api.world.server.ServerLocation;
 import org.spongepowered.api.world.server.ServerWorld;
 import org.spongepowered.api.world.server.WorldTemplate;
 import org.spongepowered.api.world.teleport.TeleportHelperFilters;
+import org.spongepowered.api.world.teleport.TeleportHelperFilter;
+import org.spongepowered.api.util.Tristate;
+import org.spongepowered.api.block.BlockState;
 import org.spongepowered.math.vector.Vector3i;
 import org.spongepowered.plugin.PluginContainer;
 
@@ -102,36 +106,73 @@ final class WorldTravel {
     }
 
     void teleport(final ServerPlayer player, final Destination target, final Consumer<Component> reply) {
+        final var start = player.serverLocation();
+        teleport(player, target, reply, current -> current.worldKey().equals(start.worldKey())
+                && current.position().distanceSquared(start.position()) <= 16, arrival -> true, 16, 8, true);
+    }
+
+    void teleport(final ServerPlayer player, final Destination target, final Consumer<Component> reply,
+                  final Predicate<ServerLocation> stillValid, final Predicate<ServerLocation> validArrival,
+                  final int height, final int radius, final boolean announce) {
         final UUID id = player.uniqueId();
         if (this.teleporting.putIfAbsent(id, player) != null) {
             reply.accept(Component.text("A world teleport is already in progress."));
             return;
         }
-        final var start = player.serverLocation();
-        load(target.world(), false).whenComplete((world, failure) -> onServer(() -> {
-            if (!this.teleporting.remove(id, player)) return;
-            if (Sponge.server().player(id).orElse(null) != player) return;
-            if (failure != null) {
-                this.logger.warn("Could not load teleport destination {}", target.world(), failure);
-                reply.accept(Component.text("That world is unavailable."));
-                return;
-            }
-            final var current = player.serverLocation();
-            if (!current.worldKey().equals(start.worldKey()) || current.position().distanceSquared(start.position()) > 16) {
-                reply.accept(Component.text("Teleport cancelled because you moved away."));
-                return;
-            }
-            final Vector3i pos = target.position() == null ? world.properties().spawnPosition() : target.position();
-            final var destination = ServerLocation.of(world, pos.x() + 0.5, pos.y(), pos.z() + 0.5);
-            final var safe = Sponge.server().teleportHelper().findSafeLocation(destination, 16, 8, 2,
-                            TeleportHelperFilters.DEFAULT.get(), TeleportHelperFilters.NO_PORTAL.get())
-                    .filter(location -> insideBorder(world, location));
-            if (safe.isEmpty() || !player.setLocation(safe.get())) {
-                reply.accept(Component.text("No safe arrival was available at " + target.description() + "."));
-                return;
-            }
-            reply.accept(Component.text("Arrived in " + target.world().asString() + "."));
-        }));
+        final var future = load(target.world(), false);
+        final boolean ready = future.isDone();
+        future.whenComplete((world, failure) -> {
+            final Runnable finish = () -> {
+                if (!this.teleporting.remove(id, player)) return;
+                if (Sponge.server().player(id).orElse(null) != player) return;
+                if (failure != null) {
+                    this.logger.warn("Could not load teleport destination {}", target.world(), failure);
+                    reply.accept(Component.text("That world is unavailable."));
+                    return;
+                }
+                if (!stillValid.test(player.serverLocation())) {
+                    if (announce) reply.accept(Component.text("Teleport cancelled because you moved away."));
+                    return;
+                }
+                final Vector3i pos = target.position() == null ? world.properties().spawnPosition() : target.position();
+                final var destination = ServerLocation.of(world, pos.x() + 0.5, pos.y(), pos.z() + 0.5);
+                final var arrivalFilter = new TeleportHelperFilter() {
+                    @Override
+                    public Tristate isValidLocation(final ServerWorld candidateWorld, final Vector3i candidate) {
+                        final var location = ServerLocation.of(candidateWorld, candidate.x() + 0.5,
+                                candidate.y(), candidate.z() + 0.5);
+                        return validArrival.test(location) && insideBorder(candidateWorld, location)
+                                ? Tristate.TRUE : Tristate.FALSE;
+                    }
+
+                    @Override
+                    public boolean isSafeFloorMaterial(final BlockState state) {
+                        return true;
+                    }
+
+                    @Override
+                    public boolean isSafeBodyMaterial(final BlockState state) {
+                        return true;
+                    }
+                };
+                final var safe = Sponge.server().teleportHelper().findSafeLocation(destination, height, radius, 2,
+                        TeleportHelperFilters.DEFAULT.get(), TeleportHelperFilters.NO_PORTAL.get(), arrivalFilter);
+                if (safe.isEmpty() || !player.setLocation(safe.get())) {
+                    reply.accept(Component.text("No safe arrival was available at " + target.description() + "."));
+                    return;
+                }
+                if (announce) reply.accept(Component.text("Arrived in " + target.world().asString() + "."));
+            };
+            if (ready) finish.run();
+            else onServer(finish);
+        });
+    }
+
+    void preload(final ResourceKey key) {
+        load(key, false).exceptionally(error -> {
+            this.logger.warn("Could not preload portal world {}", key, error);
+            return null;
+        });
     }
 
     void forget(final UUID id) {
