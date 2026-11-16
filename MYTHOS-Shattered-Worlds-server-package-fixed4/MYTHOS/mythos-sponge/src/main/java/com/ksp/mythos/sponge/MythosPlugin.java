@@ -100,9 +100,12 @@ public final class MythosPlugin {
                     }
                     try {
                         if (!this.classStore.assignIfAbsent(player.get().uniqueId(), parsed.get())) {
-                            final CharacterClass current = this.classStore.find(player.get().uniqueId()).orElseThrow();
+                            final CharacterClass current = this.classStore.find(player.get().uniqueId()).orElse(null);
+                            if (current == null) {
+                                return CommandResult.error(Component.text("Your saved class is invalid. Ask staff to set it."));
+                            }
                             context.sendMessage(Component.text("Your class is already " + current.displayName()
-                                    + ". Class changes are disabled in this milestone."));
+                                    + ". Ask staff if you need a class change."));
                         } else {
                             context.sendMessage(Component.text("Your MYTHOS class is now " + parsed.get().displayName() + "."));
                         }
@@ -114,12 +117,47 @@ public final class MythosPlugin {
                 })
                 .build();
         event.register(this.container, chooseClass, "mythosclass", "mclass");
+        event.register(this.container, setClassCommand(classArgument), "mythossetclass");
         event.register(this.container, giveGearCommand(false), "mythosgiveweapon");
         event.register(this.container, giveGearCommand(true), "mythosgivearmor");
         event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
                 .map(this::castHeldSpell)
                 .orElseGet(() -> CommandResult.error(Component.text("Only a player can cast a spell."))))
                 .build(), "mythoscast");
+    }
+
+    private Command.Parameterized setClassCommand(final Parameter.Value<String> classArgument) {
+        final Parameter.Value<ServerPlayer> targetArgument = Parameter.player().key("player").build();
+        return Command.builder()
+                .permission("mythos.command.setclass")
+                .addParameter(targetArgument)
+                .addParameter(classArgument)
+                .executor(context -> {
+                    final Optional<CharacterClass> parsed = CharacterClass.fromId(context.requireOne(classArgument));
+                    if (parsed.isEmpty()) {
+                        final String classes = Arrays.stream(CharacterClass.values())
+                                .map(CharacterClass::id).collect(Collectors.joining(", "));
+                        return CommandResult.error(Component.text("Unknown class. Available: " + classes));
+                    }
+                    if (this.classStore == null) {
+                        return CommandResult.error(Component.text("MYTHOS is still initializing. Try again shortly."));
+                    }
+                    final ServerPlayer target = context.requireOne(targetArgument);
+                    final CharacterClass selected = parsed.get();
+                    try {
+                        this.classStore.assign(target.uniqueId(), selected);
+                    } catch (IOException exception) {
+                        this.logger.error("Failed to persist staff class assignment for {}", target.uniqueId(), exception);
+                        return CommandResult.error(Component.text("Could not save the class change. Check the server log."));
+                    }
+                    context.sendMessage(Component.text("Set " + target.name() + "'s MYTHOS class to " + selected.displayName() + "."));
+                    if (context.cause().first(ServerPlayer.class)
+                            .filter(sender -> sender.uniqueId().equals(target.uniqueId())).isEmpty()) {
+                        target.sendMessage(Component.text("Your MYTHOS class is now " + selected.displayName() + "."));
+                    }
+                    return CommandResult.success();
+                })
+                .build();
     }
 
     private Command.Parameterized giveGearCommand(final boolean armor) {
