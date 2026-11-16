@@ -12,21 +12,35 @@ import org.spongepowered.api.Server;
 import org.spongepowered.api.command.Command;
 import org.spongepowered.api.command.CommandResult;
 import org.spongepowered.api.command.parameter.Parameter;
+import org.spongepowered.api.data.Keys;
 import org.spongepowered.api.data.type.HandTypes;
 import org.spongepowered.api.entity.living.player.server.ServerPlayer;
 import org.spongepowered.api.event.Listener;
 import org.spongepowered.api.event.entity.AttackEntityEvent;
-import org.spongepowered.api.event.entity.ChangeEntityEquipmentEvent;
+import org.spongepowered.api.event.EventContextKeys;
+import org.spongepowered.api.event.block.InteractBlockEvent;
+import org.spongepowered.api.event.cause.entity.damage.source.DamageSource;
+import org.spongepowered.api.event.item.inventory.InteractItemEvent;
+import org.spongepowered.api.event.item.inventory.UseItemStackEvent;
 import org.spongepowered.api.event.lifecycle.RegisterCommandEvent;
 import org.spongepowered.api.event.lifecycle.StartedEngineEvent;
 import org.spongepowered.api.item.ItemType;
+import org.spongepowered.api.item.ItemTypes;
+import org.spongepowered.api.item.inventory.ItemStack;
+import org.spongepowered.api.item.inventory.ItemStackLike;
+import org.spongepowered.api.item.inventory.transaction.InventoryTransactionResult;
+import org.spongepowered.api.registry.DefaultedRegistryReference;
 import org.spongepowered.api.registry.RegistryTypes;
+import org.spongepowered.api.util.Tristate;
 import org.spongepowered.plugin.PluginContainer;
 import org.spongepowered.plugin.builtin.jvm.Plugin;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /** SpongeForge adapter. Gameplay decisions are delegated to mythos-core. */
 @Plugin("mythos")
@@ -41,7 +55,6 @@ public final class MythosPlugin {
     public MythosPlugin(final PluginContainer container, final Logger logger) {
         this.logger = logger;
         this.container = container;
-        this.registerStarterWeapons();
     }
 
     @Listener
@@ -56,6 +69,9 @@ public final class MythosPlugin {
 
     @Listener
     public void onRegisterCommands(final RegisterCommandEvent<Command.Parameterized> event) {
+        if (this.weapons.find("minecraft:bow").isEmpty()) {
+            this.registerStarterWeapons();
+        }
         final Parameter.Value<String> classArgument = Parameter.string().key("class").build();
         final Command.Parameterized chooseClass = Command.builder()
                 .addParameter(classArgument)
@@ -90,46 +106,140 @@ public final class MythosPlugin {
                 })
                 .build();
         event.register(this.container, chooseClass, "mythosclass", "mclass");
+        event.register(this.container, giveWeaponCommand(), "mythosgiveweapon");
     }
 
-    /** Prevent equipping a registered MYTHOS weapon that the player's class cannot use. */
+    private Command.Parameterized giveWeaponCommand() {
+        final Parameter.Value<ServerPlayer> targetArgument = Parameter.player().key("player").build();
+        final Parameter.Value<String> weaponArgument = Parameter.string().key("weapon").build();
+        return Command.builder()
+                .permission("mythos.command.giveweapon")
+                .addParameter(targetArgument)
+                .addParameter(weaponArgument)
+                .executor(context -> {
+                    final ServerPlayer target = context.requireOne(targetArgument);
+                    final String id = context.requireOne(weaponArgument).toLowerCase(Locale.ROOT);
+                    final Optional<StarterWeapon> match = Arrays.stream(StarterWeapon.WEAPONS)
+                            .filter(weapon -> weapon.id().equals(id) || ("mythos:" + id).equals(weapon.id()))
+                            .findFirst();
+                    if (match.isEmpty()) {
+                        return CommandResult.error(Component.text("Available weapons: " + Arrays.stream(StarterWeapon.WEAPONS)
+                                .map(StarterWeapon::id).collect(Collectors.joining(", "))));
+                    }
+
+                    final StarterWeapon weapon = match.get();
+                    final ItemStack stack = ItemStack.of(weapon.base());
+                    if (!stack.offer(Keys.CUSTOM_MODEL_DATA, weapon.model()).isSuccessful()
+                            || !stack.offer(Keys.CUSTOM_NAME, Component.text(weapon.name())).isSuccessful()) {
+                        return CommandResult.error(Component.text("Could not create " + weapon.name() + "."));
+                    }
+                    if (target.inventory().offer(stack).type() != InventoryTransactionResult.Type.SUCCESS) {
+                        return CommandResult.error(Component.text("Could not deliver the weapon. Check the player's inventory space."));
+                    }
+                    context.sendMessage(Component.text("Gave " + weapon.name() + " to " + target.name() + "."));
+                    return CommandResult.success();
+                })
+                .build();
+    }
+
+    // Inventory transactions are unrestricted. Only actual weapon use is blocked.
     @Listener
-    public void onEquipmentChange(final ChangeEntityEquipmentEvent event) {
-        if (!(event.entity() instanceof ServerPlayer player) || this.classStore == null) return;
-        final ItemType replacementType = event.transaction().finalReplacement().type();
-        final String itemId = replacementType.key(RegistryTypes.ITEM_TYPE).asString();
-        final Optional<CharacterClass> characterClass = this.classStore.find(player.uniqueId());
-        if (this.isRegisteredWeapon(itemId)
-                && !this.weaponPolicy.evaluate(characterClass.orElse(null), itemId, WeaponPolicy.Action.EQUIP).allowed()) {
+    public void onItemInteraction(final InteractItemEvent.Secondary event) {
+        if (isRestrictedUse(event.cause().first(ServerPlayer.class), event.itemStack())) {
             event.setCancelled(true);
-            player.sendMessage(Component.text("Your class cannot equip that weapon."));
         }
     }
 
-    /** Damage validation is repeated at the attack event to prevent equipment/UI bypasses. */
+    @Listener
+    public void onBlockInteraction(final InteractBlockEvent.Secondary event) {
+        final Optional<ServerPlayer> player = event.cause().first(ServerPlayer.class);
+        if (player.isEmpty()) return;
+        final ServerPlayer user = player.get();
+        final ItemStackLike stack = event.context().get(EventContextKeys.USED_ITEM)
+                .<ItemStackLike>map(item -> item)
+                .orElseGet(() -> user.itemInHand(event.context().get(EventContextKeys.USED_HAND)
+                        .orElseGet(HandTypes.MAIN_HAND::get)));
+        if (isRestrictedUse(player, stack)) {
+            // Keep the block interaction available, including opening a trade chest.
+            event.setUseItemResult(Tristate.FALSE);
+        }
+    }
+
+    @Listener
+    public void onStartUsingItem(final UseItemStackEvent.Start event) {
+        if (isRestrictedUse(event.cause().first(ServerPlayer.class), event.itemStackInUse())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @Listener
+    public void onReleaseItem(final UseItemStackEvent.Stop event) {
+        if (isRestrictedUse(event.cause().first(ServerPlayer.class), event.itemStackInUse())) {
+            event.setCancelled(true);
+        }
+    }
+
+    private boolean isRestrictedUse(final Optional<ServerPlayer> player, final ItemStackLike stack) {
+        if (player.isEmpty() || stack.isEmpty()) return false;
+        final String id = weaponId(stack);
+        if (this.weapons.find(id).isEmpty()) return false;
+        final ServerPlayer user = player.get();
+        if (this.weaponPolicy.evaluate(characterClass(user), id, WeaponPolicy.Action.USE).allowed()) {
+            return false;
+        }
+        user.sendMessage(Component.text("Your class cannot use that weapon."));
+        return true;
+    }
+
     @Listener
     public void onAttack(final AttackEntityEvent event) {
-        if (this.classStore == null) return;
-        final Optional<ServerPlayer> attacker = event.cause().first(ServerPlayer.class);
+        final var attacker = event.cause().first(DamageSource.class)
+                .flatMap(DamageSource::source)
+                .filter(ServerPlayer.class::isInstance)
+                .map(ServerPlayer.class::cast);
         if (attacker.isEmpty()) return;
         final ServerPlayer player = attacker.get();
-        final String itemId = player.itemInHand(HandTypes.MAIN_HAND.get()).type()
-                .key(RegistryTypes.ITEM_TYPE).asString();
-        if ("minecraft:air".equals(itemId)) return;
-        if (!this.isRegisteredWeapon(itemId)) {
+        final ItemStack stack = player.itemInHand(HandTypes.MAIN_HAND.get());
+        if (stack.isEmpty()) return;
+        final String id = weaponId(stack);
+        if (this.weapons.find(id).isEmpty()) {
             event.setCancelled(true);
             player.sendMessage(Component.text("That item is not a registered MYTHOS weapon."));
-            return;
-        }
-        final CharacterClass characterClass = this.classStore.find(player.uniqueId()).orElse(null);
-        if (!this.weaponPolicy.evaluate(characterClass, itemId, WeaponPolicy.Action.ATTACK).allowed()) {
+        } else if (!this.weaponPolicy.evaluate(characterClass(player), id, WeaponPolicy.Action.ATTACK).allowed()) {
             event.setCancelled(true);
             player.sendMessage(Component.text("Your class cannot attack with that weapon."));
         }
     }
 
-    private boolean isRegisteredWeapon(final String itemId) {
-        return this.weapons.find(itemId).isPresent();
+    private CharacterClass characterClass(final ServerPlayer player) {
+        return this.classStore == null ? null : this.classStore.find(player.uniqueId()).orElse(null);
+    }
+
+    private String weaponId(final ItemStackLike stack) {
+        final ItemType base = stack.type();
+        final int model = stack.get(Keys.CUSTOM_MODEL_DATA).orElse(0);
+        if (model != 0) {
+            for (final StarterWeapon weapon : StarterWeapon.WEAPONS) {
+                if (weapon.model() == model && weapon.base().get() == base) {
+                    return weapon.id();
+                }
+            }
+        }
+        return base.key(RegistryTypes.ITEM_TYPE).asString();
+    }
+
+    private record StarterWeapon(String id, String name, DefaultedRegistryReference<ItemType> base,
+                                 int model, WeaponCategory category) {
+        private static final StarterWeapon[] WEAPONS = {
+            new StarterWeapon("mythos:dawnbringer", "Dawnbringer", ItemTypes.IRON_SWORD, 71001, WeaponCategory.GREATSWORD),
+            new StarterWeapon("mythos:frontier_longbow", "Frontier Longbow", ItemTypes.BOW, 71002, WeaponCategory.BOW),
+            new StarterWeapon("mythos:ember_staff", "Ember Staff", ItemTypes.BLAZE_ROD, 71003, WeaponCategory.STAFF),
+            new StarterWeapon("mythos:assassins_edge", "Assassin's Edge", ItemTypes.STONE_SWORD, 71004, WeaponCategory.DAGGER),
+            new StarterWeapon("mythos:clerics_relic", "Cleric's Relic", ItemTypes.GOLDEN_SWORD, 71005, WeaponCategory.HOLY_STAFF),
+            new StarterWeapon("mythos:paladins_oath", "Paladin's Oath", ItemTypes.IRON_SWORD, 71006, WeaponCategory.HOLY_WEAPON),
+            new StarterWeapon("mythos:war_sunderer", "War Sunderer", ItemTypes.IRON_AXE, 71007, WeaponCategory.GREATAXE),
+            new StarterWeapon("mythos:summoners_focus", "Summoner's Focus", ItemTypes.BONE, 71008, WeaponCategory.SUMMONING_STAFF)
+        };
     }
 
     private void registerStarterWeapons() {
@@ -144,13 +254,8 @@ public final class MythosPlugin {
         this.weapons.register(new WeaponDefinition("minecraft:mace", WeaponCategory.HAMMER, 1, 0, 1));
         this.weapons.register(new WeaponDefinition("minecraft:shield", WeaponCategory.SHIELD, 1, 0, 1));
 
-        this.weapons.register(new WeaponDefinition("mythos:dawnbringer", WeaponCategory.GREATSWORD, 45, 20, 85));
-        this.weapons.register(new WeaponDefinition("mythos:frontier_longbow", WeaponCategory.BOW, 30, 10, 42));
-        this.weapons.register(new WeaponDefinition("mythos:ember_staff", WeaponCategory.STAFF, 20, 5, 25));
-        this.weapons.register(new WeaponDefinition("mythos:assassins_edge", WeaponCategory.DAGGER, 25, 10, 31));
-        this.weapons.register(new WeaponDefinition("mythos:clerics_relic", WeaponCategory.RELIC, 20, 5, 18));
-        this.weapons.register(new WeaponDefinition("mythos:paladins_oath", WeaponCategory.HOLY_WEAPON, 35, 15, 52));
-        this.weapons.register(new WeaponDefinition("mythos:war_sunderer", WeaponCategory.GREATAXE, 40, 18, 78));
-        this.weapons.register(new WeaponDefinition("mythos:summoners_focus", WeaponCategory.SUMMONING_STAFF, 30, 12, 24));
+        for (final StarterWeapon weapon : StarterWeapon.WEAPONS) {
+            this.weapons.register(new WeaponDefinition(weapon.id(), weapon.category(), 1, 0, 1));
+        }
     }
 }

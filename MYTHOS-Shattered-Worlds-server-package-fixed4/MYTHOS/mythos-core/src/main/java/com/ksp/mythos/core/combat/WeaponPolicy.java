@@ -8,7 +8,7 @@ import java.util.Objects;
 
 /** Fail-closed policy for all MYTHOS-registered weapons. */
 public final class WeaponPolicy {
-    public enum Action { EQUIP, ATTACK }
+    public enum Action { EQUIP, ATTACK, USE }
     public record Decision(boolean allowed, String reason) { }
 
     private final WeaponCatalog catalog;

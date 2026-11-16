@@ -25,6 +25,10 @@ public final class WeaponPolicyTest {
         assert !policy.evaluate(null, "mythos:ember_staff", WeaponPolicy.Action.EQUIP).allowed();
         assert policy.evaluate(CharacterClass.MAGE, "minecraft:bread", WeaponPolicy.Action.ATTACK).allowed();
 
+        assert policy.evaluate(CharacterClass.RANGER, "mythos:longbow_of_the_frontier", WeaponPolicy.Action.USE).allowed();
+        assert !policy.evaluate(CharacterClass.WARRIOR, "mythos:longbow_of_the_frontier", WeaponPolicy.Action.USE).allowed();
+        assert !policy.evaluate(null, "mythos:longbow_of_the_frontier", WeaponPolicy.Action.USE).allowed();
+
         boolean duplicateRejected = false;
         try {
             catalog.register(new WeaponDefinition("mythos:dawnbringer", WeaponCategory.SWORD, 1, 0, 1));
@@ -40,6 +44,6 @@ public final class WeaponPolicyTest {
         assert com.ksp.mythos.core.weapon.ClassWeaponRules.allows(CharacterClass.CLERIC, WeaponCategory.RELIC);
         assert com.ksp.mythos.core.weapon.ClassWeaponRules.allows(CharacterClass.PALADIN, WeaponCategory.HOLY_WEAPON);
         assert com.ksp.mythos.core.weapon.ClassWeaponRules.allows(CharacterClass.SUMMONER, WeaponCategory.SUMMONING_STAFF);
-        System.out.println("MYTHOS weapon policy tests passed (17 assertions + duplicate-ID guard).");
+        System.out.println("MYTHOS weapon policy tests passed (20 assertions + duplicate-ID guard).");
     }
 }
