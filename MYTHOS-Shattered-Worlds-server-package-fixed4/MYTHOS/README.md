@@ -141,9 +141,40 @@ Staff with `mythos.command.givearmor` can use `/mythosgivearmor <online-player> 
 | Sunward | `sunward_helm`, `sunward_chestplate`, `sunward_leggings`, `sunward_boots` | Gold, Thorns chestplate |
 | Gravebloom | `gravebloom_hood`, `gravebloom_tunic`, `gravebloom_leggings`, `gravebloom_boots` | Teal leather, Respiration and Depth Strider |
 
+#### Class-themed armour
+
+These additional sets cover heavy defence, environmental protection, stealth, and travel. Players can mix pieces across sets.
+
+| Theme | Set | Base | Item IDs | Specialty |
+| --- | --- | --- | --- | --- |
+| Warrior | Rampart | Diamond | `rampart_helm`, `rampart_chestplate`, `rampart_leggings`, `rampart_boots` | Blast-resistant heavy armour |
+| Warrior | Stonewatch | Chainmail | `stonewatch_helm`, `stonewatch_chestplate`, `stonewatch_leggings`, `stonewatch_boots` | Projectile and fall protection |
+| Warrior | Bridgeguard | Iron | `bridgeguard_helm`, `bridgeguard_chestplate`, `bridgeguard_leggings`, `bridgeguard_boots` | General defence with Depth Strider |
+| Berserker | Cinderplate | Netherite | `cinderplate_helm`, `cinderplate_chestplate`, `cinderplate_leggings`, `cinderplate_boots` | Heavy armour for fire and explosions |
+| Berserker | Siegebreaker | Diamond | `siegebreaker_helm`, `siegebreaker_chestplate`, `siegebreaker_leggings`, `siegebreaker_boots` | Blast protection and durable boots |
+| Berserker | Redfang | Leather | `redfang_hood`, `redfang_tunic`, `redfang_leggings`, `redfang_boots` | Crimson leather with Thorns |
+| Ranger | Hawkeye | Leather | `hawkeye_hood`, `hawkeye_tunic`, `hawkeye_leggings`, `hawkeye_boots` | Archer’s leather for projectile-heavy fights |
+| Ranger | Highpine | Chainmail | `highpine_helm`, `highpine_chestplate`, `highpine_leggings`, `highpine_boots` | Fall protection for high ground |
+| Ranger | Marshstalker | Leather | `marshstalker_hood`, `marshstalker_tunic`, `marshstalker_leggings`, `marshstalker_boots` | Respiration and Depth Strider for wetlands |
+| Assassin | Duskthread | Leather | `duskthread_hood`, `duskthread_tunic`, `duskthread_leggings`, `duskthread_boots` | Swift Sneak III and Feather Falling IV |
+| Assassin | Whispersteel | Chainmail | `whispersteel_helm`, `whispersteel_chestplate`, `whispersteel_leggings`, `whispersteel_boots` | Chainmail with Swift Sneak |
+| Assassin | Siltstep | Leather | `siltstep_hood`, `siltstep_tunic`, `siltstep_leggings`, `siltstep_boots` | Stealth near and under water |
+| Mage | Stormsilk | Leather | `stormsilk_hood`, `stormsilk_tunic`, `stormsilk_leggings`, `stormsilk_boots` | Lavender leather for blasts and arrows |
+| Mage | Runebound | Chainmail | `runebound_helm`, `runebound_chestplate`, `runebound_leggings`, `runebound_boots` | Mixed defence and boot durability |
+| Mage | Emberweave | Leather | `emberweave_hood`, `emberweave_tunic`, `emberweave_leggings`, `emberweave_boots` | Orange leather for fire protection |
+| Cleric | Ivorymantle | Leather | `ivorymantle_hood`, `ivorymantle_tunic`, `ivorymantle_leggings`, `ivorymantle_boots` | Pale leather for general defence |
+| Cleric | Pilgrim | Chainmail | `pilgrim_helm`, `pilgrim_chestplate`, `pilgrim_leggings`, `pilgrim_boots` | Durable travel gear with water mobility |
+| Cleric | Hallowmist | Leather | `hallowmist_hood`, `hallowmist_tunic`, `hallowmist_leggings`, `hallowmist_boots` | Light teal leather for underwater travel |
+| Paladin | Oathplate | Diamond | `oathplate_helm`, `oathplate_chestplate`, `oathplate_leggings`, `oathplate_boots` | Heavy general defence with Thorns |
+| Paladin | Dawnshield | Iron | `dawnshield_helm`, `dawnshield_chestplate`, `dawnshield_leggings`, `dawnshield_boots` | Defence against mixed threats |
+| Paladin | Gilded Vow | Golden | `gilded_vow_helm`, `gilded_vow_chestplate`, `gilded_vow_leggings`, `gilded_vow_boots` | Gold armour with Thorns III and fire protection |
+| Summoner | Boneweave | Leather | `boneweave_hood`, `boneweave_tunic`, `boneweave_leggings`, `boneweave_boots` | Bone-coloured leather and blast protection |
+| Summoner | Wraithmesh | Chainmail | `wraithmesh_helm`, `wraithmesh_chestplate`, `wraithmesh_leggings`, `wraithmesh_boots` | Fire, blast and sneak utility |
+| Summoner | Abyssal | Leather | `abyssal_hood`, `abyssal_tunic`, `abyssal_leggings`, `abyssal_boots` | Deep-blue leather for underwater combat |
+
 ### Give every weapon and armour piece
 
-Owners can run `/mythosgiveallgear` in game for themselves or `/mythosgiveallgear <online-player>` to specify a recipient. From the server console, run `mythosgiveallgear <online-player>` while the recipient is online. The command gives one of each configured weapon and each MYTHOS armour piece in named shulker boxes. The default catalog has 72 pieces (32 weapons and 40 armour pieces), so the recipient needs three empty inventory slots. Place and open the boxes to retrieve the gear.
+Owners can run `/mythosgiveallgear` in game for themselves or `/mythosgiveallgear <online-player>` to specify a recipient. From the server console, run `mythosgiveallgear <online-player>` while the recipient is online. The command gives one of each configured weapon and each MYTHOS armour piece in named shulker boxes. The default catalog has 168 pieces (32 weapons and 136 armour pieces), so the recipient needs seven empty inventory slots. Place and open the boxes to retrieve the gear.
 
 The rank preset grants `mythos.command.giveallgear` to Owner. If you already imported the ranks, run this once from the server console.
 
@@ -159,7 +190,7 @@ After rebuilding and restarting, look for `MYTHOS bulk gear command registered` 
 2. Trade the staff to a Warrior. Check that it stays in their inventory and casting is denied.
 3. Give the Warrior a Frontier Longbow. Move it into and out of a chest, then try to draw it. Give the same bow to a Ranger and verify that it fires with ordinary arrows. With the pack enabled, draw each custom bow and a vanilla bow to verify all models.
 4. Give and equip a Riftweave piece. Check its dye and enchantment after reconnecting.
-5. As Owner, give the full gear set and place all three crates. Check they contain 27, 27 and 18 pieces, and that a weapon retains its name, spell, and stats. Test with two empty slots and verify no crate is delivered. Confirm a Tester cannot run the bulk command.
+5. As Owner, give the full gear set and place all seven crates. Check that six contain 27 pieces each and the last contains six, and that a weapon retains its name, spell, and stats. Test with six empty slots and verify no crate is delivered. Confirm a Tester cannot run the bulk command.
 
 ## Build
 
