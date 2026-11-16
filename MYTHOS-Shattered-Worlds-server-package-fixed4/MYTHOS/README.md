@@ -112,14 +112,14 @@ lp group owner permission set mythos.command.worldmanage true
 | `/mythosportal define chapter_gate` | Select the frame in your current world |
 | `/mythosportal link chapter_gate chapter_return` | Pair two defined frames in both directions |
 | `/mythosportal` | List frame positions and links |
-| `/mythosportal setarrival chapter_gate` | Set the arrival block and front side for this frame |
+| `/mythosportal setarrival chapter_gate` | Set the arrival block, front side, and facing for this frame |
 | `/mythosportal unlink chapter_gate` | Disconnect both ends and keep the frames |
 | `/mythosportal remove chapter_gate` | Remove a frame's registration |
 | `/mythosportal cancel` | Cancel corner selection |
 
 Build a vertical rectangular frame in each world with an open passage at least one block wide and two blocks high. Run `/mythosportal define <name>` at each frame and right-click the **lower outside corner** and **opposite upper outside corner** with an empty main hand. Run the link command after defining both. Players travel by walking into either opening. Keep a safe floor and two blocks of headroom beside the destination frame. Arrivals are placed beside the frame to prevent an immediate return trip.
 
-For a gate with a backdrop, stand on solid ground at least two blocks in front of the frame, then run `/mythosportal setarrival <frame>`. Players arriving at that frame use the saved block, and walking up to its front triggers it at ground level. Keep the landing block clear with room to stand. Set this separately for each end that needs a front-side arrival.
+For a gate with a backdrop, stand on solid ground at least two blocks in front of the frame, look in the direction players should face, then run `/mythosportal setarrival <frame>`. Players arriving at that frame use the saved block and view direction, and walking up to its front triggers it at ground level. Keep the landing block clear with room to stand. Set this separately for each end that needs a front-side arrival.
 
 Frame pairs are saved in `server/config/mythos/frame-portals.properties`. Use the define command with the same name to move or resize an existing frame while retaining its link. Earlier single-block links need to be defined again as frame pairs. World management and world teleport commands remain available from the console, where commands omit the slash and teleport requires a player name.
 

@@ -19,10 +19,11 @@ import org.spongepowered.api.command.CommandResult;
 import org.spongepowered.api.command.parameter.Parameter;
 import org.spongepowered.api.entity.living.player.server.ServerPlayer;
 import org.spongepowered.api.world.server.ServerLocation;
+import org.spongepowered.math.vector.Vector3d;
 import org.spongepowered.math.vector.Vector3i;
 
 final class FramePortals {
-    private record Frame(ResourceKey world, Vector3i low, Vector3i high, String peer, Vector3i arrival) {
+    private record Frame(ResourceKey world, Vector3i low, Vector3i high, String peer, Vector3i arrival, Vector3d rotation) {
         static Frame between(final ResourceKey world, final Vector3i a, final Vector3i b) {
             final Vector3i low = new Vector3i(Math.min(a.x(), b.x()), Math.min(a.y(), b.y()), Math.min(a.z(), b.z()));
             final Vector3i high = new Vector3i(Math.max(a.x(), b.x()), Math.max(a.y(), b.y()), Math.max(a.z(), b.z()));
@@ -31,18 +32,22 @@ final class FramePortals {
             if ((dx == 0) == (dz == 0) || width < 2 || width > 32 || dy < 3 || dy > 32) {
                 throw new IllegalArgumentException("Select diagonal outer corners of a vertical frame with a walkable opening (maximum 33 blocks across or tall).");
             }
-            return new Frame(world, low, high, null, null);
+            return new Frame(world, low, high, null, null, null);
         }
 
         Frame link(final String name) {
-            return new Frame(this.world, this.low, this.high, name, this.arrival);
+            return new Frame(this.world, this.low, this.high, name, this.arrival, this.rotation);
         }
 
-        Frame withArrival(final Vector3i position) {
+        Frame withArrival(final Vector3i position, final Vector3d facing) {
             if (position != null && Math.abs((long) depth(position) - depth(this.low)) < 2) {
                 throw new IllegalArgumentException("Stand at least two blocks out from the frame, on the side players should use.");
             }
-            return new Frame(this.world, this.low, this.high, this.peer, position);
+            if (facing != null && (!Double.isFinite(facing.x()) || !Double.isFinite(facing.y())
+                    || !Double.isFinite(facing.z()))) {
+                throw new IllegalArgumentException("Invalid portal arrival rotation.");
+            }
+            return new Frame(this.world, this.low, this.high, this.peer, position, facing);
         }
 
         private int depth(final Vector3i position) {
@@ -73,7 +78,7 @@ final class FramePortals {
         }
 
         WorldTravel.Destination exit() {
-            if (this.arrival != null) return new WorldTravel.Destination(this.world, this.arrival);
+            if (this.arrival != null) return new WorldTravel.Destination(this.world, this.arrival, this.rotation);
             final int x = this.low.x() + (this.high.x() - this.low.x()) / 2;
             final int z = this.low.z() + (this.high.z() - this.low.z()) / 2;
             return new WorldTravel.Destination(this.world, new Vector3i(x + (this.low.x() == this.high.x() ? 1 : 0),
@@ -103,11 +108,13 @@ final class FramePortals {
         for (final String id : data.stringPropertyNames().stream().sorted().toList()) {
             try {
                 final String[] parts = data.getProperty(id).split(" ", -1);
-                if (!validId(id) || (parts.length != 8 && parts.length != 11)) throw new IllegalArgumentException();
+                if (!validId(id) || (parts.length != 8 && parts.length != 11 && parts.length != 14)) throw new IllegalArgumentException();
                 final Frame frame = Frame.between(ResourceKey.resolve(parts[0]), position(parts, 1), position(parts, 4));
                 if (this.frames.values().stream().anyMatch(frame::overlaps)) throw new IllegalArgumentException("Overlapping frames");
                 this.frames.put(id, frame.link(parts[7].equals("-") ? null : parts[7])
-                        .withArrival(parts.length == 11 ? position(parts, 8) : null));
+                        .withArrival(parts.length >= 11 ? position(parts, 8) : null, parts.length == 14
+                                ? new Vector3d(Double.parseDouble(parts[11]), Double.parseDouble(parts[12]),
+                                        Double.parseDouble(parts[13])) : null));
             } catch (RuntimeException exception) {
                 throw new IOException("Invalid portal " + id + " in " + file, exception);
             }
@@ -184,7 +191,7 @@ final class FramePortals {
         }
         final Frame updatedFrame;
         try {
-            updatedFrame = frame.withArrival(location.blockPosition());
+            updatedFrame = frame.withArrival(location.blockPosition(), player.rotation());
         } catch (IllegalArgumentException exception) {
             return WorldTravel.error(exception.getMessage());
         }
@@ -195,7 +202,7 @@ final class FramePortals {
         final var updated = new LinkedHashMap<>(this.frames);
         updated.put(id, updatedFrame);
         if (!save(updated)) return saveError();
-        reply.accept(Component.text("Saved " + id + " arrival and entrance side at "
+        reply.accept(Component.text("Saved " + id + " arrival, entrance side, and facing at "
                 + format(updatedFrame.arrival()) + "."));
         return CommandResult.success();
     }
@@ -254,7 +261,7 @@ final class FramePortals {
             final Frame linked = frame.link(old == null ? null : old.peer());
             updated.put(selection.name(), old != null && old.world().equals(frame.world())
                     && old.low().equals(frame.low()) && old.high().equals(frame.high())
-                    ? linked.withArrival(old.arrival()) : linked);
+                    ? linked.withArrival(old.arrival(), old.rotation()) : linked);
             if (save(updated)) {
                 this.selecting.remove(id);
                 if (old != null && old.peer() != null) preloadWorlds();
@@ -306,7 +313,9 @@ final class FramePortals {
         final Properties data = new Properties();
         updated.forEach((name, frame) -> data.setProperty(name, frame.world().asString() + " " + format(frame.low())
                 + " " + format(frame.high()) + " " + (frame.peer() == null ? "-" : frame.peer())
-                + (frame.arrival() == null ? "" : " " + format(frame.arrival()))));
+                + (frame.arrival() == null ? "" : " " + format(frame.arrival()))
+                + (frame.rotation() == null ? "" : " " + frame.rotation().x() + " "
+                        + frame.rotation().y() + " " + frame.rotation().z())));
         try {
             Files.createDirectories(this.file.getParent());
             final Path temp = this.file.resolveSibling(this.file.getFileName() + ".tmp");

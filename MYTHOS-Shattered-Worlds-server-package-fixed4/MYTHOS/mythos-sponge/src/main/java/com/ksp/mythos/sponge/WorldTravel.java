@@ -31,13 +31,18 @@ import org.spongepowered.api.block.BlockState;
 import org.spongepowered.api.block.BlockTypes;
 import org.spongepowered.api.fluid.FluidTypes;
 import org.spongepowered.api.tag.BlockTypeTags;
+import org.spongepowered.math.vector.Vector3d;
 import org.spongepowered.math.vector.Vector3i;
 import org.spongepowered.plugin.PluginContainer;
 
 final class WorldTravel {
     static final String MANAGE = "mythos.command.worldmanage";
 
-    record Destination(ResourceKey world, Vector3i position) {
+    record Destination(ResourceKey world, Vector3i position, Vector3d rotation) {
+        Destination(final ResourceKey world, final Vector3i position) {
+            this(world, position, null);
+        }
+
         String description() {
             return this.world.asString() + (this.position == null ? " (world spawn)"
                     : " " + this.position.x() + " " + this.position.y() + " " + this.position.z());
@@ -254,7 +259,8 @@ final class WorldTravel {
                 };
                 final var safe = Sponge.server().teleportHelper().findSafeLocation(destination, height, radius, 2,
                         TeleportHelperFilters.DEFAULT.get(), TeleportHelperFilters.NO_PORTAL.get(), arrivalFilter);
-                if (safe.isEmpty() || !player.setLocation(safe.get())) {
+                if (safe.filter(location -> target.rotation() == null ? player.setLocation(location)
+                        : player.setLocationAndRotation(location, target.rotation())).isEmpty()) {
                     reply.accept(Component.text("No safe arrival was available at " + target.description() + "."));
                     return;
                 }
