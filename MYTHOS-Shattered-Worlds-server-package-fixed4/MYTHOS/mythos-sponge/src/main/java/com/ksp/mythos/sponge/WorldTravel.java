@@ -50,33 +50,37 @@ final class WorldTravel {
     }
 
     Command.Parameterized worldsCommand() {
-        final var argument = Parameter.string().key("world").build();
-        return Command.builder()
-                .addChild(Command.builder().addParameter(argument).executor(context -> {
-                    if (!canManage(context.cause())) return denied();
-                    final String id = context.requireOne(argument);
-                    if (!id.matches("[a-z][a-z0-9_]{0,31}")) {
-                        return error("Use a short world ID such as chapter_one.");
-                    }
-                    final ResourceKey key = ResourceKey.of("mythos", id);
-                    prepare(key, true, context::sendMessage);
-                    return CommandResult.success();
-                }).build(), "create")
-                .addChild(Command.builder().addParameter(argument).executor(context -> {
-                    if (!canManage(context.cause())) return denied();
-                    final var key = parseKey(context.requireOne(argument));
-                    if (key.isEmpty() || !known(key.get())) return error("Unknown world. Use /mythosworld to list world keys.");
-                    prepare(key.get(), false, context::sendMessage);
-                    return CommandResult.success();
-                }).build(), "load")
-                .executor(context -> {
-                    final var worlds = Sponge.server().worldManager();
-                    final var keys = new java.util.TreeSet<String>();
-                    worlds.worldKeys().forEach(key -> keys.add(key.asString()));
-                    worlds.worlds().forEach(world -> keys.add(world.key().asString()));
-                    context.sendMessage(Component.text("Worlds: " + String.join(", ", keys)));
-                    return CommandResult.success();
-                }).build();
+        final var arguments = Parameter.remainingJoinedStrings().key("arguments").optional().build();
+        return Command.builder().addParameter(arguments).executor(context -> {
+            final String input = context.one(arguments).orElse("").strip();
+            if (input.isEmpty() || input.equalsIgnoreCase("list")) {
+                final var worlds = Sponge.server().worldManager();
+                final var keys = new java.util.TreeSet<String>();
+                worlds.worldKeys().forEach(key -> keys.add(key.asString()));
+                worlds.worlds().forEach(world -> keys.add(world.key().asString()));
+                context.sendMessage(Component.text("Worlds: " + String.join(", ", keys)));
+                return CommandResult.success();
+            }
+            if (!canManage(context.cause())) return denied();
+            final String[] words = input.split("\\s+");
+            if (words.length != 2 || (!words[0].equals("create") && !words[0].equals("load"))) {
+                return error("Usage: /mythosworld [create <id> | load <world-key>]");
+            }
+            final boolean create = words[0].equals("create");
+            final ResourceKey key;
+            if (create) {
+                if (!words[1].matches("[a-z][a-z0-9_]{0,31}")) {
+                    return error("Use a short world ID such as chapter_one.");
+                }
+                key = ResourceKey.of("mythos", words[1]);
+            } else {
+                final var parsed = parseKey(words[1]);
+                if (parsed.isEmpty() || !known(parsed.get())) return error("Unknown world. Use /mythosworld to list world keys.");
+                key = parsed.get();
+            }
+            prepare(key, create, context::sendMessage);
+            return CommandResult.success();
+        }).build();
     }
 
     Command.Parameterized teleportCommand() {

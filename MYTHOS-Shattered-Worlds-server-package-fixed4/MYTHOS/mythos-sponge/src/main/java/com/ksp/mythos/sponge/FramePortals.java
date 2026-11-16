@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.function.Consumer;
 import net.kyori.adventure.text.Component;
 import org.apache.logging.log4j.Logger;
 import org.spongepowered.api.ResourceKey;
@@ -106,70 +107,74 @@ final class FramePortals {
     }
 
     Command.Parameterized command() {
-        final var name = Parameter.string().key("frame").build();
-        final var target = Parameter.string().key("destination-frame").build();
-        final var define = Command.builder().addParameter(name).executor(context -> {
+        final var arguments = Parameter.remainingJoinedStrings().key("arguments").optional().build();
+        return Command.builder().addParameter(arguments).executor(context -> {
             if (!WorldTravel.canManage(context.cause())) return WorldTravel.denied();
-            final var player = context.cause().first(ServerPlayer.class);
-            if (player.isEmpty()) return WorldTravel.error("Define a portal frame in game.");
-            final String id = normalize(context.requireOne(name));
-            if (!validId(id)) return WorldTravel.error("Use an ID such as chapter_gate.");
-            this.selecting.put(player.get().uniqueId(), new Selection(id, null));
-            context.sendMessage(Component.text("With an empty main hand, right-click a lower outer corner and the opposite upper outer corner."));
-            return CommandResult.success();
-        }).build();
-        final var link = Command.builder().addParameter(name).addParameter(target).executor(context -> {
-            if (!WorldTravel.canManage(context.cause())) return WorldTravel.denied();
-            final String from = normalize(context.requireOne(name));
-            final String to = normalize(context.requireOne(target));
-            if (from.equals(to) || !this.frames.containsKey(from) || !this.frames.containsKey(to)) {
-                return WorldTravel.error("Choose two different defined portal frames.");
+            final String input = context.one(arguments).orElse("").strip();
+            if (input.isEmpty() || input.equalsIgnoreCase("list")) {
+                if (this.frames.isEmpty()) context.sendMessage(Component.text("No portal frames defined."));
+                this.frames.forEach((id, frame) -> context.sendMessage(Component.text(id + " at "
+                        + frame.world().asString() + " " + format(frame.low()) + " → " + format(frame.high())
+                        + (frame.peer() == null ? " (unlinked)" : " — paired with " + frame.peer()))));
+                return CommandResult.success();
             }
-            final var updated = new LinkedHashMap<>(this.frames);
-            unlink(updated, from);
-            unlink(updated, to);
-            updated.put(from, updated.get(from).link(to));
-            updated.put(to, updated.get(to).link(from));
-            if (!save(updated)) return saveError();
-            preloadWorlds();
-            context.sendMessage(Component.text("Paired " + from + " ↔ " + to + ". Walk through either opening."));
-            return CommandResult.success();
+            final String[] words = normalize(input).split("\\s+");
+            final var player = context.cause().first(ServerPlayer.class);
+            final String action = words[0];
+            final int expected = switch (action) {
+                case "define", "unlink", "remove" -> 2;
+                case "link" -> 3;
+                case "cancel" -> 1;
+                default -> 0;
+            };
+            if (words.length != expected) {
+                return WorldTravel.error("Usage: /mythosportal [define <frame> | link <frame> <frame> | unlink <frame> | remove <frame> | cancel]");
+            }
+            return switch (action) {
+                case "define" -> define(words[1], player.orElse(null), context::sendMessage);
+                case "link" -> pair(words[1], words[2], context::sendMessage);
+                case "unlink", "remove" -> disconnect(words[1], action.equals("remove"), context::sendMessage);
+                case "cancel" -> {
+                    player.ifPresent(user -> this.selecting.remove(user.uniqueId()));
+                    context.sendMessage(Component.text("Portal frame selection cleared."));
+                    yield CommandResult.success();
+                }
+                default -> throw new IllegalStateException("Unrecognized portal action " + action);
+            };
         }).build();
-        final var unpair = Command.builder().addParameter(name).executor(context -> {
-            if (!WorldTravel.canManage(context.cause())) return WorldTravel.denied();
-            final String id = normalize(context.requireOne(name));
-            if (!this.frames.containsKey(id)) return WorldTravel.error("Unknown frame " + id + ".");
-            final var updated = new LinkedHashMap<>(this.frames);
-            unlink(updated, id);
-            if (!save(updated)) return saveError();
-            context.sendMessage(Component.text("Unlinked frame " + id + "."));
-            return CommandResult.success();
-        }).build();
-        final var remove = Command.builder().addParameter(name).executor(context -> {
-            if (!WorldTravel.canManage(context.cause())) return WorldTravel.denied();
-            final String id = normalize(context.requireOne(name));
-            if (!this.frames.containsKey(id)) return WorldTravel.error("Unknown frame " + id + ".");
-            final var updated = new LinkedHashMap<>(this.frames);
-            unlink(updated, id);
-            updated.remove(id);
-            if (!save(updated)) return saveError();
-            context.sendMessage(Component.text("Removed frame " + id + "."));
-            return CommandResult.success();
-        }).build();
-        final var cancel = Command.builder().executor(context -> {
-            context.cause().first(ServerPlayer.class).ifPresent(player -> this.selecting.remove(player.uniqueId()));
-            context.sendMessage(Component.text("Portal frame selection cleared."));
-            return CommandResult.success();
-        }).build();
-        return Command.builder().addChild(define, "define").addChild(link, "link")
-                .addChild(unpair, "unlink").addChild(remove, "remove").addChild(cancel, "cancel").executor(context -> {
-                    if (!WorldTravel.canManage(context.cause())) return WorldTravel.denied();
-                    if (this.frames.isEmpty()) context.sendMessage(Component.text("No portal frames defined."));
-                    this.frames.forEach((id, frame) -> context.sendMessage(Component.text(id + " at "
-                            + frame.world().asString() + " " + format(frame.low()) + " → " + format(frame.high())
-                            + (frame.peer() == null ? " (unlinked)" : " — paired with " + frame.peer()))));
-                    return CommandResult.success();
-                }).build();
+    }
+
+    private CommandResult define(final String id, final ServerPlayer player, final Consumer<Component> reply) {
+        if (player == null) return WorldTravel.error("Define a portal frame in game.");
+        if (!validId(id)) return WorldTravel.error("Use an ID such as chapter_gate.");
+        this.selecting.put(player.uniqueId(), new Selection(id, null));
+        reply.accept(Component.text("With an empty main hand, right-click a lower outer corner and the opposite upper outer corner."));
+        return CommandResult.success();
+    }
+
+    private CommandResult pair(final String from, final String to, final Consumer<Component> reply) {
+        if (from.equals(to) || !this.frames.containsKey(from) || !this.frames.containsKey(to)) {
+            return WorldTravel.error("Choose two different defined portal frames.");
+        }
+        final var updated = new LinkedHashMap<>(this.frames);
+        unlink(updated, from);
+        unlink(updated, to);
+        updated.put(from, updated.get(from).link(to));
+        updated.put(to, updated.get(to).link(from));
+        if (!save(updated)) return saveError();
+        preloadWorlds();
+        reply.accept(Component.text("Paired " + from + " ↔ " + to + ". Walk through either opening."));
+        return CommandResult.success();
+    }
+
+    private CommandResult disconnect(final String id, final boolean remove, final Consumer<Component> reply) {
+        if (!this.frames.containsKey(id)) return WorldTravel.error("Unknown frame " + id + ".");
+        final var updated = new LinkedHashMap<>(this.frames);
+        unlink(updated, id);
+        if (remove) updated.remove(id);
+        if (!save(updated)) return saveError();
+        reply.accept(Component.text((remove ? "Removed frame " : "Unlinked frame ") + id + "."));
+        return CommandResult.success();
     }
 
     boolean select(final ServerPlayer player, final ServerLocation block) {
