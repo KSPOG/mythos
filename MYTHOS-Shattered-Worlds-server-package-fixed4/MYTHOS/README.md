@@ -127,17 +127,15 @@ For a live check, pair two frames across worlds, walk through and return, then r
 
 ## Skyreach v2 test build
 
-The [Skyreach v2 datapack](datapacks/MYTHOS-Skyreach-v2.zip) places the floating-island hub in Minecraft Java 1.21.1. It has five physical portal frames. The ZIP includes the frame coordinates for the example anchor below.
-
-1. Copy the intact ZIP from `datapacks/` in this project to `server/<level-name>/datapacks/`. The directory named by `level-name` in `server/server.properties` is the primary save, even when placing Skyreach in another world.
-2. Restart the server and run `datapack list enabled` in the server console. Look for `file/MYTHOS-Skyreach-v2.zip`.
-3. Join a clear test world as OP, fly near `0 160 0`, and run the command below. It places the build in the world you are currently in and writes blocks across its footprint. The arrival plaza is at `0 161 11`.
+Build the MYTHOS plugin and restart the server. From the server console, use this command to place the preview in a clear, loaded test world:
 
 ```text
-/execute positioned 0 160 0 run function mythos_skyreach_v2:build
+buildhub mythos:c1 0 160 0
 ```
 
-For the server console, with the player online in the desired test world, run `execute as KiritoSanPlays at @s positioned 0 160 0 run function mythos_skyreach_v2:build`. Define, pair, and set arrival points for the gates with the existing MYTHOS portal commands.
+Owners can also run `/buildhub` in game while flying one block above the intended center floor, or supply the world key and coordinates. The console logs the site check, placement progress, and the arrival coordinates on completion. At the example anchor, the arrival is `0 161 11`. The footprint spans X −68 to 70, Y 128 to 208, and Z −56 to 71. Existing blocks at planned coordinates must be air or match the blueprint. If placement stops after the site check, completed batches can remain in the world.
+
+This is a preview structure. Use existing MYTHOS commands to define gate frames and pairs. The [Skyreach v2 datapack](datapacks/MYTHOS-Skyreach-v2.zip) includes the gate coordinates for the example anchor.
 
 ## Staff class testing
 

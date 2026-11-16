@@ -111,6 +111,7 @@ public final class MythosPlugin {
         }
         final var buildHub = event.register(this.container, this.hub.buildCommand(), "mythosbuildhub");
         this.logger.info("MYTHOS hub build command registered: {}", buildHub.mapping().allAliases());
+        event.register(this.container, new HubPreviewBuilder(this.container, this.logger).command(), "buildhub", "mythosbuildpreview");
         event.register(this.container, this.hub.upgradeCommand(), "mythosupgradehub");
         event.register(this.container, this.worldTravel.worldsCommand(), "mythosworld");
         event.register(this.container, this.worldTravel.teleportCommand(), "mythosworldtp");
