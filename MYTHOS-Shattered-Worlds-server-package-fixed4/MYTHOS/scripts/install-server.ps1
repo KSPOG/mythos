@@ -54,6 +54,32 @@ if (-not (Test-Path $SpongeJar)) {
 }
 if ((Get-Item $SpongeJar).Length -lt 1000000) { throw 'SpongeForge download is unexpectedly small; refusing to install it.' }
 
+$Mods = Join-Path $Server 'mods'
+if (-not (Get-ChildItem -LiteralPath $Mods -Filter 'LuckPerms*.jar' -File)) {
+    $LuckPermsName = 'LuckPerms-Sponge-5.5.91.jar'
+    $LuckPermsDownload = Join-Path $Tools "$LuckPermsName.download"
+    $LuckPermsUrl = "https://download.luckperms.net/1678/sponge/loader/$LuckPermsName"
+    $ExpectedHash = 'E91A3BCB03C2171B9E17ECF6756FA940250C0D2DF12E6A58EB281FB3482FE5F2'
+    Write-Host 'Downloading LuckPerms for Sponge...'
+    try {
+        Invoke-WebRequest -Uri $LuckPermsUrl -OutFile $LuckPermsDownload -UseBasicParsing
+        if ((Get-FileHash -LiteralPath $LuckPermsDownload -Algorithm SHA256).Hash -ne $ExpectedHash) {
+            throw 'The LuckPerms download checksum does not match.'
+        }
+        Move-Item -LiteralPath $LuckPermsDownload -Destination (Join-Path $Mods $LuckPermsName)
+    } finally {
+        if (Test-Path -LiteralPath $LuckPermsDownload) {
+            Remove-Item -LiteralPath $LuckPermsDownload
+        }
+    }
+} else {
+    Write-Host 'Existing LuckPerms installation found in server\mods.'
+}
+
+$LuckPermsData = Join-Path $Server 'luckperms'
+New-Item -ItemType Directory -Force -Path $LuckPermsData | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'permissions/mythos-ranks.json') -Destination $LuckPermsData -Force
+
 $Eula = Join-Path $Server 'eula.txt'
 if (-not (Test-Path $Eula)) { Set-Content -Path $Eula -Value 'eula=false' -Encoding ASCII }
 
@@ -74,7 +100,8 @@ if (-not (Test-Path $Properties)) {
 }
 
 Write-Host ''
-Write-Host 'Forge and SpongeForge are installed.' -ForegroundColor Green
+Write-Host 'Forge, SpongeForge and LuckPerms setup complete.' -ForegroundColor Green
+Write-Host 'To load the MYTHOS rank presets, run lp import mythos-ranks.json in the running server console.'
 Write-Host 'The first server start will generate the world and configuration.'
 Write-Host 'The Minecraft EULA remains eula=false until you accept it yourself.'
 Write-Host "Edit: $Eula"

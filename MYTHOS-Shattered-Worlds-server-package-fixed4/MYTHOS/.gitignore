@@ -21,3 +21,6 @@ server/banned-*.json
 server/mods/*.jar
 server/*.jar
 server/*.log
+
+server/luckperms/
+server/config/luckperms/

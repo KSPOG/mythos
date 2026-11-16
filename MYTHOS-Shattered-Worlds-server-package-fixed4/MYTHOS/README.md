@@ -14,7 +14,7 @@ The official Sponge download page currently marks `1.21.1-52.1.5-12.0.3` as the 
 ## Windows quick start
 
 1. Install a 64-bit Java 21 runtime (not a different major version) and ensure `java` is on `PATH`.
-2. Run `install.bat`. It downloads the matching Forge installer, installs the dedicated server, and downloads the official SpongeForge universal JAR into `server\mods`.
+2. Run `install.bat`. It downloads the matching Forge installer, installs the dedicated server, and installs SpongeForge and LuckPerms for Sponge into `server\mods`.
 3. Run `build.bat`. It downloads Gradle 8.10.2 into the local `.tools` folder if needed, builds the modules and copies `Mythos.jar` into `server\mods`.
 4. Read Mojang's EULA at https://www.minecraft.net/eula. If you agree, edit `server\eula.txt` and set `eula=true`. The installer deliberately does not accept it for you.
 5. Run `start.bat` (or `server\start.bat`).
@@ -38,6 +38,37 @@ The installer does not open a public firewall port or enable offline mode. Keep 
 - Server-side validation for weapon interactions and attacks.
 - Vanilla weapon categories are registered and checked by the same class policy.
 - Dependency-free policy regression tests.
+
+## Permissions and chat ranks
+
+MYTHOS uses [LuckPerms for Sponge](https://luckperms.net/download) for groups and permissions. The Windows installer adds LuckPerms 5.5.91 for SpongeAPI 12 if there is no LuckPerms JAR in `server/mods`. On an existing server, stop it, run `install.bat` and `build.bat`, then start it again.
+
+The installer stages the group preset at `server/luckperms/mythos-ranks.json`. In the **running server console**, run:
+
+```text
+lp import mythos-ranks.json
+```
+
+The import adds the predefined groups and permissions to the current LuckPerms data. On a server with existing groups, check for overlapping names before importing. Existing extra permissions are retained by a normal import. Use the console to check effective permissions if a player already has other groups or OP status.
+
+| Group | Public chat prefix | Permissions included |
+| --- | --- | --- |
+| `default` | [Member] | Normal gameplay, including class selection and casting with eligible gear |
+| `supporter` | [Supporter] | Cosmetic chat prefix only |
+| `tester` | [Tester] | Change player classes and issue MYTHOS weapons and armour. Use on a test server. |
+| `moderator` | [Moderator] | Kick players |
+| `admin` | [Admin] | Moderator permissions, player bans and pardons, ban list, and whitelist management |
+| `owner` | [Owner] | Admin and Tester permissions, plus full LuckPerms administration. Only grant to trusted owners. |
+
+Once the import has completed and KiritoSanPlays has joined at least once, assign the owner role from the console:
+
+```text
+lp user KiritoSanPlays parent add owner
+```
+
+The next public chat message should show `[Owner] KiritoSanPlays`. To assign another rank, use `lp user <name> parent add <group>`. To revoke it, use `lp user <name> parent remove <group>`. Staff prefixes outrank Supporter and Member. Tab-list and overhead names use their existing format.
+
+For a smoke test, confirm an ordinary non-OP player can select a class but cannot run the staff class or item commands. Check that a supporter has the same gameplay permissions, a moderator can kick, an admin can manage the whitelist, and the owner can assign ranks and test equipment. Verify the prefix by sending a public chat message.
 
 ## Staff class testing
 
