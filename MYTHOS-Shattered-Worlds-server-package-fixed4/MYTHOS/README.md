@@ -70,6 +70,25 @@ The next public chat message should show `[Owner] KiritoSanPlays`. To assign ano
 
 For a smoke test, confirm an ordinary non-OP player can select a class but cannot run the staff class or item commands. Check that a supporter has the same gameplay permissions, a moderator can kick, an admin can manage the whitelist, and the owner can assign ranks and test equipment. Verify the prefix by sending a public chat message.
 
+## Spawn hub
+
+The [project checklist](CHECKLIST.md) tracks the chapter and launch milestones.
+
+The Owner rank can build a 21×21 arrival plaza with a lodestone, lit paths and perimeter walls. If the ranks were already imported, grant the build permission once from the server console.
+
+```text
+lp group owner permission set mythos.command.buildhub true
+```
+
+1. Join in Creative mode and hover above clear ground or water in the Overworld. Choose an open 21×21 area with your feet at the intended arrival height. The hub needs air from one block below your feet through three blocks above them. Build at least 21 blocks to one side of the Overworld spawn so the survival exit is outside the hub.
+2. Run `/mythosbuildhub` once. If the site is obstructed, the command reports the blocked coordinates before placing anything. The build saves the site to `server/config/mythos/spawn-hub.properties`.
+3. Run `/mythoshub` to arrive at the lodestone. First-time players arrive there automatically. `/mythosclasses` shows class descriptions and lets new players prepare a selection in chat before they confirm it with Enter.
+4. Click **Explore the survival world** or run `/mythosleavehub` to go to a safe spot near the existing Overworld spawn.
+
+The plaza protects players from damage, blocks hostile spawns, and restricts block changes within the plaza. Owners with the build permission can decorate it. Keep the center lodestone and the two air blocks above it clear for arrivals.
+
+For a live test, use a fresh vanilla Java 1.21.1 account to verify first arrival, class selection and the survival exit. Try breaking a plaza block and taking damage with a regular account. Rejoin after exploring to verify that returning players keep their location. Restart the server and check that `/mythoshub` still works.
+
 ## Staff class testing
 
 Grant trusted staff the `mythos.command.setclass` permission. Run `/mythossetclass <online-player> <class>` in game or omit the slash in the server console. For example, `/mythossetclass YourName ranger` switches your own class. The assignment is saved and takes effect immediately for weapon use and spellcasting. Inventory and active spell cooldowns are preserved.

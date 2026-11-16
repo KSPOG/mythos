@@ -7,6 +7,8 @@ import com.ksp.mythos.core.weapon.WeaponCatalog;
 import com.ksp.mythos.core.weapon.WeaponCategory;
 import com.ksp.mythos.core.weapon.WeaponDefinition;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.apache.logging.log4j.Logger;
 import org.spongepowered.api.Server;
 import org.spongepowered.api.Sponge;
@@ -20,7 +22,11 @@ import org.spongepowered.api.entity.living.Hostile;
 import org.spongepowered.api.entity.living.player.server.ServerPlayer;
 import org.spongepowered.api.event.EventContextKeys;
 import org.spongepowered.api.event.Listener;
+import org.spongepowered.api.event.block.ChangeBlockEvent;
 import org.spongepowered.api.event.block.InteractBlockEvent;
+import org.spongepowered.api.event.entity.DamageEntityEvent;
+import org.spongepowered.api.event.entity.SpawnEntityEvent;
+import org.spongepowered.api.event.network.ServerSideConnectionEvent;
 import org.spongepowered.api.event.cause.entity.damage.source.DamageSource;
 import org.spongepowered.api.event.entity.AttackEntityEvent;
 import org.spongepowered.api.event.entity.InteractEntityEvent;
@@ -60,6 +66,7 @@ public final class MythosPlugin {
     private final WeaponPolicy weaponPolicy = new WeaponPolicy(this.weapons);
     private final Map<UUID, Long> spellReadyAt = new HashMap<>();
     private ClassStore classStore;
+    private SpawnHub hub;
     private List<MythosWeapon> customWeapons = List.of();
 
     @Inject
@@ -84,6 +91,28 @@ public final class MythosPlugin {
             this.customWeapons = MythosWeapon.load(Path.of("config", "mythos", "weapons.tsv"));
             this.registerWeapons();
         }
+        if (this.hub == null) {
+            try {
+                this.hub = new SpawnHub(Path.of("config", "mythos", "spawn-hub.properties"));
+            } catch (IOException exception) {
+                throw new IllegalStateException("Could not load the MYTHOS spawn hub", exception);
+            }
+        }
+        event.register(this.container, this.hub.buildCommand(), "mythosbuildhub");
+        event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
+                .map(player -> {
+                    if (!this.hub.arrive(player)) {
+                        return CommandResult.error(Component.text("The MYTHOS hub is unavailable. Contact staff."));
+                    }
+                    welcomeToHub(player);
+                    return CommandResult.success();
+                }).orElseGet(() -> CommandResult.error(Component.text("Run /mythoshub in game."))))
+                .build(), "mythoshub");
+        event.register(this.container, Command.builder().executor(context -> context.cause().first(ServerPlayer.class)
+                .map(player -> SpawnHub.showClasses(player, Optional.ofNullable(characterClass(player))))
+                .orElseGet(() -> CommandResult.error(Component.text("Run /mythosclasses in game."))))
+                .build(), "mythosclasses");
+        event.register(this.container, this.hub.exitCommand(), "mythosleavehub");
         final Parameter.Value<String> classArgument = Parameter.string().key("class").build();
         final Command.Parameterized chooseClass = Command.builder()
                 .addParameter(classArgument)
@@ -130,6 +159,52 @@ public final class MythosPlugin {
                 .map(this::castHeldSpell)
                 .orElseGet(() -> CommandResult.error(Component.text("Only a player can cast a spell."))))
                 .build(), "mythoscast");
+    }
+
+    @Listener
+    public void onJoinHub(final ServerSideConnectionEvent.Join event) {
+        if (this.hub == null || !this.hub.configured()) return;
+        final ServerPlayer player = event.player();
+        if ((!player.hasPlayedBefore() && this.hub.arrive(player)) || this.hub.contains(player.serverLocation())) {
+            welcomeToHub(player);
+        }
+    }
+
+    private void welcomeToHub(final ServerPlayer player) {
+        player.sendMessage(Component.text("Welcome to the MYTHOS spawn hub."));
+        if (characterClass(player) == null) {
+            SpawnHub.showClasses(player, Optional.empty());
+        }
+        player.sendMessage(Component.text("Chapter 1 quests are in development."));
+        player.sendMessage(Component.text("[Explore the survival world]", NamedTextColor.GREEN)
+                .clickEvent(ClickEvent.runCommand("/mythosleavehub")));
+    }
+
+    @Listener
+    public void onHubBlockChange(final ChangeBlockEvent.All event) {
+        if (this.hub == null || !this.hub.configured()
+                || event.cause().first(ServerPlayer.class).filter(player -> player.hasPermission(SpawnHub.MANAGE)).isPresent()) {
+            return;
+        }
+        event.invalidate(this.hub::contains);
+    }
+
+    @Listener
+    public void onHubDamage(final DamageEntityEvent event) {
+        if (this.hub == null || !this.hub.configured() || !(event.entity() instanceof ServerPlayer player)) return;
+        if (this.hub.contains(player.serverLocation())
+                || event.cause().first(DamageSource.class).flatMap(DamageSource::source)
+                        .filter(ServerPlayer.class::isInstance)
+                        .filter(attacker -> this.hub.contains(attacker.serverLocation())).isPresent()) {
+            event.setCancelled(true);
+        }
+    }
+
+    @Listener
+    public void onHubSpawn(final SpawnEntityEvent.Pre event) {
+        if (this.hub != null && this.hub.configured()) {
+            event.filterEntities(entity -> !(entity instanceof Hostile) || !this.hub.contains(entity.serverLocation()));
+        }
     }
 
     @Listener
