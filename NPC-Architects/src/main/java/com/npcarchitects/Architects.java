@@ -16,7 +16,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.AABB;
-import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
@@ -37,10 +36,10 @@ public final class Architects {
         String dimension, worker, status = "RUNNING";
     }
     public Architects() {
-        MinecraftForge.EVENT_BUS.addListener(this::commands);
-        MinecraftForge.EVENT_BUS.addListener(this::started);
-        MinecraftForge.EVENT_BUS.addListener(this::stopping);
-        MinecraftForge.EVENT_BUS.addListener(this::tick);
+        RegisterCommandsEvent.BUS.addListener(this::commands);
+        ServerStartedEvent.BUS.addListener(this::started);
+        ServerStoppingEvent.BUS.addListener(this::stopping);
+        TickEvent.ServerTickEvent.Post.BUS.addListener(this::tick);
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); ticks=0; storageFailed=false;
@@ -85,7 +84,7 @@ public final class Architects {
     private static BlockState material(String name) { return switch(name) { case "floor"->Blocks.COBBLESTONE.defaultBlockState(); case "roof"->Blocks.SPRUCE_PLANKS.defaultBlockState(); case "glass"->Blocks.GLASS.defaultBlockState(); default->Blocks.OAK_PLANKS.defaultBlockState(); }; }
     private void tick(TickEvent.ServerTickEvent.Post e) {
         if(storageFailed || ++ticks%10!=0) return;
-        for(Job j:jobs.values()) { if(storageFailed) break; if(j.status.equals("RUNNING")) step(e.getServer(),j); }
+        for(Job j:jobs.values()) { if(storageFailed) break; if(j.status.equals("RUNNING")) step(e.server(),j); }
     }
     private void step(MinecraftServer server,Job j) {
         ServerLevel level=null; for(var l:server.getAllLevels()) if(l.dimension().location().toString().equals(j.dimension)) {level=l;break;}
