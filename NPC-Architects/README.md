@@ -1,4 +1,4 @@
-# NPC Architects 0.1.2 — experimental source prototype
+# NPC Architects 0.1.3 — experimental source prototype
 Forge 1.21.1-52.1.5 / Java 21. No custom client content. Vanilla connection not tested.
 
 ## Build
@@ -12,3 +12,6 @@ Use an operator on a flat, empty test world. `/architect house 7 7` spawns one b
 
 ## Construction selection
 Stand at the first and opposite corner (inclusive) and run /architect pos1 and /architect pos2. Same Y uses height 5; otherwise the inclusive Y span is the height. Width/depth 5–15; height 4–12. /architect rotate 0|90|180|270 changes orientation; selection retains its physical footprint. /architect preview house emits a one-shot particle preview and counts blocked positions; /architect build house starts the job. Direct /architect house 7 7 5 uses a +3 X/Z origin and current rotation. /architect undo [id] pauses and removes only recorded placements still matching the expected block state; it does not restore pre-existing blocks, cannot distinguish identical player replacements, and older jobs lack undo history. Selections reset on restart/dimension change. Undo without an ID targets the latest job globally (operator-only). No scaffolding or claim integration; back up your test world.
+
+## Automatic clearing
+New jobs survey the entire rotated rectangular volume, then clear mismatched blocks top-down before building. Matching blueprint blocks remain. Block entities, liquids and unbreakable blocks are rejected; no drops are generated. Clearing uses NPC reach and navigation, no teleportation, no changes outside the footprint. Undo attempts to restore cleared block states if the cell is empty; numeric block-state IDs assume the same registry on restart. Back up the world: ordinary player-built blocks inside the selected volume can be removed; claim protection is not integrated. Existing jobs keep their old progress and do not automatically enter clearing. Preview counts clearing and protected positions.

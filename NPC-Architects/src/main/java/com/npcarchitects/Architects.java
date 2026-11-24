@@ -40,16 +40,23 @@ public final class Architects {
     private boolean storageFailed;
     private static final class Job {
         int id, x, y, z, width, depth, cursor, stalled;
-        int height=5, rotation;
+        int height=5, rotation, clearCursor;
+        boolean clearing;
+        List<Cleared> cleared = new ArrayList<>();
+        String reason = "";
         List<Integer> placed = new ArrayList<>();
         String dimension, worker, status = "RUNNING";
+    }
+    private static final class Cleared {
+        int x,y,z,state;
+        Cleared(int x,int y,int z,int state) { this.x=x; this.y=y; this.z=z; this.state=state; }
     }
     public Architects() {
         MinecraftForge.EVENT_BUS.addListener(this::commands);
         MinecraftForge.EVENT_BUS.addListener(this::started);
         MinecraftForge.EVENT_BUS.addListener(this::stopping);
         MinecraftForge.EVENT_BUS.addListener(this::tick);
-        LOGGER.info("NPC Architects 0.1.2 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.1.3 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; storageFailed=false;
@@ -59,7 +66,7 @@ public final class Architects {
             if (Files.exists(file)) {
                 List<Job> loaded=JSON.fromJson(Files.readString(file),new TypeToken<List<Job>>(){}.getType());
                 if (loaded==null) throw new IllegalStateException("Empty job store");
-                for (Job j:loaded) { cells(j); UUID.fromString(j.worker); if(j.cursor<0 || j.cursor>cells(j).size() || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
+                for (Job j:loaded) { cells(j); UUID.fromString(j.worker); if(j.cursor<0 || j.cursor>cells(j).size() || j.clearCursor<0 || j.clearCursor>j.width*j.depth*j.height || j.cleared==null || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
             }
         } catch(Exception ex) { storageFailed=true; jobs.clear(); LOGGER.error("NPC Architects: cannot load jobs", ex); }
     }
@@ -76,9 +83,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.2 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, undo [id], pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.3 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, undo [id], pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.2 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.3 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -103,8 +110,8 @@ public final class Architects {
         root.then(Commands.literal("undo").requires(src->src.hasPermission(2))
             .executes(c->undo(c.getSource(),jobs.keySet().stream().mapToInt(i->i).max().orElse(0)))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->undo(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
-        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+j.status+" "+j.cursor+"/"+cells(j).size()),false); return 1; }));
-        for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; if(!save()) return 0; c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
+        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+j.status+" "+(j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
+        for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; if(!save()) return 0; c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
         e.getDispatcher().register(root);
         LOGGER.info("NPC Architects registered /architect commands");
     }
@@ -148,28 +155,36 @@ public final class Architects {
         Job j=new Job(); j.x=origin.getX(); j.y=origin.getY(); j.z=origin.getZ();
         j.width=w; j.depth=d; j.height=h; j.rotation=rotation; j.dimension=level.dimension().location().toString();
         var plan=cells(j);
-        if(preview) {
-            int blocked=0;
-            for(var cell:plan) {
-                var pos=origin.offset(cell.x(),cell.y(),cell.z());
-                if(!level.hasChunkAt(pos)) { blocked++; continue; }
-                boolean valid=level.getWorldBorder().isWithinBounds(pos) && !level.isOutsideBuildHeight(pos) && (level.getBlockState(pos).isAir()||level.getBlockState(pos).equals(material(cell.material())));
-                if(!valid) blocked++;
-                if(cell.x()%2==0 && cell.z()%2==0) level.sendParticles(valid?ParticleTypes.END_ROD:ParticleTypes.FLAME,pos.getX()+0.5,pos.getY()+0.5,pos.getZ()+0.5,1,0,0,0,0);
+        var desired=desiredStates(j);
+        int removable=0, blocked=0;
+        String firstProblem=null;
+        for(int i=0;i<w*d*h;i++) {
+            var pos=clearPosition(j,i);
+            String problem=siteProblem(level,pos);
+            var wanted=desired.getOrDefault(pos,Blocks.AIR.defaultBlockState());
+            boolean needsClear=false;
+            if(problem==null) {
+                var current=level.getBlockState(pos);
+                needsClear=!current.isAir()&&!current.equals(wanted);
+                if(needsClear&&!canClear(level,pos,current)) problem="Protected or unbreakable block";
             }
-            final int obstacles=blocked;
-            source.sendSuccess(()->Component.literal("Preview: "+plan.size()+" blocks; "+obstacles+" blocked/unloaded. White particles=clear, flame=blocked. No blocks changed."),false); return 1;
-        }
-        if(file==null || storageFailed || jobs.size()>=100) return fail(source,"Storage unavailable or job limit reached");
-        for(var cell:plan) {
-            var pos=origin.offset(cell.x(),cell.y(),cell.z());
-            if(!level.hasChunkAt(pos)||level.isOutsideBuildHeight(pos)||!level.getWorldBorder().isWithinBounds(pos)||(!level.getBlockState(pos).isAir()&&!level.getBlockState(pos).equals(material(cell.material())))) return fail(source,"Site obstructed or unloaded: "+pos.toShortString());
             for(Job other:jobs.values()) {
                 if(!j.dimension.equals(other.dimension)||other.status.equals("UNDONE")) continue;
                 int ow=other.rotation%180==0?other.width:other.depth, od=other.rotation%180==0?other.depth:other.width;
-                if(pos.getX()>=other.x&&pos.getX()<other.x+ow&&pos.getY()>=other.y&&pos.getY()<other.y+other.height&&pos.getZ()>=other.z&&pos.getZ()<other.z+od) return fail(source,"Site overlaps existing job "+other.id);
+                if(pos.getX()>=other.x&&pos.getX()<other.x+ow&&pos.getY()>=other.y&&pos.getY()<other.y+other.height&&pos.getZ()>=other.z&&pos.getZ()<other.z+od) { problem="Site overlaps job "+other.id; break; }
             }
+            if(problem!=null) { blocked++; if(firstProblem==null) firstProblem=problem+" at "+pos.toShortString(); }
+            else if(needsClear) removable++;
+            if(preview && level.hasChunkAt(pos) && (problem!=null||needsClear||desired.containsKey(pos)) && (i%3==0))
+                level.sendParticles(problem!=null?ParticleTypes.FLAME:needsClear?ParticleTypes.SMOKE:ParticleTypes.END_ROD,pos.getX()+0.5,pos.getY()+0.5,pos.getZ()+0.5,1,0,0,0,0);
         }
+        if(preview) {
+            final String message="Preview: "+plan.size()+" blueprint blocks, "+removable+" blocks to clear, "+blocked+" blocked positions. "+(firstProblem==null?"":"First issue: "+firstProblem+". ")+"No blocks changed.";
+            source.sendSuccess(()->Component.literal(message),false); return 1;
+        }
+        if(file==null || storageFailed || jobs.size()>=100) return fail(source,"Storage unavailable or job limit reached");
+        if(blocked>0) return fail(source,firstProblem);
+        j.clearing=true;
         var npc=EntityType.VILLAGER.spawn(level,player.blockPosition(),MobSpawnType.COMMAND);
         if(npc==null) return fail(source,"Could not spawn builder");
         npc.setPersistenceRequired(); npc.setCustomName(Component.literal("Architect")); npc.setCustomNameVisible(true);
@@ -181,7 +196,7 @@ public final class Architects {
     private int undo(CommandSourceStack source,int id) {
         Job j=jobs.get(id);
         if(j==null||storageFailed||j.status.equals("UNDONE")) return fail(source,"No undoable job "+id);
-        if(j.placed==null||j.placed.isEmpty()) return fail(source,"No tracked placements to undo (older jobs cannot be undone safely).");
+        if(j.placed.isEmpty()&&j.cleared.isEmpty()) return fail(source,"No tracked placements to undo (older jobs cannot be undone safely).");
         var level=source.getLevel();
         if(!level.dimension().location().toString().equals(j.dimension)) return fail(source,"Go to the job dimension first.");
         var plan=cells(j);
@@ -190,6 +205,10 @@ public final class Architects {
             var c=plan.get(index); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
             if(!level.hasChunkAt(pos)||!level.getWorldBorder().isWithinBounds(pos)) return fail(source,"Load the entire site before undoing.");
         }
+        for(Cleared old:j.cleared) {
+            var pos=new BlockPos(old.x,old.y,old.z);
+            if(siteProblem(level,pos)!=null) return fail(source,"Load the entire clearing site before undoing.");
+        }
         j.status="PAUSED"; if(!save()) return fail(source,"Could not save paused job.");
         if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager npc) npc.getNavigation().stop();
         int removed=0, skipped=0;
@@ -197,9 +216,71 @@ public final class Architects {
             var c=plan.get(j.placed.get(i)); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
             if(level.getBlockState(pos).equals(material(c.material())) && level.setBlock(pos,Blocks.AIR.defaultBlockState(),3)) removed++; else skipped++;
         }
-        j.placed.clear(); j.status="UNDONE"; if(!save()) return fail(source,"Undo applied but storage failed; inspect server log.");
-        final int count=removed, ignored=skipped;
-        source.sendSuccess(()->Component.literal("Undo job "+id+": "+count+" removed, "+ignored+" changed/missing blocks skipped."),false); return 1;
+        int restored=0;
+        for(int i=j.cleared.size()-1;i>=0;i--) {
+            var old=j.cleared.get(i); var pos=new BlockPos(old.x,old.y,old.z);
+            if(level.getBlockState(pos).isAir() && level.getEntities(null,new AABB(pos)).isEmpty() && level.setBlock(pos,net.minecraft.world.level.block.Block.stateById(old.state),3)) restored++; else skipped++;
+        }
+        j.cleared.clear(); j.placed.clear(); j.status="UNDONE"; if(!save()) return fail(source,"Undo applied but storage failed; inspect server log.");
+        final int count=removed, ignored=skipped, recovered=restored;
+        source.sendSuccess(()->Component.literal("Undo job "+id+": "+count+" removed, "+recovered+" terrain blocks restored, "+ignored+" changed/missing blocks skipped."),false); return 1;
+    }
+    private static Map<BlockPos,BlockState> desiredStates(Job j) {
+        Map<BlockPos,BlockState> result=new HashMap<>();
+        for(var c:cells(j)) result.put(new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z()),material(c.material()));
+        return result;
+    }
+    private static BlockPos clearPosition(Job j,int i) {
+        int w=j.rotation%180==0?j.width:j.depth, d=j.rotation%180==0?j.depth:j.width;
+        return new BlockPos(j.x+(i/d)%w,j.y+j.height-1-i/(w*d),j.z+i%d);
+    }
+    private static String siteProblem(ServerLevel level,BlockPos pos) {
+        if(!level.hasChunkAt(pos)) return "Chunk unloaded";
+        if(level.isOutsideBuildHeight(pos)||!level.getWorldBorder().isWithinBounds(pos)) return "Outside world bounds";
+        return null;
+    }
+    private static boolean canClear(ServerLevel level,BlockPos pos,BlockState state) {
+        return !state.hasBlockEntity() && level.getBlockEntity(pos)==null && state.getDestroySpeed(level,pos)>=0 && state.getFluidState().isEmpty();
+    }
+    private void blocked(Job j,Villager npc,String reason) {
+        j.status="BLOCKED"; j.reason=reason; npc.getNavigation().stop();
+        LOGGER.warn("NPC Architects job {} blocked: {}",j.id,reason); save();
+    }
+    private boolean approach(Villager npc,ServerLevel level,BlockPos pos) {
+        double dx=npc.getX()-pos.getX()-0.5,dy=npc.getEyeY()-pos.getY()-0.5,dz=npc.getZ()-pos.getZ()-0.5;
+        if(dx*dx+dy*dy+dz*dz<=12.25) {
+            npc.getNavigation().stop(); npc.getLookControl().setLookAt(pos.getX()+0.5,pos.getY()+0.5,pos.getZ()+0.5); return true;
+        }
+        for(int offset:new int[]{0,-1,1,-2,2,-3}) for(var direction:net.minecraft.core.Direction.Plane.HORIZONTAL) {
+            var stand=pos.relative(direction,2).offset(0,offset,0);
+            if(!level.hasChunkAt(stand)||!level.isEmptyBlock(stand)||!level.isEmptyBlock(stand.above())||level.isEmptyBlock(stand.below())) continue;
+            if(npc.getNavigation().moveTo(stand.getX()+0.5,stand.getY(),stand.getZ()+0.5,1.0)) return false;
+        }
+        return false;
+    }
+    private void clearStep(ServerLevel level,Villager npc,Job j) {
+        int total=j.width*j.depth*j.height;
+        var desired=desiredStates(j);
+        while(j.clearCursor<total) {
+            var pos=clearPosition(j,j.clearCursor);
+            String problem=siteProblem(level,pos);
+            if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
+            var current=level.getBlockState(pos);
+            if(current.isAir()||current.equals(desired.getOrDefault(pos,Blocks.AIR.defaultBlockState()))) { j.clearCursor++; continue; }
+            if(!canClear(level,pos,current)) { blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString()); return; }
+            if(approach(npc,level,pos)) {
+                npc.swing(InteractionHand.MAIN_HAND);
+                // No drops: undo can restore cleared terrain without duplicating resources.
+                if(level.destroyBlock(pos,false,npc)) {
+                    j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));
+                    j.clearCursor++; j.stalled=0; save(); return;
+                }
+            }
+            if(++j.stalled>=60) blocked(j,npc,"Cannot reach or clear "+pos.toShortString());
+            return;
+        }
+        j.clearing=false; j.stalled=0; save();
+        LOGGER.info("NPC Architects job {} finished site clearing",j.id);
     }
     private static BlockState material(String name) { return switch(name) { case "floor"->Blocks.COBBLESTONE.defaultBlockState(); case "roof"->Blocks.SPRUCE_PLANKS.defaultBlockState(); case "glass"->Blocks.GLASS.defaultBlockState(); default->Blocks.OAK_PLANKS.defaultBlockState(); }; }
     private void tick(TickEvent.ServerTickEvent.Post e) {
@@ -210,13 +291,14 @@ public final class Architects {
         ServerLevel level=null; for(var l:server.getAllLevels()) if(l.dimension().location().toString().equals(j.dimension)) {level=l;break;}
         if(level==null) return;
         var cells=cells(j);
-        if(j.cursor>=cells.size()) { j.status="DONE"; save(); return; }
         if(!(level.getEntity(UUID.fromString(j.worker)) instanceof Villager npc) || !npc.isAlive()) return;
+        if(j.clearing) { clearStep(level,npc,j); return; }
+        if(j.cursor>=cells.size()) { j.status="DONE"; save(); return; }
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
         if(!level.hasChunkAt(pos)) return;
         var wanted=material(c.material()); var current=level.getBlockState(pos);
         if(current.equals(wanted)) { j.cursor++; j.stalled=0; save(); return; }
-        if(!current.isAir() || !level.getWorldBorder().isWithinBounds(pos)) { j.status="BLOCKED"; save(); return; }
+        if(!current.isAir() || !level.getWorldBorder().isWithinBounds(pos)) { blocked(j,npc,"New obstruction at "+pos.toShortString()); return; }
         double dx=npc.getX()-pos.getX()-0.5, dy=npc.getY()-pos.getY()-0.5, dz=npc.getZ()-pos.getZ()-0.5;
         if(dx*dx+dy*dy+dz*dz<=12.25 && level.getEntities(npc,new AABB(pos)).isEmpty() && !npc.getBoundingBox().intersects(new AABB(pos))) {
             npc.getNavigation().stop(); npc.getLookControl().setLookAt(pos.getX()+0.5,pos.getY()+0.5,pos.getZ()+0.5); npc.swing(InteractionHand.MAIN_HAND);
