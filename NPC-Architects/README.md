@@ -9,3 +9,6 @@ Use an operator on a flat, empty test world. `/architect house 7 7` spawns one b
 
 ## Diagnostics
 `/architect ping` is available to all players; construction and status remain operator level 2. The server log reports initialization, command registration and startup. `pack.mcmeta` covers Minecraft 1.21.1 data (48) and resource (34) pack formats.
+
+## Construction selection
+Stand at the first and opposite corner (inclusive) and run /architect pos1 and /architect pos2. Same Y uses height 5; otherwise the inclusive Y span is the height. Width/depth 5–15; height 4–12. /architect rotate 0|90|180|270 changes orientation; selection retains its physical footprint. /architect preview house emits a one-shot particle preview and counts blocked positions; /architect build house starts the job. Direct /architect house 7 7 5 uses a +3 X/Z origin and current rotation. /architect undo [id] pauses and removes only recorded placements still matching the expected block state; it does not restore pre-existing blocks, cannot distinguish identical player replacements, and older jobs lack undo history. Selections reset on restart/dimension change. Undo without an ID targets the latest job globally (operator-only). No scaffolding or claim integration; back up your test world.
