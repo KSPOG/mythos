@@ -3,21 +3,28 @@ package com.npcarchitects;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Deterministic, bottom-up, shell-only blueprints. */
+/** Deterministic bottom-up shell, rotated within a positive-coordinate footprint. */
 public final class Blueprint {
-    public record Cell(int x, int y, int z, String material) {}
+    public record Cell(int x,int y,int z,String material) {}
     private Blueprint() {}
-    public static List<Cell> house(int width, int depth) {
-        if (width < 5 || width > 15 || depth < 5 || depth > 15) throw new IllegalArgumentException("Dimensions must be 5..15");
-        var cells = new ArrayList<Cell>();
-        for (int y=0; y<=4; y++) for (int x=0; x<width; x++) for (int z=0; z<depth; z++) {
-            boolean edge = x==0 || x==width-1 || z==0 || z==depth-1;
-            if (y==0) cells.add(new Cell(x,y,z,"floor"));
-            else if (y==4) cells.add(new Cell(x,y,z,"roof"));
-            else if (edge && !(z==0 && x==width/2 && y<=2)) {
-                boolean window = y==2 && ((x==0 || x==width-1) ? z==depth/2 : x==width/2);
-                cells.add(new Cell(x,y,z,window ? "glass" : "wall"));
+    public static List<Cell> house(int width,int depth) { return house(width,depth,5,0); }
+    public static List<Cell> house(int width,int depth,int height,int rotation) {
+        if(width<5||width>15||depth<5||depth>15||height<4||height>12||rotation<0||rotation>270||rotation%90!=0) throw new IllegalArgumentException("Invalid dimensions or rotation");
+        var cells=new ArrayList<Cell>();
+        for(int y=0;y<height;y++) for(int x=0;x<width;x++) for(int z=0;z<depth;z++) {
+            boolean edge=x==0||x==width-1||z==0||z==depth-1;
+            String material;
+            if(y==0) material="floor";
+            else if(y==height-1) material="roof";
+            else if(edge&&!(z==0&&x==width/2&&y<=2)) material=y==2&&((x==0||x==width-1)?z==depth/2:x==width/2)?"glass":"wall";
+            else continue;
+            int rx=x,rz=z;
+            switch(rotation) {
+                case 90 -> {rx=depth-1-z;rz=x;}
+                case 180 -> {rx=width-1-x;rz=depth-1-z;}
+                case 270 -> {rx=z;rz=width-1-x;}
             }
+            cells.add(new Cell(rx,y,rz,material));
         }
         return List.copyOf(cells);
     }
