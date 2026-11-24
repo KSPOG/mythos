@@ -1,0 +1,44 @@
+name: NPC Architects build
+on:
+  pull_request:
+    paths:
+      - 'NPC-Architects/**'
+      - '.github/workflows/npc-architects.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'NPC-Architects/**'
+      - '.github/workflows/npc-architects.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: NPC-Architects
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Blueprint tests
+        run: |
+          mkdir -p build/blueprint-test
+          javac --release 21 -d build/blueprint-test src/main/java/com/npcarchitects/Blueprint.java tests/BlueprintTest.java
+          java -cp build/blueprint-test BlueprintTest
+      - name: Obtain exact Forge MDK wrapper
+        run: |
+          curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.10-60.0.1/forge-1.21.10-60.0.1-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
+          unzip -o "${RUNNER_TEMP}/forge-mdk.zip" gradlew 'gradle/wrapper/*'
+          chmod +x gradlew
+      - name: Compile mod
+        run: ./gradlew --no-daemon build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npc-architects-0.1.0
+          path: NPC-Architects/build/libs/*.jar
+          if-no-files-found: error
