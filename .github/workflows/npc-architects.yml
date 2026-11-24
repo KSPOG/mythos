@@ -35,6 +35,9 @@ jobs:
           curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.10-60.0.1/forge-1.21.10-60.0.1-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
           unzip -o "${RUNNER_TEMP}/forge-mdk.zip" gradlew 'gradle/wrapper/*'
           chmod +x gradlew
+          sed -i 's/gradle-8.12.1-bin.zip/gradle-9.3.0-bin.zip/' gradle/wrapper/gradle-wrapper.properties
+          sed -i '/^distributionSha256Sum=/d' gradle/wrapper/gradle-wrapper.properties
+          ./gradlew --version
       - name: Compile mod
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
