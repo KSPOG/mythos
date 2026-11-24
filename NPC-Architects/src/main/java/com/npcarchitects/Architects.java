@@ -10,7 +10,8 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.MobSpawnType;
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -36,10 +37,10 @@ public final class Architects {
         String dimension, worker, status = "RUNNING";
     }
     public Architects() {
-        RegisterCommandsEvent.BUS.addListener(this::commands);
-        ServerStartedEvent.BUS.addListener(this::started);
-        ServerStoppingEvent.BUS.addListener(this::stopping);
-        TickEvent.ServerTickEvent.Post.BUS.addListener(this::tick);
+        MinecraftForge.EVENT_BUS.addListener(this::commands);
+        MinecraftForge.EVENT_BUS.addListener(this::started);
+        MinecraftForge.EVENT_BUS.addListener(this::stopping);
+        MinecraftForge.EVENT_BUS.addListener(this::tick);
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); ticks=0; storageFailed=false;
@@ -70,7 +71,7 @@ public final class Architects {
             if(storageFailed || jobs.size()>=100) { s.sendFailure(Component.literal("Storage unavailable or job limit reached")); return 0; }
             var origin=p.blockPosition().offset(3,0,3); int w=IntegerArgumentType.getInteger(c,"width"), d=IntegerArgumentType.getInteger(c,"depth");
             for(var cell:Blueprint.house(w,d)) { var pos=origin.offset(cell.x(),cell.y(),cell.z()); if(!level.hasChunkAt(pos) || !level.getWorldBorder().isWithinBounds(pos) || (!level.getBlockState(pos).isAir() && !level.getBlockState(pos).equals(material(cell.material())))) { s.sendFailure(Component.literal("Site obstructed or unloaded: "+pos)); return 0; } }
-            var npc=EntityType.VILLAGER.spawn(level,p.blockPosition(),EntitySpawnReason.COMMAND);
+            var npc=EntityType.VILLAGER.spawn(level,p.blockPosition(),MobSpawnType.COMMAND);
             if(npc==null) { s.sendFailure(Component.literal("Could not spawn builder")); return 0; }
             npc.setPersistenceRequired(); npc.setCustomName(Component.literal("Architect")); npc.setCustomNameVisible(true);
             Job j=new Job(); j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.x=origin.getX(); j.y=origin.getY(); j.z=origin.getZ(); j.width=w; j.depth=d; j.dimension=level.dimension().location().toString(); j.worker=npc.getUUID().toString(); jobs.put(j.id,j);
@@ -84,7 +85,7 @@ public final class Architects {
     private static BlockState material(String name) { return switch(name) { case "floor"->Blocks.COBBLESTONE.defaultBlockState(); case "roof"->Blocks.SPRUCE_PLANKS.defaultBlockState(); case "glass"->Blocks.GLASS.defaultBlockState(); default->Blocks.OAK_PLANKS.defaultBlockState(); }; }
     private void tick(TickEvent.ServerTickEvent.Post e) {
         if(storageFailed || ++ticks%10!=0) return;
-        for(Job j:jobs.values()) { if(storageFailed) break; if(j.status.equals("RUNNING")) step(e.server(),j); }
+        for(Job j:jobs.values()) { if(storageFailed) break; if(j.status.equals("RUNNING")) step(e.getServer(),j); }
     }
     private void step(MinecraftServer server,Job j) {
         ServerLevel level=null; for(var l:server.getAllLevels()) if(l.dimension().location().toString().equals(j.dimension)) {level=l;break;}

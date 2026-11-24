@@ -1,8 +1,8 @@
-# NPC Architects 0.1.0 — experimental source prototype
-Forge 1.21.10-60.0.1 / Java 21. No custom client content. Vanilla connection not tested.
+# NPC Architects 0.1.1 — experimental source prototype
+Forge 1.21.1-52.1.5 / Java 21. No custom client content. Vanilla connection not tested.
 
 ## Build
-Install Java 21 and obtain the official Forge 1.21.10-60.0.1 MDK from https://files.minecraftforge.net/net/minecraftforge/forge/index_1.21.10.html . Extract its Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/`) into this directory. Change the wrapper distribution URL in `gradle/wrapper/gradle-wrapper.properties` to `https://services.gradle.org/distributions/gradle-9.3.0-bin.zip` (update any distribution checksum to the official Gradle 9.3.0 checksum). ForgeGradle 7 requires Gradle 9.3.0 or later. Run `gradlew.bat build` (Windows) or `./gradlew build` (Linux). Install the generated JAR from `build/libs` on a test Forge server only. Compilation has not been verified; Forge dependencies were unavailable in the authoring environment.
+Install Java 21 and obtain the official Forge 1.21.1-52.1.5 MDK from https://files.minecraftforge.net/net/minecraftforge/forge/index_1.21.1.html . Extract its Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/`) into this directory. Use the unmodified MDK wrapper. Run `gradlew.bat build` (Windows) or `./gradlew build` (Linux). Install the generated JAR from `build/libs` on a test Forge server only. The Forge 52 port requires a successful CI build and in-game testing.
 
 ## Test
 Use an operator on a flat, empty test world. `/architect house 7 7` spawns one builder and creates a house three blocks southeast of your feet. `/architect status`, `/architect pause 1`, `/architect resume 1`, `/architect cancel 1`. Cancel does not undo blocks or despawn the worker. Jobs are saved in the world directory. Keep chunks loaded. A blocked job can be resumed after clearing obstructions or moving the worker. Missing workers do not respawn. Vanilla villager AI may compete with navigation; scaffolding is not implemented and high blocks may stall. No claim integration, line-of-sight enforcement, material consumption, schematic import or custom GUI. Use backups; do not deploy on a production world.
