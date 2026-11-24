@@ -32,16 +32,14 @@ jobs:
           java -cp build/blueprint-test BlueprintTest
       - name: Obtain exact Forge MDK wrapper
         run: |
-          curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.10-60.0.1/forge-1.21.10-60.0.1-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
+          curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.5/forge-1.21.1-52.1.5-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
           unzip -o "${RUNNER_TEMP}/forge-mdk.zip" gradlew 'gradle/wrapper/*'
           chmod +x gradlew
-          sed -i 's/gradle-8.12.1-bin.zip/gradle-9.3.0-bin.zip/' gradle/wrapper/gradle-wrapper.properties
-          sed -i '/^distributionSha256Sum=/d' gradle/wrapper/gradle-wrapper.properties
           ./gradlew --version
       - name: Compile mod
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
         with:
-          name: npc-architects-0.1.0
+          name: npc-architects-0.1.1
           path: NPC-Architects/build/libs/*.jar
           if-no-files-found: error

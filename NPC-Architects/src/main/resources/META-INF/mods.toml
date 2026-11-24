@@ -1,15 +1,21 @@
 modLoader="javafml"
-loaderVersion="[60,61)"
+loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="npcarchitects"
-version="0.1.0"
+version="0.1.1"
 displayName="NPC Architects"
 displayTest="IGNORE_ALL_VERSION"
 description='''Server-side NPC construction jobs.'''
 [[dependencies.npcarchitects]]
 modId="minecraft"
 mandatory=true
-versionRange="[1.21.10,1.21.11)"
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.npcarchitects]]
+modId="forge"
+mandatory=true
+versionRange="[52.1.5,53)"
 ordering="NONE"
 side="BOTH"
