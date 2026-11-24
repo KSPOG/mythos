@@ -27,6 +27,7 @@ import java.util.*;
 
 @Mod("npcarchitects")
 public final class Architects {
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
     private static final Gson JSON = new Gson();
     private final Map<Integer, Job> jobs = new LinkedHashMap<>();
     private Path file;
@@ -41,9 +42,11 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::started);
         MinecraftForge.EVENT_BUS.addListener(this::stopping);
         MinecraftForge.EVENT_BUS.addListener(this::tick);
+        LOGGER.info("NPC Architects 0.1.2 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); ticks=0; storageFailed=false;
+        LOGGER.info("NPC Architects server started");
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("npcarchitects-jobs.json");
         try {
             if (Files.exists(file)) {
@@ -51,7 +54,7 @@ public final class Architects {
                 if (loaded==null) throw new IllegalStateException("Empty job store");
                 for (Job j:loaded) { Blueprint.house(j.width,j.depth); UUID.fromString(j.worker); if(j.cursor<0 || j.cursor>Blueprint.house(j.width,j.depth).size() || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
             }
-        } catch(Exception ex) { storageFailed=true; jobs.clear(); System.err.println("NPC Architects: cannot load jobs: "+ex); }
+        } catch(Exception ex) { storageFailed=true; jobs.clear(); LOGGER.error("NPC Architects: cannot load jobs", ex); }
     }
     private void stopping(ServerStoppingEvent e) { save(); jobs.clear(); file=null; }
     private boolean save() {
@@ -62,12 +65,16 @@ public final class Architects {
             try { Files.move(tmp,file,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE); }
             catch(AtomicMoveNotSupportedException ex) { Files.move(tmp,file,StandardCopyOption.REPLACE_EXISTING); }
             return true;
-        } catch(Exception ex) { storageFailed=true; System.err.println("NPC Architects: jobs halted: "+ex); return false; }
+        } catch(Exception ex) { storageFailed=true; LOGGER.error("NPC Architects: jobs halted", ex); return false; }
     }
     private void commands(RegisterCommandsEvent e) {
-        var root=Commands.literal("architect").requires(s->s.hasPermission(2));
-        root.then(Commands.literal("house").then(Commands.argument("width",IntegerArgumentType.integer(5,15)).then(Commands.argument("depth",IntegerArgumentType.integer(5,15)).executes(c->{
+        var root=Commands.literal("architect").executes(c->{
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.2 active. Commands: status, house <width> <depth>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+        });
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.2 is responding."),false); return 1; }));
+        root.then(Commands.literal("house").requires(src->src.hasPermission(2)).then(Commands.argument("width",IntegerArgumentType.integer(5,15)).then(Commands.argument("depth",IntegerArgumentType.integer(5,15)).executes(c->{
             var s=c.getSource(); var p=s.getPlayerOrException(); var level=s.getLevel();
+            LOGGER.info("NPC Architects house requested by {}", s.getTextName());
             if(storageFailed || jobs.size()>=100) { s.sendFailure(Component.literal("Storage unavailable or job limit reached")); return 0; }
             var origin=p.blockPosition().offset(3,0,3); int w=IntegerArgumentType.getInteger(c,"width"), d=IntegerArgumentType.getInteger(c,"depth");
             for(var cell:Blueprint.house(w,d)) { var pos=origin.offset(cell.x(),cell.y(),cell.z()); if(!level.hasChunkAt(pos) || !level.getWorldBorder().isWithinBounds(pos) || (!level.getBlockState(pos).isAir() && !level.getBlockState(pos).equals(material(cell.material())))) { s.sendFailure(Component.literal("Site obstructed or unloaded: "+pos)); return 0; } }
@@ -78,9 +85,10 @@ public final class Architects {
             if(!save()) { jobs.remove(j.id); npc.discard(); s.sendFailure(Component.literal("Failed to save job")); return 0; }
             s.sendSuccess(()->Component.literal("Created job "+j.id),false); return 1;
         }))));
-        root.then(Commands.literal("status").executes(c->{ for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+j.status+" "+j.cursor+"/"+Blueprint.house(j.width,j.depth).size()),false); return 1; }));
-        for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED")) return 0; j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; if(!save()) return 0; c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
+        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+j.status+" "+j.cursor+"/"+Blueprint.house(j.width,j.depth).size()),false); return 1; }));
+        for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; if(!save()) return 0; c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
         e.getDispatcher().register(root);
+        LOGGER.info("NPC Architects registered /architect commands");
     }
     private static BlockState material(String name) { return switch(name) { case "floor"->Blocks.COBBLESTONE.defaultBlockState(); case "roof"->Blocks.SPRUCE_PLANKS.defaultBlockState(); case "glass"->Blocks.GLASS.defaultBlockState(); default->Blocks.OAK_PLANKS.defaultBlockState(); }; }
     private void tick(TickEvent.ServerTickEvent.Post e) {
