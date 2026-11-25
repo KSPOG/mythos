@@ -7,6 +7,8 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.protocol.game.ClientboundLevelParticlesPacket;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -55,6 +57,13 @@ public final class PlayerCleanup {
     private Path file;
     private boolean failed,dirty;
     private boolean removeContainerItems;
+    private int previewSeconds=30;
+    private final Map<UUID,Preview> previews=new HashMap<>();
+    private static final int PREVIEW_RADIUS=48, PREVIEW_BLOCKS=32, PREVIEW_SCAN=2048;
+    private static final class Preview {
+        final List<Entry> rows; final int start,duration; int cursor;
+        Preview(List<Entry> rows,int start,int duration){this.rows=rows;this.start=start;this.duration=duration;}
+    }
     private Task task;
     private int ticks;
     record Entry(String owner,String dimension,int x,int y,int z,String before,String after,String entity) {
@@ -81,11 +90,12 @@ public final class PlayerCleanup {
     private void loadConfig(){
         // Fail safe: an absent or invalid option never authorizes inventory deletion.
         removeContainerItems=false;
+        previewSeconds=30;
         Path config=FMLPaths.CONFIGDIR.get().resolve("playercleanup.properties");
         try {
             Files.createDirectories(config.getParent());
             if(!Files.exists(config)) Files.writeString(config,
-                "# true: delete container contents; false: preserve contents as drops or retain unsupported containers.\nremoveContainerItems=false\n",
+                "# true: delete container contents; false: preserve contents as drops or retain unsupported containers.\nremoveContainerItems=false\n# Duration of visual preview in seconds (5-120).\npreviewSeconds=30\n",
                 StandardOpenOption.CREATE_NEW);
             var props=new Properties();
             try(var reader=Files.newBufferedReader(config)){props.load(reader);}
@@ -93,11 +103,13 @@ public final class PlayerCleanup {
             if(!value.equalsIgnoreCase("true")&&!value.equalsIgnoreCase("false"))
                 throw new IllegalArgumentException("removeContainerItems must be true or false");
             removeContainerItems=Boolean.parseBoolean(value);
+            try { previewSeconds=Math.max(5,Math.min(120,Integer.parseInt(props.getProperty("previewSeconds","30").trim()))); }
+            catch(NumberFormatException ex){LOG.warn("Invalid previewSeconds; using 30 seconds");}
         }catch(Exception ex){LOG.warn("Player Cleanup config invalid; preserving container items",ex);}
         LOG.info("Player Cleanup removeContainerItems={}",removeContainerItems);
     }
     private void start(ServerStartedEvent e){
-        entries.clear();names.clear();pending.clear();buckets.clear();task=null;failed=false;dirty=false;ticks=0;
+        entries.clear();names.clear();pending.clear();buckets.clear();previews.clear();task=null;failed=false;dirty=false;ticks=0;
         loadConfig();
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("playercleanup.json");
         try {
@@ -121,7 +133,7 @@ public final class PlayerCleanup {
             dirty=false;return true;
         }catch(Exception ex){failed=true;LOG.error("Player Cleanup disabled: storage write failed",ex);return false;}
     }
-    private void stop(ServerStoppingEvent e){flush(e.getServer());release();save();file=null;}
+    private void stop(ServerStoppingEvent e){flush(e.getServer());release();save();previews.clear();file=null;}
     private void remember(ServerPlayer p){names.put(p.getGameProfile().getName().toLowerCase(Locale.ROOT),p.getUUID().toString());dirty=true;}
     private void login(PlayerEvent.PlayerLoggedInEvent e){if(!failed&&e.getEntity() instanceof ServerPlayer p)remember(p);}
     private static String dimension(ServerLevel l){return l.dimension().location().toString();}
@@ -251,6 +263,7 @@ public final class PlayerCleanup {
             .then(Commands.literal("entities").executes(c->request(c.getSource(),StringArgumentType.getString(c,"player"),"entities",false)));
         e.getDispatcher().register(Commands.literal("remove").requires(s->s.hasPermission(2))
             .then(target)
+            .then(Commands.literal("preview").then(Commands.literal("clear").executes(c->{if(c.getSource().getEntity() instanceof ServerPlayer p){previews.remove(p.getUUID());say(c.getSource(),"Visual preview cleared.");return 1;}return 0;})))
             .then(Commands.literal("status").executes(c->{say(c.getSource(),task==null?"No active cleanup.":"Cleanup: "+(task.total-task.queue.size())+"/"+task.total+" | removed "+task.removed+" | skipped "+task.skipped);return 1;}))
             .then(Commands.literal("reload").executes(c->{loadConfig();say(c.getSource(),"Configuration reloaded. Container items: "+(removeContainerItems?"DELETE":"PRESERVE")+". Active cleanup keeps its original setting.");return 1;}))
             .then(Commands.literal("cancel").executes(c->{release();task=null;say(c.getSource(),"Cleanup cancelled; completed changes remain.");return 1;})));
@@ -264,18 +277,48 @@ public final class PlayerCleanup {
         if(owner==null){s.sendFailure(Component.literal("Unknown player; no tracked login."));return 0;}
         var rows=new ArrayList<Entry>();
         for(Entry row:entries.values())if(owner.equals(row.owner())&&(mode.equals("all")||mode.equals("blocks")&&row.entity()==null||mode.equals("entities")&&row.entity()!=null))rows.add(row);
-        if(preview){long blocks=rows.stream().filter(r->r.entity()==null).count();say(s,name+": "+blocks+" tracked blocks, "+(rows.size()-blocks)+" tracked entities. Container items: "+(removeContainerItems?"DELETE":"PRESERVE")+". Protected or changed placements may be skipped.");return 1;}
+        if(preview){if(s.getEntity() instanceof ServerPlayer p){var blockRows=rows.stream().filter(r->r.entity()==null).toList(); if(blockRows.isEmpty())previews.remove(p.getUUID());else previews.put(p.getUUID(),new Preview(blockRows,ticks,previewSeconds*20));say(s,"Visual preview: "+previewSeconds+" seconds, within "+PREVIEW_RADIUS+" blocks. Outlines cycle through tracked placements. /remove preview clear to stop.");}else say(s,"Console preview shows counts only; run in-game for highlights.");long blocks=rows.stream().filter(r->r.entity()==null).count();say(s,name+": "+blocks+" tracked blocks, "+(rows.size()-blocks)+" tracked entities. Container items: "+(removeContainerItems?"DELETE":"PRESERVE")+". Protected or changed placements may be skipped.");return 1;}
         if(task!=null){s.sendFailure(Component.literal("Cleanup already running."));return 0;}
         if(!save())return 0;
         rows.sort(Comparator.comparing(Entry::dimension).thenComparingInt(r->r.x()>>4).thenComparingInt(r->r.z()>>4).thenComparing(Comparator.comparingInt(Entry::y).reversed()));
         task=new Task(owner,rows,removeContainerItems);say(s,"Queued "+rows.size()+" tracked placements for "+name+". Container items: "+(task.deleteContents?"DELETE":"PRESERVE")+".");return 1;
     }
     private void release(){if(task!=null&&task.level!=null&&task.chunk!=null){task.level.getChunkSource().removeRegionTicket(TICKET,task.chunk,2,0);task.level=null;task.chunk=null;}}
+    // Vanilla particle packets are sent only to the requesting administrator.
+    // No fake block states, entities, chunk tickets or world edits are needed.
+    private void renderPreviews(MinecraftServer server){
+        var it=previews.entrySet().iterator();
+        while(it.hasNext()){
+            var entry=it.next();var p=server.getPlayerList().getPlayer(entry.getKey());var view=entry.getValue();
+            if(p==null||!p.hasPermissions(2)||ticks-view.start>=view.duration){it.remove();continue;}
+            var l=p.serverLevel();String dim=dimension(l);
+            int rendered=0, scanned=0;
+            while(scanned<Math.min(PREVIEW_SCAN,view.rows.size())&&rendered<PREVIEW_BLOCKS){
+                Entry row=view.rows.get(view.cursor);view.cursor=(view.cursor+1)%view.rows.size();scanned++;
+                if(!dim.equals(row.dimension())||!row.equals(entries.get(row.key())))continue;
+                var pos=row.pos();
+                double dx=p.getX()-pos.getX()-.5,dy=p.getY()-pos.getY()-.5,dz=p.getZ()-pos.getZ()-.5;
+                if(dx*dx+dy*dy+dz*dz>PREVIEW_RADIUS*PREVIEW_RADIUS||!l.hasChunkAt(pos))continue;
+                if(!sameBlock(state(l.getBlockState(pos)),row.after()))continue;
+                outline(p,pos);rendered++;
+            }
+        }
+    }
+    private static void outline(ServerPlayer p,BlockPos pos){
+        // Eight corners plus twelve edge midpoints form a green particle outline.
+        for(int x=0;x<=2;x++)for(int y=0;y<=2;y++)for(int z=0;z<=2;z++){
+            int middle=(x==1?1:0)+(y==1?1:0)+(z==1?1:0);
+            if(middle>1)continue;
+            p.connection.send(new ClientboundLevelParticlesPacket(ParticleTypes.HAPPY_VILLAGER,true,
+                pos.getX()-.02+x*.52,pos.getY()-.02+y*.52,pos.getZ()-.02+z*.52,0f,0f,0f,0f,1));
+        }
+    }
     private void tick(TickEvent.ServerTickEvent.Post e){
         if(file==null)return;
         flush(e.getServer());
         if(++ticks%20==0)save();
-        if(failed){release();task=null;return;}
+        if(failed){release();task=null;previews.clear();return;}
+        if(ticks%10==0) renderPreviews(e.getServer());
         if(task==null)return;
         for(int i=0;i<BATCH&&!task.queue.isEmpty();i++){
             Entry row=task.queue.peek();

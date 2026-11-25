@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="playercleanup"
-version="0.1.1"
+version="0.1.2"
 displayName="Player Cleanup"
 displayTest="IGNORE_ALL_VERSION"
 description='''Server-side ownership tracking and selective cleanup.'''
