@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="serverrestart"
-version="0.1.0"
+version="0.1.1"
 displayName="Server Restart"
 displayTest="IGNORE_ALL_VERSION"
 description='''Server-side restart countdown and supervised restart.'''
