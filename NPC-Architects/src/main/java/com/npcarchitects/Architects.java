@@ -83,6 +83,7 @@ public final class Architects {
         String originalPlan;
         int cursor,indexCursor,startTick,completeTick=-1;
         Map<BlockPos,BlockState> desired=new HashMap<>();
+        Map<BlockPos,Blueprint.SignData> signs=new HashMap<>();
         long added,removed,replaced,retained,empty,unknown,protectedCount;
         // Bounded local overlay; never store or mutate live world blocks.
         Set<BlockPos> shown=new HashSet<>();
@@ -155,6 +156,7 @@ public final class Architects {
         
         transient Map<String,BlockState> importedStates;
         transient Map<BlockPos,BlockState> desiredCache;
+        transient Map<BlockPos,Blueprint.SignData> desiredSigns;
 
         List<Cleared> cleared = new ArrayList<>();
         String reason = "";
@@ -191,7 +193,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.3.5 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.3.6 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
         previewScan=null; jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false; progressDirty=false; lastProgressFlush=0; workJobOffset=0;
@@ -292,9 +294,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.5 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.6 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.5 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.6 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -439,7 +441,7 @@ public final class Architects {
         int lowestY=imported.cells().get(0).y();
         if(lowestY>0){
             j.height-=lowestY;
-            j.imported=imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowestY,c.z(),c.material())).toList();
+            j.imported=imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowestY,c.z(),c.material(),c.sign())).toList();
         }
         var origin=anchor.below();
         source.sendSuccess(()->Component.literal("Schematic ground origin: "+origin.toShortString()+" | empty bottom layers removed: "+lowestY),false);
@@ -470,7 +472,7 @@ public final class Architects {
             // No world mutations occur until the new blueprint and job snapshot exist.
             stopTeam(level,j);
             j.imported=replacement.imported;j.planFile=replacement.planFile;j.schematic=name;
-            j.importedStates=null;j.desiredCache=null;
+            j.importedStates=null;j.desiredCache=null;j.desiredSigns=null;
             j.cursor=0;j.clearCursor=0;j.surveyCursor=0;j.surveyCheckpointCursor=0;j.surveyCheckpointTick=ticks;
             j.teamDone.clear();j.clearDone.clear();j.placed.clear();j.cleared.clear();
             j.pendingBuild.clear();j.pendingClear.clear();j.journalCleared=0;j.journalPlaced=0;
@@ -495,7 +497,7 @@ public final class Architects {
             replacement.width=imported.width();replacement.depth=imported.depth();
             int lowest=imported.cells().get(0).y();
             replacement.height=imported.height()-lowest;
-            replacement.imported=lowest==0?imported.cells():imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowest,c.z(),c.material())).toList();
+            replacement.imported=lowest==0?imported.cells():imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowest,c.z(),c.material(),c.sign())).toList();
             replacement.schematic=name;replacement.rotation=0;
             replacement.x=j.x;replacement.y=j.y;replacement.z=j.z;replacement.dimension=j.dimension;
             validatePlan(replacement);
@@ -615,7 +617,7 @@ public final class Architects {
             var plan=cells(j);
             int indexed=0;
             while(p.indexCursor<plan.size()&&indexed++<PREVIEW_BATCH&&System.nanoTime()<deadline){
-                var cell=plan.get(p.indexCursor++);p.desired.put(buildPosition(j,cell),material(j,cell.material()));
+                var cell=plan.get(p.indexCursor++);var pos=buildPosition(j,cell);p.desired.put(pos,material(j,cell.material()));if(cell.sign()!=null)p.signs.put(pos,cell.sign());
             }
             if(p.indexCursor<plan.size())return;
             var desired=p.desired;
@@ -624,7 +626,7 @@ public final class Architects {
                 var pos=clearPosition(j,p.cursor++);
                 if(!level.hasChunkAt(pos)){p.unknown++;continue;}
                 var current=level.getBlockState(pos);var wanted=desired.getOrDefault(pos,Blocks.AIR.defaultBlockState());
-                if(current.equals(wanted)||(current.isAir()&&wanted.isAir())){if(wanted.isAir())p.empty++;else p.retained++;continue;}
+                if((current.equals(wanted)&&signMatches(level,pos,p.signs.get(pos)))||(current.isAir()&&wanted.isAir())){if(wanted.isAir())p.empty++;else p.retained++;continue;}
                 if(!current.isAir()&&!canClear(level,pos,current))p.protectedCount++;
                 if(current.isAir())p.added++;
                 else if(wanted.isAir())p.removed++;
@@ -649,6 +651,7 @@ public final class Architects {
         int lastY=-1;
         for(var c:plan) {
             if(c.x()<0||c.x()>=j.width||c.z()<0||c.z()>=j.depth||c.y()<lastY||c.y()<0||c.y()>=j.height||!seen.add(new BlockPos(c.x(),c.y(),c.z()))||material(j,c.material()).isAir()) throw new IllegalArgumentException("Invalid saved schematic cell");
+            if(SchematicImport.isSign(material(j,c.material()))!=(c.sign()!=null))throw new IllegalArgumentException("Sign block/data mismatch in saved plan");
             lastY=c.y();
         }
     }
@@ -758,7 +761,7 @@ public final class Architects {
             // Empty cells cannot contain an obstruction; skip the blueprint lookup.
             if(!current.isAir()) {
                 var wanted=desired.getOrDefault(pos,air);
-                if(!current.equals(wanted)&&!canClear(level,pos,current)) {
+                if((!current.equals(wanted)||!signMatches(level,pos,desiredSign(j,pos)))&&!canClear(level,pos,current)) {
                     blocked(j,npc,clearRestriction(level,pos,current)); return j.surveyCursor-start;
                 }
             }
@@ -900,7 +903,7 @@ public final class Architects {
         int removed=0, skipped=0;
         for(int i=j.placed.size()-1;i>=0;i--) {
             var c=plan.get(j.placed.get(i)); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
-            if(level.getBlockState(pos).equals(material(j,c.material())) && level.setBlock(pos,Blocks.AIR.defaultBlockState(),3)) removed++; else skipped++;
+            if(level.getBlockState(pos).equals(material(j,c.material())) && signMatches(level,pos,c.sign()) && level.setBlock(pos,Blocks.AIR.defaultBlockState(),3)) removed++; else skipped++;
         }
         int restored=0;
         for(int i=j.cleared.size()-1;i>=0;i--) {
@@ -914,10 +917,42 @@ public final class Architects {
     private static Map<BlockPos,BlockState> desiredStates(Job j) {
         if(j.desiredCache==null) {
             Map<BlockPos,BlockState> result=new HashMap<>();
-            for(var c:cells(j)) result.put(new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z()),material(j,c.material()));
+            j.desiredSigns=new HashMap<>();
+            for(var c:cells(j)){
+                var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
+                result.put(pos,material(j,c.material()));
+                if(c.sign()!=null)j.desiredSigns.put(pos,c.sign());
+            }
             j.desiredCache=result;
         }
         return j.desiredCache;
+    }
+    private static Blueprint.SignData desiredSign(Job j,BlockPos pos){
+        desiredStates(j);return j.desiredSigns.get(pos);
+    }
+    private static net.minecraft.world.level.block.entity.SignText signText(Blueprint.SignSide side){
+        var t=new net.minecraft.world.level.block.entity.SignText();
+        for(int i=0;i<4;i++)t=t.setMessage(i,Component.literal(side.lines().get(i)));
+        return t.setColor(net.minecraft.world.item.DyeColor.byName(side.color(),net.minecraft.world.item.DyeColor.BLACK)).setHasGlowingText(side.glowing());
+    }
+    private static boolean sideMatches(net.minecraft.world.level.block.entity.SignText actual,Blueprint.SignSide wanted){
+        if(!actual.getColor().getName().equals(wanted.color())||actual.hasGlowingText()!=wanted.glowing())return false;
+        for(int i=0;i<4;i++){
+            var expected=Component.literal(wanted.lines().get(i));
+            if(!actual.getMessage(i,false).equals(expected)||!actual.getMessage(i,true).equals(expected))return false;
+        }
+        return true;
+    }
+    private static boolean signMatches(ServerLevel level,BlockPos pos,Blueprint.SignData wanted){
+        return wanted==null||level.getBlockEntity(pos) instanceof net.minecraft.world.level.block.entity.SignBlockEntity sign
+            &&sign.isWaxed()==wanted.waxed()&&sideMatches(sign.getFrontText(),wanted.front())&&sideMatches(sign.getBackText(),wanted.back());
+    }
+    private static boolean writeSign(ServerLevel level,BlockPos pos,Blueprint.SignData data){
+        if(data==null)return true;
+        if(!(level.getBlockEntity(pos) instanceof net.minecraft.world.level.block.entity.SignBlockEntity sign))return false;
+        sign.setText(signText(data.front()),true);sign.setText(signText(data.back()),false);sign.setWaxed(data.waxed());sign.setChanged();
+        var state=level.getBlockState(pos);level.sendBlockUpdated(pos,state,state,3);
+        return signMatches(level,pos,data);
     }
     private static BlockPos clearPosition(Job j,int i) {
         int w=physicalWidth(j), d=physicalDepth(j);
@@ -1626,7 +1661,7 @@ public final class Architects {
                     if(problem!=null){blocked(j,npc,problem+" at "+pos.toShortString());return;}
                     var current=level.getBlockState(pos);
                     var target=desired.getOrDefault(pos,air);
-                    boolean done=current.isAir()||current.equals(target)||(isDrainableFluid(current)&&!target.isAir()),changed=false;
+                    boolean done=current.isAir()||(current.equals(target)&&signMatches(level,pos,desiredSign(j,pos)))||(isDrainableFluid(current)&&!target.isAir()),changed=false;
                     if(!done){
                         if(!canClear(level,pos,current)){blocked(j,npc,clearRestriction(level,pos,current));return;}
                         if(approach(w,npc,level,pos)){
@@ -1659,7 +1694,7 @@ public final class Architects {
                 String problem=siteProblem(level,pos);
                 if(problem!=null){blocked(j,npc,problem+" at "+pos.toShortString());return;}
                 var wanted=material(j,cell.material());var current=level.getBlockState(pos);
-                boolean done=current.equals(wanted);
+                boolean done=current.equals(wanted)&&signMatches(level,pos,cell.sign());
                 if(!done){
                     if(!current.isAir()&&!isDrainableFluid(current)){
                         // Terrain can change after the clearing pass (grass spread,
@@ -1695,7 +1730,12 @@ public final class Architects {
                     }
                     if(approach(w,npc,level,pos)&&level.getEntities(npc,new AABB(pos)).isEmpty()){
                         npc.swing(InteractionHand.MAIN_HAND);
-                        if(level.setBlock(pos,wanted,3)){if(isDrainableFluid(current))j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));j.placed.add(index);done=true;}
+                        if(level.setBlock(pos,wanted,3)){
+                            if(isDrainableFluid(current))j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));
+                            j.placed.add(index);
+                            if(!writeSign(level,pos,cell.sign())){blocked(j,npc,"Could not write sign at "+pos.toShortString());return;}
+                            done=true;
+                        }
                     }
                 }
                 if(done){

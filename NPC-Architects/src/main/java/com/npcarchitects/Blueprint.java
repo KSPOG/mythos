@@ -5,7 +5,19 @@ import java.util.List;
 
 /** Deterministic bottom-up shell, rotated within a positive-coordinate footprint. */
 public final class Blueprint {
-    public record Cell(int x,int y,int z,String material) {}
+    public record SignSide(List<String> lines,String color,boolean glowing) {
+        public SignSide {
+            if(lines==null||lines.size()!=4||lines.stream().anyMatch(t->t==null||t.length()>384||t.chars().anyMatch(Character::isISOControl)))throw new IllegalArgumentException("Invalid sign lines");
+            lines=List.copyOf(lines);
+            if(color==null||!List.of("white","orange","magenta","light_blue","yellow","lime","pink","gray","light_gray","cyan","purple","blue","brown","green","red","black").contains(color))throw new IllegalArgumentException("Invalid sign color");
+        }
+    }
+    public record SignData(SignSide front,SignSide back,boolean waxed) {
+        public SignData { if(front==null||back==null)throw new IllegalArgumentException("Missing sign side"); }
+    }
+    public record Cell(int x,int y,int z,String material,SignData sign) {
+        public Cell(int x,int y,int z,String material){this(x,y,z,material,null);}
+    }
     private Blueprint() {}
     public static List<Cell> house(int width,int depth) { return house(width,depth,5,0); }
     public static List<Cell> house(int width,int depth,int height,int rotation) {
