@@ -155,7 +155,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.2.7 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.2.8 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
@@ -187,9 +187,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.7 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.8 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.7 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.8 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -551,8 +551,8 @@ public final class Architects {
     }
     private int spawnJob(CommandSourceStack source,Job j,BlockPos origin,int blockCount) throws CommandSyntaxException {
         var player=source.getPlayerOrException(); var level=source.getLevel();
-        var npc=EntityType.VILLAGER.spawn(level,player.blockPosition(),MobSpawnType.COMMAND);
-        if(npc==null) return fail(source,"Could not spawn builder");
+        Villager npc=findSpawn(level,player.blockPosition(),3);
+        if(npc==null) return fail(source,"Could not spawn builder: no safe loaded position within 3 blocks. Snow layers are supported.");
         protect(npc);
         remember(j,npc); rememberHome(j,npc);
         j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.worker=npc.getUUID().toString(); j.owner=player.getUUID().toString();
@@ -837,7 +837,9 @@ public final class Architects {
             if(Math.max(Math.abs(dx),Math.abs(dz))!=radius) continue;
             var p=origin.offset(dx,dy,dz);
             if(siteProblem(level,p)!=null||!level.hasChunkAt(p.above())) continue;
-            var feet=new Vec3(p.getX()+0.5,p.getY(),p.getZ()+0.5);
+            var state=level.getBlockState(p);
+            double snowHeight=state.is(Blocks.SNOW)?state.getValue(net.minecraft.world.level.block.SnowLayerBlock.LAYERS)/8.0:0.0;
+            var feet=new Vec3(p.getX()+0.5,p.getY()+snowHeight,p.getZ()+0.5);
             var box=npc.getBoundingBox().move(feet.subtract(npc.position()));
             if(!level.getWorldBorder().isWithinBounds(box)||level.isOutsideBuildHeight(BlockPos.containing(box.maxX,box.maxY,box.maxZ))) continue;
             boolean loaded=true;
@@ -869,13 +871,54 @@ public final class Architects {
     private void waiting(Job j,String reason) {
         if(!reason.equals(j.reason)) { j.reason=reason; LOGGER.warn("NPC Architects job {}: {}",j.id,reason); save(); }
     }
+    // A snow layer is not air, but it can support a villager above its surface.
+    // Do not delete snow or any other terrain to make room for a worker.
+    private static Vec3 spawnFeet(ServerLevel level,BlockPos pos) {
+        if(siteProblem(level,pos)!=null||level.isOutsideBuildHeight(pos.above())||!level.hasChunkAt(pos.below()))return null;
+        var state=level.getBlockState(pos);
+        boolean snow=state.is(Blocks.SNOW);
+        if(!state.isAir()&&!snow)return null;
+        if(!level.getBlockState(pos.below()).isFaceSturdy(level,pos.below(),net.minecraft.core.Direction.UP))return null;
+        double height=snow?state.getValue(net.minecraft.world.level.block.SnowLayerBlock.LAYERS)/8.0:0.0;
+        var feet=new Vec3(pos.getX()+.5,pos.getY()+height,pos.getZ()+.5);
+        var box=new AABB(feet.x-.3,feet.y,feet.z-.3,feet.x+.3,feet.y+1.95,feet.z+.3);
+        if(!level.getWorldBorder().isWithinBounds(box)||level.isOutsideBuildHeight(BlockPos.containing(box.maxX,box.maxY,box.maxZ)))return null;
+        for(int y=pos.getY();y<=Math.floor(box.maxY);y++){
+            var p=new BlockPos(pos.getX(),y,pos.getZ());
+            if(!level.hasChunkAt(p)||!level.getFluidState(p).isEmpty())return null;
+        }
+        if(!level.noCollision(null,box)||!level.getEntities(null,box).isEmpty())return null;
+        return feet;
+    }
+    private static Villager spawnAt(ServerLevel level,BlockPos pos) {
+        var feet=spawnFeet(level,pos);
+        if(feet==null)return null;
+        // Spawn using the vanilla command path (including initialization), then
+        // position at the validated fractional snow surface.
+        var npc=EntityType.VILLAGER.spawn(level,BlockPos.containing(feet),MobSpawnType.COMMAND);
+        if(npc==null)return null;
+        npc.moveTo(feet.x,feet.y,feet.z,npc.getYRot(),npc.getXRot());
+        if(!level.noCollision(npc,npc.getBoundingBox())||!level.getEntities(npc,npc.getBoundingBox()).isEmpty()){
+            npc.discard();return null;
+        }
+        return npc;
+    }
+    private static Villager findSpawn(ServerLevel level,BlockPos anchor,int limit) {
+        for(int radius=0;radius<=limit;radius++)for(int dx=-radius;dx<=radius;dx++)for(int dz=-radius;dz<=radius;dz++){
+            if(Math.max(Math.abs(dx),Math.abs(dz))!=radius)continue;
+            for(int dy:new int[]{0,1,-1,2,-2}){
+                var npc=spawnAt(level,anchor.offset(dx,dy,dz));
+                if(npc!=null)return npc;
+            }
+        }
+        return null;
+    }
     private Villager replaceWorker(ServerLevel level,Job job,Worker j,BlockPos anchor) {
         if(storageFailed) return null;
         for(int radius=0;radius<=3;radius++) for(int dx=-radius;dx<=radius;dx++) for(int dz=-radius;dz<=radius;dz++) for(int dy:new int[]{0,1,-1,2,-2}) {
             if(Math.max(Math.abs(dx),Math.abs(dz))!=radius) continue;
             var pos=anchor.offset(dx,dy,dz);
-            if(siteProblem(level,pos)!=null||level.isOutsideBuildHeight(pos.above())||!level.isEmptyBlock(pos)||!level.isEmptyBlock(pos.above())||!level.getBlockState(pos.below()).isFaceSturdy(level,pos.below(),net.minecraft.core.Direction.UP)||!level.getEntities(null,new AABB(pos).expandTowards(0,1,0)).isEmpty()) continue;
-            var replacement=EntityType.VILLAGER.spawn(level,pos,MobSpawnType.COMMAND);
+            var replacement=spawnAt(level,pos);
             if(replacement==null) continue;
             protect(replacement);
             String previous=j.worker; boolean requested=j.respawnRequested; boolean died=j.workerDied; Integer oldX=j.workerX,oldY=j.workerY,oldZ=j.workerZ;
@@ -1003,8 +1046,7 @@ public final class Architects {
             if(Math.max(Math.abs(dx),Math.abs(dz))!=r) continue;
             for(int dy:new int[]{0,1,-1,2,-2}) {
                 var pos=anchor.offset(dx,dy,dz);
-                if(siteProblem(level,pos)!=null||!level.isEmptyBlock(pos)||!level.isEmptyBlock(pos.above())||!level.getBlockState(pos.below()).isFaceSturdy(level,pos.below(),net.minecraft.core.Direction.UP)||!level.getEntities(null,new AABB(pos).expandTowards(0,1,0)).isEmpty()) continue;
-                var npc=EntityType.VILLAGER.spawn(level,pos,MobSpawnType.COMMAND);
+                var npc=spawnAt(level,pos);
                 if(npc==null) continue;
                 protect(npc); setWorking(npc,false);
                 var w=new Worker(); w.worker=npc.getUUID().toString(); remember(w,npc); rememberHome(w,npc);

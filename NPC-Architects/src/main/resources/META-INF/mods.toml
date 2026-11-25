@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="npcarchitects"
-version="0.2.7"
+version="0.2.8"
 displayName="NPC Architects"
 displayTest="IGNORE_ALL_VERSION"
 description='''Server-side NPC construction jobs.'''
