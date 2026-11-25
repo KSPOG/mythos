@@ -33,3 +33,6 @@ Every running job (house or schematic) refreshes expiring region tickets around 
 
 ## Automatic builder cleanup
 Completed, cancelled and undone jobs remove the associated villager by saved UUID without drops. Existing terminal jobs are cleaned on management ticks; unloaded builders are prevented from joining the world when their chunks load. Paused and blocked jobs retain their worker. Terminal job records and undo history remain, and cancellation/completion do not release the reserved site. No extra chunks are loaded solely for cleanup. Runtime verification required.
+
+### Completion notifications
+New jobs record the initiating player's UUID. When construction reaches DONE and its state is saved, the owner receives a green completion chat message containing the job ID, schematic name (or house), blueprint block count, dimension and origin coordinates. If the owner is offline, the persisted completion is delivered when they return; normal server ticks also retry pending notifications. Jobs created before v0.1.7 have no owner, so newly completed legacy jobs notify online operators instead (pending until one is online). Previously completed jobs are not retroactively announced. Delivery is best-effort; a crash or failed save immediately after sending may repeat a notice. Cancelled and undone jobs do not announce successful completion.

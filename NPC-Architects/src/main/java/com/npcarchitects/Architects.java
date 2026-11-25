@@ -10,6 +10,8 @@ import net.minecraft.core.particles.ParticleTypes;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
@@ -69,6 +71,9 @@ public final class Architects {
         String reason = "";
         List<Integer> placed = new ArrayList<>();
         String dimension, worker, status = "RUNNING";
+        String owner;
+        long completedAt;
+        boolean completionNotified;
     }
     private static final class Cleared {
         int x,y,z,state;
@@ -82,6 +87,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::workerDeath);
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
+        MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
         LOGGER.info("NPC Architects 0.1.7 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
@@ -378,7 +384,7 @@ public final class Architects {
         if(npc==null) return fail(source,"Could not spawn builder");
         protect(npc);
         remember(j,npc);
-        j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.worker=npc.getUUID().toString();
+        j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.worker=npc.getUUID().toString(); j.owner=player.getUUID().toString();
         try { if(j.imported!=null) persistPlan(j); } catch(Exception ex) { npc.discard(); LOGGER.error("Cannot persist schematic plan",ex); return fail(source,"Cannot persist schematic plan: "+ex.getMessage()); }
         jobs.put(j.id,j);
         if(!save()) { jobs.remove(j.id); npc.discard(); return fail(source,"Failed to save job"); }
@@ -575,6 +581,32 @@ public final class Architects {
             return;
         }
     }
+    private void playerJoined(PlayerEvent.PlayerLoggedInEvent event) {
+        if(storageFailed || !(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+        for(Job j:jobs.values()) if(player.getUUID().toString().equals(j.owner)) notifyCompletion(player.serverLevel().getServer(),j);
+    }
+    private void notifyCompletion(MinecraftServer server,Job j) {
+        if(storageFailed || j.completionNotified || !j.status.equals("DONE") || j.completedAt<=0) return;
+        var players=server.getPlayerList();
+        String name=j.schematic==null?"house":j.schematic;
+        var message=Component.literal("[NPC Architects] ").withStyle(ChatFormatting.GOLD)
+            .append(Component.literal("Job #"+j.id+" ("+name+") completed! ").withStyle(ChatFormatting.GREEN))
+            .append(Component.literal(cells(j).size()+" blueprint blocks | "+j.dimension+" | "+j.x+", "+j.y+", "+j.z).withStyle(ChatFormatting.WHITE));
+        if(j.owner!=null) {
+            UUID owner;
+            try { owner=UUID.fromString(j.owner); } catch(IllegalArgumentException ex) { LOGGER.warn("Invalid owner for job {}",j.id); return; }
+            var player=players.getPlayer(owner);
+            if(player==null) return;
+            player.sendSystemMessage(message);
+        } else {
+            // Older jobs have no owner. Report new completions to online operators only.
+            boolean delivered=false;
+            for(var player:players.getPlayers()) if(player.hasPermissions(2)) { player.sendSystemMessage(message); delivered=true; }
+            if(!delivered) return;
+        }
+        j.completionNotified=true;
+        save();
+    }
     private static boolean terminal(Job j) {
         return j.status.equals("DONE")||j.status.equals("CANCELLED")||j.status.equals("UNDONE");
     }
@@ -646,7 +678,7 @@ public final class Architects {
             if(storageFailed) break;
             var level=jobLevel(e.getServer(),j);
             if(level==null) continue;
-            if(terminal(j)) { cleanupWorker(e.getServer(),j); continue; }
+            if(terminal(j)) { cleanupWorker(e.getServer(),j); notifyCompletion(e.getServer(),j); continue; }
             if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager worker && worker.isAlive()) { protect(worker); setWorking(worker,j.status.equals("RUNNING")&&!storageFailed); if(j.status.equals("RUNNING")) checkpointWorker(level,j,worker); }
             if(j.status.equals("RUNNING")) {
                 ticket(level,j,workerAnchor(j),true);
@@ -674,7 +706,7 @@ public final class Architects {
         }
         if(j.surveying) { surveyStep(level,npc,j); return; }
         if(j.clearing) { clearStep(level,npc,j); return; }
-        if(j.cursor>=cells.size()) { j.status="DONE"; j.reason=""; setWorking(npc,false); resetMovement(j); releaseTickets(level,j); LOGGER.info("NPC Architects job {} completed",j.id); if(save()) cleanupWorker(server,j); return; }
+        if(j.cursor>=cells.size()) { j.status="DONE"; j.completedAt=System.currentTimeMillis(); j.reason=""; setWorking(npc,false); resetMovement(j); releaseTickets(level,j); LOGGER.info("NPC Architects job {} completed",j.id); if(save()) { cleanupWorker(server,j); notifyCompletion(server,j); } return; }
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
         if(!loadTarget(level,j,pos)) { waiting(j,"Loading construction chunk "+new ChunkPos(pos)); return; }
         String problem=siteProblem(level,pos);
