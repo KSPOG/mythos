@@ -1,0 +1,37 @@
+name: MYTHOS-Economy build
+on:
+  pull_request:
+    paths: ['MYTHOS-Economy/**', '.github/workflows/mythos-economy.yml']
+  push:
+    branches: [main]
+    paths: ['MYTHOS-Economy/**', '.github/workflows/mythos-economy.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: MYTHOS-Economy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Forge wrapper
+        run: |
+          curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.5/forge-1.21.1-52.1.5-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
+          unzip -o "${RUNNER_TEMP}/forge-mdk.zip" gradlew 'gradle/wrapper/*'
+          chmod +x gradlew
+      - name: Compile mod
+        run: ./gradlew --no-daemon build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mythos-economy-0.1.0
+          path: |
+            MYTHOS-Economy/build/libs/*.jar
+            MYTHOS-Economy/README.md
+          if-no-files-found: error
