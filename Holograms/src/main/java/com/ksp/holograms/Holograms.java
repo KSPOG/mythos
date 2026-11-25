@@ -26,6 +26,13 @@ import java.util.*;
 
 @Mod("holograms")
 public final class Holograms {
+    private static final String FX="ksp_effects";
+    private static final String BASE="ksp_effect_base";
+    private static final String PAUSED="ksp_effect_paused";
+    private static final String PERIOD="ksp_effect_period";
+    private static final String MESSAGES="ksp_effect_messages";
+    private static final Set<String> EFFECTS=Set.of("rainbow","gradient","pulse","fade","blink","typewriter","shimmer","scramble","vertical","messages","floating","rotation","swing","orbit","shake","rise","slide","wave","sparkles","arcane","fire","soul","spiral","healing","frost","dynamic");
+    private static final Map<String,String> PRESETS=Map.of("legendary","shimmer,floating,sparkles","arcane","gradient,orbit,arcane","danger","pulse,shake,fire","divine","shimmer,floating,sparkles","frost","shimmer,frost","necromancer","pulse,soul,floating","royal","shimmer,pulse","portal","rotation,spiral");
     private static final String PREFIX="ksp_holo_";
     private static final String SCROLL="ksp_hologram_scroll";
     private static final String SOURCE="ksp_hologram_scroll_source";
@@ -39,9 +46,159 @@ public final class Holograms {
         bus.addListener(this::register);bus.addListener(this::join);bus.addListener(this::tick);bus.addListener(this::stop);
     }
     private void join(EntityJoinLevelEvent e){
-        if(e.getLevel() instanceof ServerLevel && e.getEntity() instanceof Display.TextDisplay d && d.getTags().contains("ksp_hologram") && d.getPersistentData().getBoolean(SCROLL)){
+        if(e.getLevel() instanceof ServerLevel && e.getEntity() instanceof Display.TextDisplay d && d.getTags().contains("ksp_hologram") && animated(d)){
             active.put(d.getUUID(),d);phases.put(d.getUUID(),ticks);
         }
+    }
+    private static boolean animated(Display.TextDisplay d){
+        return d.getPersistentData().getBoolean(SCROLL)||!d.getPersistentData().getString(FX).isEmpty();
+    }
+    private static Set<String> effects(Display.TextDisplay d){
+        Set<String> result=new LinkedHashSet<>(Arrays.asList(d.getPersistentData().getString(FX).split(",")));
+        result.retainAll(EFFECTS);return result;
+    }
+    private static boolean nearby(Display.TextDisplay d){
+        for(var p:((ServerLevel)d.level()).players())if(p.distanceToSqr(d)<=64*64)return true;
+        return false;
+    }
+    private void activate(Display.TextDisplay d){
+        active.put(d.getUUID(),d);phases.put(d.getUUID(),ticks);
+    }
+    private static CompoundTag snapshot(Display.TextDisplay d){
+        CompoundTag tag=new CompoundTag();d.saveWithoutId(tag);return tag;
+    }
+    private static void mergeVisual(Display.TextDisplay d,CompoundTag patch){
+        CompoundTag tag=snapshot(d);tag.merge(patch);d.load(tag);
+    }
+    private void capture(Display.TextDisplay d){
+        var data=d.getPersistentData();
+        if(!data.contains(BASE)){
+            CompoundTag snap=snapshot(d),base=new CompoundTag();
+            for(String key:List.of("transformation","text_opacity","billboard","interpolation_duration","start_interpolation"))
+                if(snap.contains(key))base.put(key,snap.get(key).copy());
+            data.put(BASE,base);
+        }
+        if(!data.contains(SOURCE)){
+            Component existing=d.getText();
+            setSource(d,existing.getString().indexOf('\u00a7')>=0?decode(existing.getString().replace("&","&&")):existing.copy());
+        }
+    }
+    private void restoreVisual(Display.TextDisplay d){
+        var data=d.getPersistentData();
+        if(data.contains(BASE))mergeVisual(d,data.getCompound(BASE).copy());
+    }
+    private void resetEffects(Display.TextDisplay d){
+        restoreVisual(d);
+        var data=d.getPersistentData();
+        data.remove(FX);data.remove(BASE);data.remove(PAUSED);data.remove(PERIOD);data.remove(MESSAGES);
+        if(!data.getBoolean(SCROLL)){
+            d.setText(source(d));data.remove(SOURCE);active.remove(d.getUUID());phases.remove(d.getUUID());
+        }else activate(d);
+    }
+    private int effect(CommandSourceStack s,String id,String action,String value,int number){
+        if(!valid(s,id))return 0;var d=find(s,id);if(d==null)return 0;
+        var data=d.getPersistentData();var set=effects(d);
+        switch(action){
+            case "list" -> {s.sendSuccess(()->Component.literal("Effects: "+set+" | available: "+String.join(", ",new TreeSet<>(EFFECTS))),false);return 1;}
+            case "clear" -> {resetEffects(d);return 1;}
+            case "pause" -> {data.putBoolean(PAUSED,true);return 1;}
+            case "resume" -> {data.remove(PAUSED);activate(d);return 1;}
+            case "speed" -> {data.putInt(PERIOD,number);return 1;}
+            case "messages" -> {if(!length(s,value))return 0;capture(d);data.putString(MESSAGES,value);set.add("messages");}
+            case "preset" -> {if(!PRESETS.containsKey(value)){s.sendFailure(Component.literal("Unknown preset."));return 0;}capture(d);set.addAll(Arrays.asList(PRESETS.get(value).split(",")));}
+            case "add" -> {if(!EFFECTS.contains(value)){s.sendFailure(Component.literal("Unknown effect."));return 0;}capture(d);set.add(value);}
+            case "remove" -> {set.remove(value);restoreVisual(d);}
+            default -> {return 0;}
+        }
+        if(set.isEmpty()){resetEffects(d);return 1;}
+        d.getPersistentData().putString(FX,String.join(",",set));activate(d);
+        s.sendSuccess(()->Component.literal("Effects: "+String.join(", ",set)),false);return 1;
+    }
+    private static int rgb(double hue){
+        double h=(hue-Math.floor(hue))*6;int i=(int)h;double f=h-i;int v=255,p=71,q=(int)(255*(1-.72*f)),t=(int)(255*(1-.72*(1-f)));return switch(i){case 0->v<<16|t<<8|p;case 1->q<<16|v<<8|p;case 2->p<<16|v<<8|t;case 3->p<<16|q<<8|v;case 4->t<<16|p<<8|v;default->v<<16|p<<8|q;};
+    }
+    private Component textFrame(Display.TextDisplay d,Set<String> fx,long elapsed){
+        var data=d.getPersistentData();Component c=source(d);
+        int period=data.contains(PERIOD)?Math.max(10,data.getInt(PERIOD)):80;
+        if(fx.contains("messages")){
+            String[] messages=data.getString(MESSAGES).split("\\|",-1);
+            if(messages.length>0&&!data.getString(MESSAGES).isEmpty())c=decode(messages[(int)((elapsed/period)%messages.length)].replace("{newline}","\n"));
+        }
+        if(fx.contains("dynamic")){
+            MutableComponent out=Component.empty();
+            for(Glyph g:glyphs(c))out.append(Component.literal(g.text()).setStyle(g.style()));
+            // Replace complete placeholder strings using the plain source; keep a uniform first style.
+            var gs=glyphs(c);Style st=gs.isEmpty()?Style.EMPTY:gs.getFirst().style();
+            var server=((ServerLevel)d.level()).getServer();
+            c=Component.literal(c.getString().replace("{online}",Integer.toString(server.getPlayerList().getPlayerCount())).replace("{max}",Integer.toString(server.getPlayerList().getMaxPlayers())).replace("{time}",Long.toString(d.level().getDayTime()%24000))).setStyle(st);
+        }
+        if(fx.contains("vertical")){
+            List<List<Glyph>> lines=new ArrayList<>();lines.add(new ArrayList<>());
+            for(Glyph g:glyphs(c)){if(g.text().equals("\n"))lines.add(new ArrayList<>());else lines.getLast().add(g);}
+            MutableComponent out=Component.empty();
+            for(int i=0;i<Math.min(3,lines.size());i++){
+                if(i>0)out.append("\n");
+                for(Glyph g:lines.get((int)((elapsed/period+i)%lines.size())))out.append(Component.literal(g.text()).setStyle(g.style()));
+            }c=out;
+        }
+        if(data.getBoolean(SCROLL))c=frame(c,Math.max(4,Math.min(80,data.getInt(WIDTH))),elapsed/Math.max(2,data.getInt(SPEED)));
+        List<Glyph> gs=glyphs(c);MutableComponent out=Component.empty();
+        int reveal=(int)((elapsed/2)%(gs.size()+20L));
+        double phase=(double)(elapsed%period)/period;
+        for(int i=0;i<gs.size();i++){
+            Glyph g=gs.get(i);String value=g.text();Style style=g.style();
+            if(fx.contains("typewriter")&&i>=reveal)break;
+            if(fx.contains("scramble")&&i>=reveal&&!value.isBlank())value=String.valueOf((char)('A'+Math.floorMod(i*17+elapsed/2,26)));
+            if(fx.contains("rainbow")||fx.contains("gradient"))style=style.withColor(rgb(phase+(fx.contains("gradient")?i*.045:0)));
+            if(fx.contains("shimmer"))style=style.withColor(Math.abs((i%Math.max(1,gs.size()))/(double)Math.max(1,gs.size())-phase)<.12?0xffffee:0xffbb44);
+            if(fx.contains("wave"))style=style.withColor(rgb(.72+.08*Math.sin(i*.5+phase*Math.PI*2)));
+            out.append(Component.literal(value).setStyle(style));
+        }
+        return out;
+    }
+    private void visualFrame(Display.TextDisplay d,Set<String> fx,long elapsed){
+        var data=d.getPersistentData();int period=data.contains(PERIOD)?Math.max(10,data.getInt(PERIOD)):80;
+        double p=2*Math.PI*(elapsed%period)/period;
+        boolean motion=!Collections.disjoint(fx,Set.of("pulse","floating","rotation","swing","orbit","shake","rise","slide"));
+        boolean opacity=!Collections.disjoint(fx,Set.of("fade","blink","rise"));
+        if(motion||opacity){
+            CompoundTag base=data.getCompound(BASE),patch=new CompoundTag();
+            if(motion){
+                // Compose with the saved vanilla transformation, preserving its scale and translation.
+                CompoundTag transform=base.getCompound("transformation").copy();
+                var translation=transform.getList("translation",5);var scale=transform.getList("scale",5);
+                double x=translation.size()==3?translation.getFloat(0):0,y=translation.size()==3?translation.getFloat(1):0,z=translation.size()==3?translation.getFloat(2):0;
+                if(fx.contains("floating"))y+=.3*Math.sin(p);
+                if(fx.contains("orbit")){x+=.5*Math.cos(p);z+=.5*Math.sin(p);}
+                if(fx.contains("shake"))x+=.05*Math.sin(p*16);
+                if(fx.contains("slide"))x+=.5*Math.sin(p);
+                if(fx.contains("rise"))y+=(elapsed%period)/(double)period;
+                transform.put("translation",floats(x,y,z));
+                if(fx.contains("pulse")){
+                    double f=1+.15*Math.sin(p);
+                    transform.put("scale",floats((scale.size()==3?scale.getFloat(0):1)*f,(scale.size()==3?scale.getFloat(1):1)*f,(scale.size()==3?scale.getFloat(2):1)*f));
+                }
+                if(fx.contains("rotation")||fx.contains("swing")){
+                    double angle=fx.contains("rotation")?p:.2*Math.sin(p);
+                    transform.put("left_rotation",fx.contains("rotation")?floats(0,Math.sin(angle/2),0,Math.cos(angle/2)):floats(0,0,Math.sin(angle/2),Math.cos(angle/2)));
+                    if(fx.contains("rotation"))patch.putString("billboard","fixed");
+                }
+                patch.put("transformation",transform);patch.putInt("interpolation_duration",4);patch.putInt("start_interpolation",0);
+            }
+            if(opacity){
+                double alpha=fx.contains("blink")?(Math.sin(p)>=0?1:0):fx.contains("rise")?1-(elapsed%period)/(double)period:.5+.5*Math.sin(p);
+                patch.putByte("text_opacity",(byte)Math.round(255*alpha));
+            }
+            mergeVisual(d,patch);
+        }
+        if(elapsed%20==0){
+            ServerLevel level=(ServerLevel)d.level();
+            var particle=fx.contains("fire")?net.minecraft.core.particles.ParticleTypes.FLAME:fx.contains("soul")?net.minecraft.core.particles.ParticleTypes.SOUL_FIRE_FLAME:fx.contains("frost")?net.minecraft.core.particles.ParticleTypes.SNOWFLAKE:fx.contains("healing")?net.minecraft.core.particles.ParticleTypes.HAPPY_VILLAGER:fx.contains("arcane")||fx.contains("spiral")?net.minecraft.core.particles.ParticleTypes.PORTAL:fx.contains("sparkles")?net.minecraft.core.particles.ParticleTypes.END_ROD:null;
+            if(particle!=null)for(int i=0;i<6;i++){double a=p+i*Math.PI/3;level.sendParticles(particle,d.getX()+.65*Math.cos(a),d.getY()+(fx.contains("spiral")?i*.13:.2),d.getZ()+.65*Math.sin(a),1,0,0,0,0);}
+        }
+    }
+    private static net.minecraft.nbt.ListTag floats(double... values){
+        var list=new net.minecraft.nbt.ListTag();for(double n:values)list.add(net.minecraft.nbt.FloatTag.valueOf((float)n));return list;
     }
     private void stop(ServerStoppingEvent e){active.clear();phases.clear();ticks=0;}
     private static Display.TextDisplay find(CommandSourceStack s,String id){
@@ -123,14 +280,14 @@ public final class Holograms {
         var d=find(s,id);if(d==null)return 0;
         var data=d.getPersistentData();
         if(enable){
-            if(!data.getBoolean(SCROLL)){Component existing=d.getText();setSource(d,existing.getString().indexOf('\u00a7')>=0?decode(existing.getString().replace("&","&&")):existing.copy());}
+            if(!data.getBoolean(SCROLL)&&!data.contains(SOURCE)){Component existing=d.getText();setSource(d,existing.getString().indexOf('\u00a7')>=0?decode(existing.getString().replace("&","&&")):existing.copy());}
             data.putBoolean(SCROLL,true);data.putInt(WIDTH,width);data.putInt(SPEED,speed);
             active.put(d.getUUID(),d);phases.put(d.getUUID(),ticks);
             d.setText(frame(source(d),width,0));
         }else{
             if(data.getBoolean(SCROLL))d.setText(source(d));
-            data.remove(SCROLL);data.remove(SOURCE);data.remove(WIDTH);data.remove(SPEED);
-            active.remove(d.getUUID());phases.remove(d.getUUID());
+            data.remove(SCROLL);data.remove(WIDTH);data.remove(SPEED);
+            if(effects(d).isEmpty()){data.remove(SOURCE);active.remove(d.getUUID());phases.remove(d.getUUID());}else activate(d);
         }
         s.sendSuccess(()->Component.literal(enable?"Scrolling enabled: "+width+" characters, one step every "+speed+" ticks.":"Scrolling disabled; full text restored."),false);
         return 1;
@@ -140,11 +297,18 @@ public final class Holograms {
         var it=active.entrySet().iterator();
         while(it.hasNext()){
             var entry=it.next();var d=entry.getValue();
-            if(d.isRemoved()||!d.getPersistentData().getBoolean(SCROLL)){
+            if(d.isRemoved()||!animated(d)){
                 phases.remove(entry.getKey());it.remove();continue;
             }
+            if(!nearby(d)||d.getPersistentData().getBoolean(PAUSED))continue;
             int speed=Math.max(2,Math.min(100,d.getPersistentData().getInt(SPEED)));
             long elapsed=ticks-phases.getOrDefault(entry.getKey(),ticks);
+            var fx=effects(d);
+            if(!fx.isEmpty()){
+                if(elapsed%4==0)visualFrame(d,fx,elapsed);
+                if(elapsed%(d.getPersistentData().getBoolean(SCROLL)?speed:4)==0)d.setText(textFrame(d,fx,elapsed));
+                continue;
+            }
             if(elapsed%speed!=0)continue;
             int width=Math.max(4,Math.min(80,d.getPersistentData().getInt(WIDTH)));
             d.setText(frame(source(d),width,elapsed/speed));
@@ -184,9 +348,9 @@ public final class Holograms {
                     if(!valid(c.getSource(),id)||!length(c.getSource(),text))return 0;
                     var d=find(c.getSource(),id);if(d==null)return 0;
                     Component component=decode(text.replace("{newline}","\n"));
-                    if(d.getPersistentData().getBoolean(SCROLL)){
+                    if(animated(d)){
                         setSource(d,component);phases.put(d.getUUID(),ticks);
-                        d.setText(frame(component,Math.max(4,Math.min(80,d.getPersistentData().getInt(WIDTH))),0));
+                        d.setText(textFrame(d,effects(d),0));
                     }else d.setText(component);
                     return 1;
                 }))))
@@ -197,6 +361,25 @@ public final class Holograms {
                         .then(Commands.argument("ticks",IntegerArgumentType.integer(2,100))
                             .executes(c->scroll(c.getSource(),id(c),true,IntegerArgumentType.getInteger(c,"width"),IntegerArgumentType.getInteger(c,"ticks"))))))
                 .then(Commands.literal("off").executes(c->scroll(c.getSource(),id(c),false,24,4)))))
+            .then(Commands.literal("effect").then(Commands.argument("id",StringArgumentType.word())
+                .then(Commands.literal("add").then(Commands.argument("effect",StringArgumentType.word())
+                    .suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggest(EFFECTS,b))
+                    .executes(c->effect(c.getSource(),id(c),"add",StringArgumentType.getString(c,"effect"),0))))
+                .then(Commands.literal("remove").then(Commands.argument("effect",StringArgumentType.word())
+                    .suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggest(EFFECTS,b))
+                    .executes(c->effect(c.getSource(),id(c),"remove",StringArgumentType.getString(c,"effect"),0))))
+                .then(Commands.literal("list").executes(c->effect(c.getSource(),id(c),"list","",0)))
+                .then(Commands.literal("clear").executes(c->effect(c.getSource(),id(c),"clear","",0)))
+                .then(Commands.literal("pause").executes(c->effect(c.getSource(),id(c),"pause","",0)))
+                .then(Commands.literal("resume").executes(c->effect(c.getSource(),id(c),"resume","",0)))
+                .then(Commands.literal("speed").then(Commands.argument("ticks",IntegerArgumentType.integer(10,1200))
+                    .executes(c->effect(c.getSource(),id(c),"speed","",IntegerArgumentType.getInteger(c,"ticks")))))
+                .then(Commands.literal("messages").then(Commands.argument("messages",StringArgumentType.greedyString())
+                    .executes(c->effect(c.getSource(),id(c),"messages",StringArgumentType.getString(c,"messages"),0))))))
+            .then(Commands.literal("preset").then(Commands.argument("id",StringArgumentType.word())
+                .then(Commands.argument("preset",StringArgumentType.word())
+                    .suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggest(PRESETS.keySet(),b))
+                    .executes(c->effect(c.getSource(),id(c),"preset",StringArgumentType.getString(c,"preset"),0)))))
             .then(Commands.literal("move").then(Commands.argument("id",StringArgumentType.word()).executes(c->{
                 c.getSource().getPlayerOrException();String id=id(c);
                 return valid(c.getSource(),id)?run(c.getSource(),"tp "+selector(id)+" ~ ~2.2 ~"):0;
