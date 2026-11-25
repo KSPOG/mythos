@@ -3,6 +3,7 @@ package com.npcarchitects;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.particles.ParticleTypes;
@@ -39,7 +40,7 @@ public final class Architects {
     private final Map<Integer, Job> jobs = new LinkedHashMap<>();
     private final Map<UUID, Selection> selections = new HashMap<>();
     private static final class Selection { BlockPos first, second; String dimension; int rotation; }
-    private Path file;
+    private Path file, schematicDirectory;
     private int ticks;
     private boolean storageFailed;
     private static final class Job {
@@ -49,6 +50,10 @@ public final class Architects {
         transient Vec3 workStand;
         transient int movementFailures;
         boolean clearing, workerDied;
+        String schematic;
+        List<Blueprint.Cell> imported;
+        transient Map<String,BlockState> importedStates;
+        transient Map<BlockPos,BlockState> desiredCache;
         Integer workerX, workerY, workerZ;
         List<Cleared> cleared = new ArrayList<>();
         String reason = "";
@@ -66,21 +71,23 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::tick);
         MinecraftForge.EVENT_BUS.addListener(this::workerDeath);
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
-        LOGGER.info("NPC Architects 0.1.5 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.1.6 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; storageFailed=false;
         LOGGER.info("NPC Architects server started");
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("npcarchitects-jobs.json");
         try {
+            schematicDirectory=file.resolveSibling("npcarchitects-schematics");
+            Files.createDirectories(schematicDirectory);
             if (Files.exists(file)) {
                 List<Job> loaded=JSON.fromJson(Files.readString(file),new TypeToken<List<Job>>(){}.getType());
                 if (loaded==null) throw new IllegalStateException("Empty job store");
-                for (Job j:loaded) { cells(j); UUID.fromString(j.worker); if(j.cursor<0 || j.cursor>cells(j).size() || j.clearCursor<0 || j.clearCursor>j.width*j.depth*j.height || j.cleared==null || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
+                for (Job j:loaded) { validatePlan(j); UUID.fromString(j.worker); if(j.cursor<0 || j.cursor>cells(j).size() || j.clearCursor<0 || j.clearCursor>j.width*j.depth*j.height || j.cleared==null || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
             }
         } catch(Exception ex) { storageFailed=true; jobs.clear(); LOGGER.error("NPC Architects: cannot load jobs", ex); }
     }
-    private void stopping(ServerStoppingEvent e) { save(); jobs.clear(); selections.clear(); file=null; }
+    private void stopping(ServerStoppingEvent e) { save(); jobs.clear(); selections.clear(); file=null; schematicDirectory=null; }
     private boolean save() {
         if(file==null || storageFailed) return false;
         try {
@@ -93,9 +100,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.5 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.6 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.5 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.6 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -117,18 +124,66 @@ public final class Architects {
             .then(Commands.literal("house").executes(c->selectedHouse(c.getSource(),true))));
         root.then(Commands.literal("build").requires(src->src.hasPermission(2))
             .then(Commands.literal("house").executes(c->selectedHouse(c.getSource(),false))));
+        var schematics=Commands.literal("schematic").requires(src->src.hasPermission(2));
+        schematics.then(Commands.literal("list").executes(c->listSchematics(c.getSource())));
+        for(String action:List.of("info","preview","build")) {
+            schematics.then(Commands.literal(action).then(Commands.argument("name",StringArgumentType.word())
+                .suggests((c,b)->{ for(String name:schematicNames()) if(name.startsWith(b.getRemaining())) b.suggest(name); return b.buildFuture(); })
+                .executes(c->schematicAction(c.getSource(),StringArgumentType.getString(c,"name"),action))));
+        }
+        root.then(schematics);
         root.then(Commands.literal("undo").requires(src->src.hasPermission(2))
             .executes(c->undo(c.getSource(),jobs.keySet().stream().mapToInt(i->i).max().orElse(0)))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->undo(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
         root.then(Commands.literal("recover").requires(src->src.hasPermission(2))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->recover(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
-        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+j.status+" "+(j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
+        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)+" "+j.status+" "+(j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
         for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; resetMovement(j); var world=jobLevel(c.getSource().getServer(),j); if(world!=null && world.getEntity(UUID.fromString(j.worker)) instanceof Villager worker) setWorking(worker,j.status.equals("RUNNING")); if(!save()) return 0; c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
         e.getDispatcher().register(root);
         LOGGER.info("NPC Architects registered /architect commands");
     }
     private static List<Blueprint.Cell> cells(Job j) {
-        return Blueprint.house(j.width,j.depth,j.height,j.rotation);
+        return j.imported!=null?j.imported:Blueprint.house(j.width,j.depth,j.height,j.rotation);
+    }
+    private List<String> schematicNames() {
+        if(schematicDirectory==null) return List.of();
+        try(var files=Files.list(schematicDirectory)) {
+            return files.filter(p->Files.isRegularFile(p,LinkOption.NOFOLLOW_LINKS))
+                .map(p->p.getFileName().toString()).filter(n->n.matches("[A-Za-z0-9_-]{1,64}\\.schem"))
+                .map(n->n.substring(0,n.length()-6)).sorted().limit(200).toList();
+        } catch(Exception ex) { LOGGER.warn("Cannot list schematics",ex); return List.of(); }
+    }
+    private int listSchematics(CommandSourceStack source) {
+        var names=schematicNames();
+        source.sendSuccess(()->Component.literal("Schematics ("+names.size()+"): "+(names.isEmpty()?"none — place .schem files in the world/npcarchitects-schematics folder":String.join(", ",names))),false);
+        return 1;
+    }
+    private int schematicAction(CommandSourceStack source,String name,String action) throws CommandSyntaxException {
+        if(schematicDirectory==null||!name.matches("[A-Za-z0-9_-]{1,64}")) return fail(source,"Invalid schematic name. Use letters, numbers, underscore or hyphen; omit .schem.");
+        var path=schematicDirectory.resolve(name+".schem");
+        if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS)) return fail(source,"Schematic not found: "+name);
+        var sel=selection(source);
+        SchematicImport.Plan imported;
+        try { imported=SchematicImport.read(path,sel.rotation); }
+        catch(Exception ex) { LOGGER.warn("Schematic import rejected: {}",name,ex); return fail(source,"Cannot import "+name+": "+ex.getMessage()); }
+        if(action.equals("info")) {
+            source.sendSuccess(()->Component.literal(name+": "+imported.width()+" x "+imported.height()+" x "+imported.depth()+", "+imported.cells().size()+" blocks, rotation "+sel.rotation+" degrees. Air inside volume will be cleared."),false); return 1;
+        }
+        Job j=new Job(); j.width=imported.width(); j.depth=imported.depth(); j.height=imported.height();
+        j.rotation=0; j.schematic=name; j.imported=imported.cells();
+        var origin=sel.first!=null?sel.first:source.getPlayerOrException().blockPosition().offset(3,0,3);
+        return createJob(source,origin,j,action.equals("preview"));
+    }
+    private static void validatePlan(Job j) {
+        var plan=cells(j);
+        if(j.imported==null) return;
+        if(j.rotation!=0||j.width<1||j.depth<1||j.height<1||j.width>64||j.depth>64||j.height>64||(long)j.width*j.depth*j.height>SchematicImport.MAX_VOLUME||plan.isEmpty()||plan.size()>(long)j.width*j.depth*j.height) throw new IllegalArgumentException("Invalid saved schematic dimensions");
+        var seen=new HashSet<BlockPos>();
+        int lastY=-1;
+        for(var c:plan) {
+            if(c.x()<0||c.x()>=j.width||c.z()<0||c.z()>=j.depth||c.y()<lastY||c.y()<0||c.y()>=j.height||!seen.add(new BlockPos(c.x(),c.y(),c.z()))||material(j,c.material()).isAir()) throw new IllegalArgumentException("Invalid saved schematic cell");
+            lastY=c.y();
+        }
     }
     private static int fail(CommandSourceStack source,String message) {
         source.sendFailure(Component.literal(message)); return 0;
@@ -163,9 +218,13 @@ public final class Architects {
         return createHouse(source,origin,w,d,h,sel.rotation,preview);
     }
     private int createHouse(CommandSourceStack source,BlockPos origin,int w,int d,int h,int rotation,boolean preview) throws CommandSyntaxException {
+        Job j=new Job(); j.width=w; j.depth=d; j.height=h; j.rotation=rotation;
+        return createJob(source,origin,j,preview);
+    }
+    private int createJob(CommandSourceStack source,BlockPos origin,Job j,boolean preview) throws CommandSyntaxException {
         var player=source.getPlayerOrException(); var level=source.getLevel();
-        Job j=new Job(); j.x=origin.getX(); j.y=origin.getY(); j.z=origin.getZ();
-        j.width=w; j.depth=d; j.height=h; j.rotation=rotation; j.dimension=level.dimension().location().toString();
+        j.x=origin.getX(); j.y=origin.getY(); j.z=origin.getZ(); j.dimension=level.dimension().location().toString();
+        int w=j.width,d=j.depth,h=j.height;
         var plan=cells(j);
         var desired=desiredStates(j);
         int removable=0, blocked=0;
@@ -187,7 +246,7 @@ public final class Architects {
             }
             if(problem!=null) { blocked++; if(firstProblem==null) firstProblem=problem+" at "+pos.toShortString(); }
             else if(needsClear) removable++;
-            if(preview && level.hasChunkAt(pos) && (problem!=null||needsClear||desired.containsKey(pos)) && (i%3==0))
+            if(preview && level.hasChunkAt(pos) && (problem!=null||needsClear||desired.containsKey(pos)) && (i%Math.max(3,(w*d*h+511)/512)==0))
                 level.sendParticles(problem!=null?ParticleTypes.FLAME:needsClear?ParticleTypes.SMOKE:ParticleTypes.END_ROD,pos.getX()+0.5,pos.getY()+0.5,pos.getZ()+0.5,1,0,0,0,0);
         }
         if(preview) {
@@ -227,7 +286,7 @@ public final class Architects {
         int removed=0, skipped=0;
         for(int i=j.placed.size()-1;i>=0;i--) {
             var c=plan.get(j.placed.get(i)); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
-            if(level.getBlockState(pos).equals(material(c.material())) && level.setBlock(pos,Blocks.AIR.defaultBlockState(),3)) removed++; else skipped++;
+            if(level.getBlockState(pos).equals(material(j,c.material())) && level.setBlock(pos,Blocks.AIR.defaultBlockState(),3)) removed++; else skipped++;
         }
         int restored=0;
         for(int i=j.cleared.size()-1;i>=0;i--) {
@@ -239,9 +298,12 @@ public final class Architects {
         source.sendSuccess(()->Component.literal("Undo job "+id+": "+count+" removed, "+recovered+" terrain blocks restored, "+ignored+" changed/missing blocks skipped."),false); return 1;
     }
     private static Map<BlockPos,BlockState> desiredStates(Job j) {
-        Map<BlockPos,BlockState> result=new HashMap<>();
-        for(var c:cells(j)) result.put(new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z()),material(c.material()));
-        return result;
+        if(j.desiredCache==null) {
+            Map<BlockPos,BlockState> result=new HashMap<>();
+            for(var c:cells(j)) result.put(new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z()),material(j,c.material()));
+            j.desiredCache=result;
+        }
+        return j.desiredCache;
     }
     private static BlockPos clearPosition(Job j,int i) {
         int w=j.rotation%180==0?j.width:j.depth, d=j.rotation%180==0?j.depth:j.width;
@@ -348,7 +410,7 @@ public final class Architects {
         j.clearing=false; j.stalled=0; save();
         LOGGER.info("NPC Architects job {} finished site clearing",j.id);
     }
-    private static BlockState material(String name) { return switch(name) { case "floor"->Blocks.COBBLESTONE.defaultBlockState(); case "roof"->Blocks.SPRUCE_PLANKS.defaultBlockState(); case "glass"->Blocks.GLASS.defaultBlockState(); default->Blocks.OAK_PLANKS.defaultBlockState(); }; }
+    private static BlockState material(Job j,String name) { if(j.imported!=null) { if(j.importedStates==null) j.importedStates=new HashMap<>(); return j.importedStates.computeIfAbsent(name,SchematicImport::parseState); } return switch(name) { case "floor"->Blocks.COBBLESTONE.defaultBlockState(); case "roof"->Blocks.SPRUCE_PLANKS.defaultBlockState(); case "glass"->Blocks.GLASS.defaultBlockState(); default->Blocks.OAK_PLANKS.defaultBlockState(); }; }
     private static boolean terminal(Job j) {
         return j.status.equals("DONE")||j.status.equals("CANCELLED")||j.status.equals("UNDONE");
     }
@@ -447,7 +509,7 @@ public final class Architects {
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
         String problem=siteProblem(level,pos);
         if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
-        var wanted=material(c.material()); var current=level.getBlockState(pos);
+        var wanted=material(j,c.material()); var current=level.getBlockState(pos);
         if(current.equals(wanted)) { j.cursor++; j.stalled=0; save(); return; }
         if(!current.isAir() || !level.getWorldBorder().isWithinBounds(pos)) { blocked(j,npc,"New obstruction at "+pos.toShortString()); return; }
         if(approach(j,npc,level,pos) && level.getEntities(npc,new AABB(pos)).isEmpty()) {

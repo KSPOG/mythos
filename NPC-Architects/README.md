@@ -1,4 +1,4 @@
-# NPC Architects 0.1.5 — experimental source prototype
+# NPC Architects 0.1.6 — experimental source prototype
 Forge 1.21.1-52.1.5 / Java 21. No custom client content. Vanilla connection not tested.
 
 ## Build
@@ -21,3 +21,6 @@ Architect workers are invulnerable and persistent; hostile targeting is canceled
 
 ## Elevated construction controller
 Builders no longer use ordinary villager wandering goals. During active clearing/building, controlled movement uses eye-height reach and collision-checked elevated work positions with temporary hovering. If a direct movement route is blocked, the controller may reposition the builder to a verified empty loaded stance near the current target. This is a creative-style fallback, not scaffolding or survival pathfinding. Gravity is restored when paused, blocked, cancelled or finished; builders remain stationary rather than wander. Existing jobs retain their blueprint cursor; use `/architect resume <id>` for blocked jobs. Layer completion and exact blocking reasons are logged. In-game movement still requires verification.
+
+## Custom schematics (v0.1.6)
+Place Sponge v2/v3 `.schem` files in `<world>/npcarchitects-schematics/` (created automatically). Use filename stems containing letters, numbers, underscores or hyphens. `/architect schematic list`, `/architect schematic info <name>`, `/architect pos1` to select the minimum corner, `/architect rotate 90`, `/architect schematic preview <name>`, `/architect schematic build <name>`. If pos1 is not selected, the origin is three blocks southeast of the player. Pos2 is not used. Imports normalize to the minimum corner and ignore the file offset, metadata and biome data. Max 64 per axis, 32768 total cells, 8 MiB compressed, 16 MiB NBT accounting. Only vanilla block states supported; block entities, fluids and entities rejected. Legacy .schematic and .litematic not supported. No DataFixer migration; use compatible 1.21.1 blocks. Air is intentionally cleared across the whole volume; preview before building. Imported plan stored with the job so restarts and undo do not depend on source file. Neighbor updates, gravity and unsupported multipart blocks may affect final fidelity; in-game testing required. Existing house jobs unchanged.
