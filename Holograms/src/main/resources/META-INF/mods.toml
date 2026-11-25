@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="holograms"
-version="0.1.0"
+version="0.1.1"
 displayName="Holograms"
 displayTest="IGNORE_ALL_VERSION"
 description='''Holograms for vanilla clients.'''
