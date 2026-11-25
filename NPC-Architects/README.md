@@ -1,4 +1,4 @@
-# NPC Architects 0.1.3 — experimental source prototype
+# NPC Architects 0.1.4 — experimental source prototype
 Forge 1.21.1-52.1.5 / Java 21. No custom client content. Vanilla connection not tested.
 
 ## Build
@@ -15,3 +15,6 @@ Stand at the first and opposite corner (inclusive) and run /architect pos1 and /
 
 ## Automatic clearing
 New jobs survey the entire rotated rectangular volume, then clear mismatched blocks top-down before building. Matching blueprint blocks remain. Block entities, liquids and unbreakable blocks are rejected; no drops are generated. Clearing uses NPC reach and navigation, no teleportation, no changes outside the footprint. Undo attempts to restore cleared block states if the cell is empty; numeric block-state IDs assume the same registry on restart. Back up the world: ordinary player-built blocks inside the selected volume can be removed; claim protection is not integrated. Existing jobs keep their old progress and do not automatically enter clearing. Preview counts clearing and protected positions.
+
+## Builder protection and recovery
+Architect workers are invulnerable and persistent; hostile targeting is canceled for tagged builders. Existing loaded job workers are protected on the next management tick. Confirmed worker death triggers replacement at a safe loaded position when a running job resumes. Missing workers may simply be unloaded, so they are not automatically replaced. For a worker known to be gone, stand near the site and use `/architect recover <id>` as an operator; it preserves clearing and building progress. If the old worker was merely unloaded, a manual replacement can leave an orphan villager. No normal villagers are modified. Protection does not protect nearby players or buildings, and administrative removal can still require recovery. Runtime behavior requires testing.

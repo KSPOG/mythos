@@ -21,6 +21,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.living.LivingChangeTargetEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
@@ -41,7 +43,8 @@ public final class Architects {
     private static final class Job {
         int id, x, y, z, width, depth, cursor, stalled;
         int height=5, rotation, clearCursor;
-        boolean clearing;
+        boolean clearing, workerDied;
+        Integer workerX, workerY, workerZ;
         List<Cleared> cleared = new ArrayList<>();
         String reason = "";
         List<Integer> placed = new ArrayList<>();
@@ -56,7 +59,9 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::started);
         MinecraftForge.EVENT_BUS.addListener(this::stopping);
         MinecraftForge.EVENT_BUS.addListener(this::tick);
-        LOGGER.info("NPC Architects 0.1.3 initialized; Forge event listeners registered");
+        MinecraftForge.EVENT_BUS.addListener(this::workerDeath);
+        MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
+        LOGGER.info("NPC Architects 0.1.4 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; storageFailed=false;
@@ -83,9 +88,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.3 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, undo [id], pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.4 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.3 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.4 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -110,6 +115,8 @@ public final class Architects {
         root.then(Commands.literal("undo").requires(src->src.hasPermission(2))
             .executes(c->undo(c.getSource(),jobs.keySet().stream().mapToInt(i->i).max().orElse(0)))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->undo(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
+        root.then(Commands.literal("recover").requires(src->src.hasPermission(2))
+            .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->recover(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
         root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+j.status+" "+(j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
         for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; if(!save()) return 0; c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
         e.getDispatcher().register(root);
@@ -187,7 +194,8 @@ public final class Architects {
         j.clearing=true;
         var npc=EntityType.VILLAGER.spawn(level,player.blockPosition(),MobSpawnType.COMMAND);
         if(npc==null) return fail(source,"Could not spawn builder");
-        npc.setPersistenceRequired(); npc.setCustomName(Component.literal("Architect")); npc.setCustomNameVisible(true);
+        protect(npc);
+        remember(j,npc);
         j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.worker=npc.getUUID().toString(); jobs.put(j.id,j);
         if(!save()) { jobs.remove(j.id); npc.discard(); return fail(source,"Failed to save job"); }
         LOGGER.info("NPC Architects created job {} at {}",j.id,origin);
@@ -283,15 +291,95 @@ public final class Architects {
         LOGGER.info("NPC Architects job {} finished site clearing",j.id);
     }
     private static BlockState material(String name) { return switch(name) { case "floor"->Blocks.COBBLESTONE.defaultBlockState(); case "roof"->Blocks.SPRUCE_PLANKS.defaultBlockState(); case "glass"->Blocks.GLASS.defaultBlockState(); default->Blocks.OAK_PLANKS.defaultBlockState(); }; }
+    private static boolean terminal(Job j) {
+        return j.status.equals("DONE")||j.status.equals("CANCELLED")||j.status.equals("UNDONE");
+    }
+    private static ServerLevel jobLevel(MinecraftServer server,Job j) {
+        for(var level:server.getAllLevels()) if(level.dimension().location().toString().equals(j.dimension)) return level;
+        return null;
+    }
+    private static void protect(Villager npc) {
+        npc.setInvulnerable(true);
+        npc.setPersistenceRequired();
+        if(!npc.getTags().contains("npcarchitects_worker")) {
+            npc.addTag("npcarchitects_worker");
+            npc.setCustomName(Component.literal("Architect"));
+            npc.setCustomNameVisible(true);
+        }
+    }
+    private static void remember(Job j,Villager npc) {
+        var pos=npc.blockPosition(); j.workerX=pos.getX(); j.workerY=pos.getY(); j.workerZ=pos.getZ();
+    }
+    private void targetChanged(LivingChangeTargetEvent event) {
+        if(event.getNewTarget() instanceof Villager villager && villager.getTags().contains("npcarchitects_worker")) event.setCanceled(true);
+    }
+    private void workerDeath(LivingDeathEvent event) {
+        if(storageFailed || !(event.getEntity() instanceof Villager npc)) return;
+        for(Job j:jobs.values()) if(!terminal(j)&&npc.getUUID().toString().equals(j.worker)) {
+            remember(j,npc); j.workerDied=true; j.reason="Builder died; replacement pending";
+            LOGGER.warn("NPC Architects job {} lost builder {}",j.id,j.worker); save(); break;
+        }
+    }
+    private void waiting(Job j,String reason) {
+        if(!reason.equals(j.reason)) { j.reason=reason; LOGGER.warn("NPC Architects job {}: {}",j.id,reason); save(); }
+    }
+    private Villager replaceWorker(ServerLevel level,Job j,BlockPos anchor) {
+        if(storageFailed) return null;
+        for(int radius=0;radius<=3;radius++) for(int dx=-radius;dx<=radius;dx++) for(int dz=-radius;dz<=radius;dz++) for(int dy:new int[]{0,1,-1,2,-2}) {
+            if(Math.max(Math.abs(dx),Math.abs(dz))!=radius) continue;
+            var pos=anchor.offset(dx,dy,dz);
+            if(siteProblem(level,pos)!=null||level.isOutsideBuildHeight(pos.above())||!level.isEmptyBlock(pos)||!level.isEmptyBlock(pos.above())||!level.getBlockState(pos.below()).isFaceSturdy(level,pos.below(),net.minecraft.core.Direction.UP)||!level.getEntities(null,new AABB(pos).expandTowards(0,1,0)).isEmpty()) continue;
+            var replacement=EntityType.VILLAGER.spawn(level,pos,MobSpawnType.COMMAND);
+            if(replacement==null) continue;
+            protect(replacement);
+            String previous=j.worker; boolean died=j.workerDied; Integer oldX=j.workerX,oldY=j.workerY,oldZ=j.workerZ;
+            j.worker=replacement.getUUID().toString(); remember(j,replacement); j.workerDied=false; j.stalled=0; j.reason="";
+            if(!save()) { replacement.discard(); j.worker=previous; j.workerDied=died; j.workerX=oldX;j.workerY=oldY;j.workerZ=oldZ; return null; }
+            LOGGER.info("NPC Architects job {} replaced builder {} with {}",j.id,previous,j.worker);
+            return replacement;
+        }
+        return null;
+    }
+    private int recover(CommandSourceStack source,int id) throws CommandSyntaxException {
+        Job j=jobs.get(id);
+        if(j==null||terminal(j)||storageFailed) return fail(source,"No recoverable job "+id);
+        var player=source.getPlayerOrException(); var level=source.getLevel();
+        if(!level.dimension().location().toString().equals(j.dimension)) return fail(source,"Go to the job dimension first.");
+        for(var world:source.getServer().getAllLevels()) if(world.getEntity(UUID.fromString(j.worker)) instanceof Villager npc && npc.isAlive()) {
+            protect(npc); return fail(source,"Builder is still alive; no replacement spawned. Use /architect resume "+id);
+        }
+        if(replaceWorker(level,j,player.blockPosition())==null) return fail(source,"No safe loaded spawn position nearby or storage failed.");
+        j.status="RUNNING"; if(!save()) return fail(source,"Replacement spawned but job resume could not be saved.");
+        source.sendSuccess(()->Component.literal("Builder replaced for job "+id+"; construction resumed from saved progress."),false); return 1;
+    }
     private void tick(TickEvent.ServerTickEvent.Post e) {
         if(storageFailed || ++ticks%10!=0) return;
-        for(Job j:jobs.values()) { if(storageFailed) break; if(j.status.equals("RUNNING")) step(e.getServer(),j); }
+        for(Job j:jobs.values()) {
+            if(storageFailed) break;
+            var level=jobLevel(e.getServer(),j);
+            if(level==null) continue;
+            if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager worker && worker.isAlive()) protect(worker);
+            if(j.status.equals("RUNNING")) step(e.getServer(),j);
+        }
     }
     private void step(MinecraftServer server,Job j) {
         ServerLevel level=null; for(var l:server.getAllLevels()) if(l.dimension().location().toString().equals(j.dimension)) {level=l;break;}
         if(level==null) return;
         var cells=cells(j);
-        if(!(level.getEntity(UUID.fromString(j.worker)) instanceof Villager npc) || !npc.isAlive()) return;
+        Villager npc;
+        if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager living && living.isAlive()) {
+            npc=living; protect(npc); remember(j,npc);
+            if(j.workerDied || !j.reason.isEmpty()) { j.workerDied=false; j.reason=""; if(!save()) return; }
+        } else {
+            if(j.workerDied) {
+                var anchor=j.workerX==null?new BlockPos(j.x,j.y,j.z):new BlockPos(j.workerX,j.workerY,j.workerZ);
+                npc=replaceWorker(level,j,anchor);
+                if(npc==null) { waiting(j,"Builder died; waiting for a safe loaded respawn position. Use /architect recover "+j.id); return; }
+            } else {
+                waiting(j,"Builder unavailable (possibly unloaded). Load its chunk or use /architect recover "+j.id+" if it is gone.");
+                return;
+            }
+        }
         if(j.clearing) { clearStep(level,npc,j); return; }
         if(j.cursor>=cells.size()) { j.status="DONE"; save(); return; }
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
