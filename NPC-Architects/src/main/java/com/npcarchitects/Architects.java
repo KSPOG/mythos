@@ -145,7 +145,7 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.0 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, add <id> <count>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.0 active. Commands: status [all], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, add <id> <count>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
         root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.0 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
@@ -183,10 +183,29 @@ public final class Architects {
         root.then(Commands.literal("recover").requires(src->src.hasPermission(2))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->recover(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
         root.then(Commands.literal("add").requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).then(Commands.argument("count",IntegerArgumentType.integer(1,64)).executes(c->addWorkers(c.getSource(),IntegerArgumentType.getInteger(c,"id"),IntegerArgumentType.getInteger(c,"count"))))));
-        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)+" "+j.status+" "+(j.surveying?"SURVEYING "+j.surveyCursor+"/"+(j.width*j.depth*j.height):j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+" | Architects: "+team(j).size()+(j.teamDone.isEmpty()?"":" | parallel completed: "+j.teamDone.size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
+        root.then(Commands.literal("status").requires(src->src.hasPermission(2))
+            .executes(c->showStatus(c.getSource(),false))
+            .then(Commands.literal("all").executes(c->showStatus(c.getSource(),true))));
         for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; var world=jobLevel(c.getSource().getServer(),j); for(Worker w:team(j)) { resetMovement(w); w.assignment=-1; w.teamStalled=0; if(world!=null) { if(world.getEntity(UUID.fromString(w.worker)) instanceof Villager worker) setWorking(worker,j.status.equals("RUNNING")); if(j.status.equals("RUNNING")) ticket(world,w,workerAnchor(w),true); else releaseTickets(world,w); } } if(!save()) return 0; if(terminal(j)) cleanupWorker(c.getSource().getServer(),j); c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
         e.getDispatcher().register(root);
         LOGGER.info("NPC Architects registered /architect commands");
+    }
+    private int showStatus(CommandSourceStack source,boolean all) {
+        var visible=jobs.values().stream()
+            .filter(j->all||!j.status.equals("CANCELLED")&&!j.status.equals("UNDONE")).toList();
+        source.sendSuccess(()->Component.literal("NPC Architects: "+visible.size()+" job(s)"
+            +(storageFailed?" | storage error":" | storage ready")),false);
+        for(Job j:visible) {
+            String progress=terminal(j)?"":j.surveying?" SURVEYING "+j.surveyCursor+"/"+(j.width*j.depth*j.height)
+                :j.clearing?" CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height)
+                :" BUILDING "+j.cursor+"/"+cells(j).size();
+            source.sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)
+                +" "+j.status+progress+" | Architects: "+(terminal(j)?0:team(j).size())
+                +(terminal(j)||j.teamDone.isEmpty()?"":" | parallel completed: "+j.teamDone.size())
+                +(j.reason.isEmpty()?"":" | "+j.reason)),false);
+        }
+        if(!all&&visible.size()!=jobs.size()) source.sendSuccess(()->Component.literal("Hidden cancelled/undone jobs: "+(jobs.size()-visible.size())+" | /architect status all"),false);
+        return 1;
     }
     private static List<Blueprint.Cell> cells(Job j) {
         return j.imported!=null?j.imported:Blueprint.house(j.width,j.depth,j.height,j.rotation);
