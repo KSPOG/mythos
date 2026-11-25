@@ -155,7 +155,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.2.8 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.2.9 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
@@ -187,9 +187,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.8 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.9 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.8 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.9 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -443,7 +443,7 @@ public final class Architects {
             if(!current.isAir()) {
                 var wanted=desired.getOrDefault(pos,air);
                 if(!current.equals(wanted)&&!canClear(level,pos,current)) {
-                    blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString()); return j.surveyCursor-start;
+                    blocked(j,npc,clearRestriction(level,pos,current)); return j.surveyCursor-start;
                 }
             }
             j.surveyCursor++;
@@ -528,7 +528,7 @@ public final class Architects {
             if(problem==null) {
                 var current=level.getBlockState(pos);
                 needsClear=!current.isAir()&&!current.equals(wanted);
-                if(needsClear&&!canClear(level,pos,current)) problem="Protected or unbreakable block";
+                if(needsClear&&!canClear(level,pos,current)) problem=clearRestriction(level,pos,current);
             }
             for(Job other:jobs.values()) {
                 if(!j.dimension.equals(other.dimension)||other.status.equals("UNDONE")) continue;
@@ -624,8 +624,16 @@ public final class Architects {
         if(level.isOutsideBuildHeight(pos)||!level.getWorldBorder().isWithinBounds(pos)) return "Outside world bounds";
         return null;
     }
+    private static String clearRestriction(ServerLevel level,BlockPos pos,BlockState state) {
+        String reason;
+        if(state.hasBlockEntity()||level.getBlockEntity(pos)!=null) reason="block entity (protected data)";
+        else if(state.getDestroySpeed(level,pos)<0) reason="unbreakable (negative hardness)";
+        else if(!state.getFluidState().isEmpty()) reason="fluid or waterlogged block";
+        else return null;
+        return "Cannot clear "+state+" at "+pos.toShortString()+": "+reason;
+    }
     private static boolean canClear(ServerLevel level,BlockPos pos,BlockState state) {
-        return !state.hasBlockEntity() && level.getBlockEntity(pos)==null && state.getDestroySpeed(level,pos)>=0 && state.getFluidState().isEmpty();
+        return clearRestriction(level,pos,state)==null;
     }
     private void blocked(Job j,Villager npc,String reason) {
         j.status="BLOCKED"; j.reason=reason; setWorking(npc,false); resetMovement(j); if(npc.level() instanceof ServerLevel world) stopTeam(world,j);
@@ -721,7 +729,7 @@ public final class Architects {
             if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
             var current=level.getBlockState(pos);
             if(current.isAir()||current.equals(desired.getOrDefault(pos,Blocks.AIR.defaultBlockState()))) { j.clearCursor++; continue; }
-            if(!canClear(level,pos,current)) { blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString()); return; }
+            if(!canClear(level,pos,current)) { blocked(j,npc,clearRestriction(level,pos,current)); return; }
             if(approach(j,npc,level,pos)) {
                 npc.swing(InteractionHand.MAIN_HAND);
                 // No drops: undo can restore cleared terrain without duplicating resources.
@@ -1246,7 +1254,7 @@ public final class Architects {
                     var current=level.getBlockState(pos);
                     boolean done=current.isAir()||current.equals(desired.getOrDefault(pos,air)),changed=false;
                     if(!done){
-                        if(!canClear(level,pos,current)){blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString());return;}
+                        if(!canClear(level,pos,current)){blocked(j,npc,clearRestriction(level,pos,current));return;}
                         if(approach(w,npc,level,pos)){
                             npc.swing(InteractionHand.MAIN_HAND);
                             if(level.destroyBlock(pos,false,npc)){
