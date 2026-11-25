@@ -1,0 +1,21 @@
+modLoader="javafml"
+loaderVersion="[52,53)"
+license="All Rights Reserved"
+[[mods]]
+modId="holograms"
+version="0.1.0"
+displayName="Holograms"
+displayTest="IGNORE_ALL_VERSION"
+description='''Holograms for vanilla clients.'''
+[[dependencies.holograms]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.holograms]]
+modId="forge"
+mandatory=true
+versionRange="[52.1.5,53)"
+ordering="NONE"
+side="BOTH"
