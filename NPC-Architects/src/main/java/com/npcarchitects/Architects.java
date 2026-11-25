@@ -66,6 +66,13 @@ public final class Architects {
     private int surveyRoundRobin;
     private int ticks;
     private boolean storageFailed;
+    private ProgressJournal journal;
+    private boolean progressDirty;
+    private int lastProgressFlush;
+    private static final int FLUSH_TICKS=20;
+    private static final long WORK_BUDGET_NS=Math.max(2,Math.min(40,Integer.getInteger("npcarchitects.workBudgetMs",12)))*1_000_000L;
+    private long workDeadline;
+    private int workJobOffset;
     private static final int STUCK_ATTEMPTS=WorkCadence.attempts(Math.max(1,Math.min(3600,Integer.getInteger("npcarchitects.stuckSeconds",15))),WORK_INTERVAL);
     private static final int RECOVERY_LIMIT=Math.max(1,Math.min(20,Integer.getInteger("npcarchitects.stuckRetries",3)));
     private static class Worker {
@@ -102,6 +109,10 @@ public final class Architects {
         transient int lifecycleScan;
         transient boolean lifecycleIndexed;
         boolean independentChunks;
+        transient int workerOffset;
+        long storageGeneration;
+        transient int journalCleared,journalPlaced;
+        transient Set<Integer> pendingClear=new HashSet<>(),pendingBuild=new HashSet<>();
 
         Set<Integer> teamDone=new HashSet<>();
         Set<Integer> clearDone=new HashSet<>();
@@ -156,10 +167,10 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.2.9 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.3.0 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
-        jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
+        jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false; progressDirty=false; lastProgressFlush=0; workJobOffset=0;
         LOGGER.info("NPC Architects server started");
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("npcarchitects-jobs.json");
         try {
@@ -172,25 +183,93 @@ public final class Architects {
                 if (loaded==null) throw new IllegalStateException("Empty job store");
                 for (Job j:loaded) { loadPlan(j); validatePlan(j); UUID.fromString(j.worker); validateTeam(j); if(j.cursor<0 || j.cursor>cells(j).size() || j.clearCursor<0 || j.clearCursor>j.width*j.depth*j.height || j.surveyCursor<0 || j.surveyCursor>j.width*j.depth*j.height || j.cleared==null || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
             }
+            journal=new ProgressJournal(file.resolveSibling("npcarchitects-progress.log"));
+            journal.replay(payload->{
+                ProgressFrame frame=JSON.fromJson(payload,ProgressFrame.class);
+                Job j=jobs.get(frame.id);
+                if(j==null)throw new IllegalStateException("Unknown journal job "+frame.id);
+                if(frame.generation!=j.storageGeneration)return;
+                if(frame.anchors!=null)for(Worker w:team(j))for(Worker anchor:frame.anchors)if(w.worker.equals(anchor.worker)){w.workerX=anchor.workerX;w.workerY=anchor.workerY;w.workerZ=anchor.workerZ;break;}
+                if(frame.clearedFrom>j.cleared.size()||frame.placedFrom>j.placed.size())throw new IllegalStateException("Missing journal history");
+                for(int i=Math.max(0,j.cleared.size()-frame.clearedFrom);i<frame.cleared.size();i++)j.cleared.add(frame.cleared.get(i));
+                for(int i=Math.max(0,j.placed.size()-frame.placedFrom);i<frame.placed.size();i++)j.placed.add(frame.placed.get(i));
+                if(frame.clearCursor>=j.clearCursor){
+                    j.clearDone.addAll(frame.clearAdded);j.clearCursor=frame.clearCursor;
+                    j.clearDone.removeIf(i->i<j.clearCursor);
+                }
+                if(frame.cursor>=j.cursor){
+                    j.teamDone.addAll(frame.buildAdded);j.cursor=frame.cursor;
+                    j.teamDone.removeIf(i->i<j.cursor);
+                }
+                if(frame.clearCursor==j.width*j.depth*j.height){j.clearing=false;j.clearDone.clear();}
+            });
+            for(Job j:jobs.values()){
+                validateTeam(j);j.journalCleared=j.cleared.size();j.journalPlaced=j.placed.size();
+                j.pendingClear=new HashSet<>();j.pendingBuild=new HashSet<>();
+            }
         } catch(Exception ex) { storageFailed=true; jobs.clear(); LOGGER.error("NPC Architects: cannot load jobs", ex); }
         if(!storageFailed) for(Job j:jobs.values()) if(j.status.equals("RUNNING")) { var level=jobLevel(e.getServer(),j); if(level!=null) for(Worker w:team(j)) ticket(level,w,workerAnchor(w),true); }
     }
-    private void stopping(ServerStoppingEvent e) { for(Job j:jobs.values()) { var level=jobLevel(e.getServer(),j); if(level!=null) for(Worker w:team(j)) releaseTickets(level,w); } save(); jobs.clear(); selections.clear(); file=null; schematicDirectory=null; planDirectory=null; }
+    private static final class ProgressFrame {
+        int id,cursor,clearCursor,clearedFrom,placedFrom;
+        List<Worker> anchors;
+        long generation;
+        List<Cleared> cleared;
+        List<Integer> placed;
+        Set<Integer> clearAdded,buildAdded;
+        ProgressFrame(Job j){
+            id=j.id;generation=j.storageGeneration;cursor=j.cursor;clearCursor=j.clearCursor;
+            anchors=new ArrayList<>();for(Worker w:team(j)){Worker anchor=new Worker();anchor.worker=w.worker;anchor.workerX=w.workerX;anchor.workerY=w.workerY;anchor.workerZ=w.workerZ;anchors.add(anchor);}
+            clearedFrom=j.journalCleared;placedFrom=j.journalPlaced;
+            cleared=new ArrayList<>(j.cleared.subList(clearedFrom,j.cleared.size()));
+            placed=new ArrayList<>(j.placed.subList(placedFrom,j.placed.size()));
+            clearAdded=new HashSet<>(j.pendingClear);buildAdded=new HashSet<>(j.pendingBuild);
+        }
+    }
+    private void markProgress(Job j,int index,boolean clearing){
+        (clearing?j.pendingClear:j.pendingBuild).add(index);progressDirty=true;
+    }
+    private boolean flushProgress(){
+        if(storageFailed||journal==null)return false;
+        if(!progressDirty)return true;
+        try{
+            for(Job j:jobs.values()){
+                if(terminal(j))continue;
+                journal.append(JSON.toJson(new ProgressFrame(j)));
+                j.journalCleared=j.cleared.size();j.journalPlaced=j.placed.size();
+                j.pendingClear.clear();j.pendingBuild.clear();
+            }
+            journal.force();progressDirty=false;lastProgressFlush=ticks;return true;
+        }catch(Exception ex){storageFailed=true;LOGGER.error("NPC Architects: progress journal failed; jobs halted",ex);return false;}
+    }
+    private void stopping(ServerStoppingEvent e) {
+        for(Job j:jobs.values()){var level=jobLevel(e.getServer(),j);if(level!=null)for(Worker w:team(j))releaseTickets(level,w);}
+        save();if(journal!=null)try{journal.close();}catch(Exception ex){LOGGER.error("Cannot close architect journal",ex);}
+        journal=null;jobs.clear();selections.clear();file=null;schematicDirectory=null;planDirectory=null;
+    }
+    // Full snapshots are reserved for control/lifecycle transitions, not block actions.
     private boolean save() {
-        if(file==null || storageFailed) return false;
-        try {
+        if(file==null||storageFailed||journal==null)return false;
+        try{
+            // New generations make replay safe if a crash happens after snapshot
+            // publication but before journal truncation (including undo).
+            for(Job j:jobs.values())j.storageGeneration++;
             Path tmp=file.resolveSibling(file.getFileName()+".tmp");
-            Files.writeString(tmp,JSON.toJson(jobs.values()));
-            try { Files.move(tmp,file,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE); }
-            catch(AtomicMoveNotSupportedException ex) { Files.move(tmp,file,StandardCopyOption.REPLACE_EXISTING); }
-            return true;
-        } catch(Exception ex) { storageFailed=true; LOGGER.error("NPC Architects: jobs halted", ex); return false; }
+            try(var out=Files.newBufferedWriter(tmp)){JSON.toJson(jobs.values(),out);}
+            try{Files.move(tmp,file,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);}
+            catch(AtomicMoveNotSupportedException ex){Files.move(tmp,file,StandardCopyOption.REPLACE_EXISTING);}
+            journal.reset();
+            for(Job j:jobs.values()){
+                j.journalCleared=j.cleared.size();j.journalPlaced=j.placed.size();j.pendingClear.clear();j.pendingBuild.clear();
+            }
+            progressDirty=false;lastProgressFlush=ticks;return true;
+        }catch(Exception ex){storageFailed=true;LOGGER.error("NPC Architects: jobs halted",ex);return false;}
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.9 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.0 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.9 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.0 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -395,7 +474,7 @@ public final class Architects {
         remember(j,npc);
         var next=new ChunkPos(npc.blockPosition());
         ticket(level,j,npc.blockPosition(),true);
-        if(!previous.equals(next)) save();
+        if(!previous.equals(next)) progressDirty=true;
     }
     private static void ticket(ServerLevel level,Worker j,BlockPos pos,boolean worker) {
         var next=new ChunkPos(pos); var previous=worker?j.workerChunk:j.workChunk;
@@ -1242,7 +1321,10 @@ public final class Architects {
         long now=System.currentTimeMillis();
         var available=new LinkedHashSet<Long>();
         for(long key:j.lifecycleChunks.keySet())if(j.deferredChunks.getOrDefault(key,0L)<=now)available.add(key);
-        for(int wi=0;wi<workers.size();wi++){
+        int initial=Math.floorMod(j.workerOffset,workers.size());
+        for(int turn=0;turn<workers.size();turn++){
+            if(turn>0&&System.nanoTime()>=workDeadline)break;
+            int wi=(initial+turn)%workers.size();j.workerOffset=(wi+1)%workers.size();
             Worker w=workers.get(wi);
             if(!workerAvailable(level,w))continue;
             Villager npc=(Villager)level.getEntity(UUID.fromString(w.worker));
@@ -1277,9 +1359,9 @@ public final class Architects {
                         if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot clear "+pos.toShortString());
                         break;
                     }
-                    j.clearDone.add(index);while(j.clearDone.remove(j.clearCursor))j.clearCursor++;
+                    j.clearDone.add(index);while(j.clearDone.remove(j.clearCursor))j.clearCursor++;markProgress(j,index,true);
                     c.advance(top,bottom);w.assignment=-1;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);dirty=true;
-                    if(changed){if(!save())return;dirty=false;clearedBlock=true;break;}
+                    if(changed){clearedBlock=true;break;}
                 }
                 if(!j.status.equals("RUNNING")||storageFailed)return;
                 if(!c.done()||clearedBlock)continue;
@@ -1316,9 +1398,8 @@ public final class Architects {
                     }
                 }
                 if(done){
-                    queue.remove(index);j.teamDone.add(index);while(j.teamDone.remove(j.cursor))j.cursor++;
+                    queue.remove(index);j.teamDone.add(index);while(j.teamDone.remove(j.cursor))j.cursor++;markProgress(j,index,false);
                     w.assignment=-1;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);j.reason="";
-                    if(!save())return;dirty=false;
                     continue; // Verify on the next work cycle, retaining the reservation.
                 }else if(++w.teamStalled>=STUCK_ATTEMPTS){
                     startHomeRecovery(level,j,w,npc,"Cannot place "+pos.toShortString());if(!j.status.equals("RUNNING"))return;
@@ -1349,8 +1430,7 @@ public final class Architects {
                         j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(state)));
                         w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);removedFluid=true;
                         c.drainPasses++;
-                        if(!save())return;
-                        dirty=false;
+                        progressDirty=true;
                         // Restart the bounded scan after a liquid mutation to catch refilling cells.
                         c.verifyOffset=0;
                         if(c.drainPasses>Math.max(64L,volume*4L)){
@@ -1366,7 +1446,7 @@ public final class Architects {
             }
         }
         if(j.clearCursor>=total&&j.clearing){j.clearing=false;j.clearDone.clear();dirty=true;}
-        if(dirty)save();
+        if(dirty)progressDirty=true;
     }
     private void travelTick(MinecraftServer server) {
         for(Job j:jobs.values()) {
@@ -1383,14 +1463,19 @@ public final class Architects {
     }
     private void tick(TickEvent.ServerTickEvent.Post e) {
         ++ticks;
+        if(!storageFailed&&progressDirty&&ticks-lastProgressFlush>=FLUSH_TICKS)flushProgress();
         if(!storageFailed) runSurveys(e.getServer());
         if(ticks%WORK_INTERVAL!=0) { if(!storageFailed) travelTick(e.getServer()); return; }
         if(storageFailed) {
             for(Job j:jobs.values()) { var world=jobLevel(e.getServer(),j); if(world!=null) { stopTeam(world,j); } }
             return;
         }
-        for(Job j:jobs.values()) {
+        workDeadline=System.nanoTime()+WORK_BUDGET_NS;
+        var scheduled=new ArrayList<>(jobs.values());
+        int start=Math.floorMod(workJobOffset++,Math.max(1,scheduled.size()));
+        for(int turn=0;turn<scheduled.size();turn++) {
             if(storageFailed) break;
+            Job j=scheduled.get((start+turn)%scheduled.size());
             var level=jobLevel(e.getServer(),j);
             if(level==null) continue;
             if(terminal(j)) { cleanupWorker(e.getServer(),j); notifyCompletion(e.getServer(),j); continue; }
@@ -1408,7 +1493,7 @@ public final class Architects {
             }
             if(j.status.equals("RUNNING")) {
                 ticket(level,j,workerAnchor(j),true);
-                step(e.getServer(),j);
+                if(System.nanoTime()<workDeadline||turn==0)step(e.getServer(),j);
             } else releaseTickets(level,j);
         }
     }
