@@ -76,6 +76,7 @@ public final class Architects {
     private static final class Job extends Worker {
         List<Worker> assistants=new ArrayList<>();
         Set<Integer> teamDone=new HashSet<>();
+        Set<Integer> clearDone=new HashSet<>();
         List<String> retiredWorkers=new ArrayList<>();
         int id, x, y, z, width, depth, cursor, stalled;
         int height=5, rotation, clearCursor;
@@ -113,7 +114,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.2.0 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.2.1 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
@@ -145,9 +146,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.0 active. Commands: status [all], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, add <id> <count>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.1 active. Commands: status [all], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, add <id> <count>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.0 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.1 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -201,6 +202,7 @@ public final class Architects {
                 :" BUILDING "+j.cursor+"/"+cells(j).size();
             source.sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)
                 +" "+j.status+progress+" | Architects: "+(terminal(j)?0:team(j).size())
+                +(j.clearing&&!terminal(j)&&!j.clearDone.isEmpty()?" | parallel cleared positions: "+j.clearDone.size():"")
                 +(terminal(j)||j.teamDone.isEmpty()?"":" | parallel completed: "+j.teamDone.size())
                 +(j.reason.isEmpty()?"":" | "+j.reason)),false);
         }
@@ -505,7 +507,7 @@ public final class Architects {
             var old=j.cleared.get(i); var pos=new BlockPos(old.x,old.y,old.z);
             if(level.getBlockState(pos).isAir() && level.getEntities(null,new AABB(pos)).isEmpty() && level.setBlock(pos,net.minecraft.world.level.block.Block.stateById(old.state),3)) restored++; else skipped++;
         }
-        j.cleared.clear(); j.placed.clear(); j.teamDone.clear(); j.status="UNDONE"; if(!save()) return fail(source,"Undo applied but storage failed; inspect server log."); cleanupWorker(source.getServer(),j);
+        j.cleared.clear(); j.placed.clear(); j.teamDone.clear(); j.clearDone.clear(); j.status="UNDONE"; if(!save()) return fail(source,"Undo applied but storage failed; inspect server log."); cleanupWorker(source.getServer(),j);
         final int count=removed, ignored=skipped, recovered=restored;
         source.sendSuccess(()->Component.literal("Undo job "+id+": "+count+" removed, "+recovered+" terrain blocks restored, "+ignored+" changed/missing blocks skipped."),false); return 1;
     }
@@ -772,13 +774,15 @@ public final class Architects {
         var result=new ArrayList<Worker>(1+j.assistants.size()); result.add(j); result.addAll(j.assistants); return result;
     }
     private static void validateTeam(Job j) {
-        if(j.assistants==null||j.teamDone==null||j.retiredWorkers==null) throw new IllegalArgumentException("Invalid team");
+        if(j.assistants==null||j.teamDone==null||j.clearDone==null||j.retiredWorkers==null) throw new IllegalArgumentException("Invalid team");
         var ids=new HashSet<String>();
         for(Worker w:team(j)) {
             UUID.fromString(w.worker);
             if(!ids.add(w.worker)||(w!=j&&(w.workerX==null||w.workerY==null||w.workerZ==null))) throw new IllegalArgumentException("Invalid worker");
         }
         for(String id:j.retiredWorkers) { UUID.fromString(id); if(ids.contains(id)) throw new IllegalArgumentException("Retired worker still active"); }
+        long volume=(long)j.width*j.depth*j.height;
+        for(int i:j.clearDone) if(!j.clearing||i<j.clearCursor||i>=volume) throw new IllegalArgumentException("Invalid parallel clearing progress");
         var plan=cells(j);
         for(int i:j.teamDone) if(i<j.cursor||i>=plan.size()||j.cursor>=plan.size()||plan.get(i).y()!=plan.get(j.cursor).y()) throw new IllegalArgumentException("Invalid parallel progress");
     }
@@ -815,11 +819,123 @@ public final class Architects {
         for(Worker w:team(j)) { resetMovement(w); w.assignment=-1; }
         if(!save()) { j.assistants.removeAll(members); added.forEach(Villager::discard); return fail(source,"Could not persist team."); }
         if(j.status.equals("RUNNING")) for(Worker w:members) ticket(level,w,workerAnchor(w),true);
-        source.sendSuccess(()->Component.literal("Project #"+id+" now has "+team(j).size()+" Architects. Additional builders join after clearing."),false);
+        source.sendSuccess(()->Component.literal("Project #"+id+" now has "+team(j).size()+" Architects. Additional builders join the current work phase after surveying."),false);
         return 1;
     }
     // A layer barrier preserves the original bottom-up build order. Reservations are
     // transient; completed out-of-order indices are durable, and share undo history.
+    // Preserve top-down clearing in each vertical column: a lower block cannot
+    // be assigned until all higher positions in its local clearing slice finish.
+    // The original clearPosition order and cursor are unchanged for old saves.
+    private static int clearingSliceEnd(Job j,int index) {
+        int w=physicalWidth(j), d=physicalDepth(j);
+        if(j.imported==null) {
+            long area=(long)w*d;
+            return (int)Math.min((long)w*d*j.height,((index/area)+1)*area);
+        }
+        long stripSpan=16L*d*j.height;
+        int strip=(int)(index/stripSpan);
+        int sw=Math.min(16,w-strip*16);
+        long stripStart=strip*stripSpan;
+        long local=index-stripStart;
+        long rowSpan=16L*sw*j.height;
+        int row=(int)(local/rowSpan);
+        int sd=Math.min(16,d-row*16);
+        long rowStart=stripStart+row*rowSpan;
+        int area=sw*sd;
+        return (int)(rowStart+((index-rowStart)/area+1)*area);
+    }
+    private void teamClear(ServerLevel level,Job j) {
+        int total=j.width*j.depth*j.height;
+        var workers=team(j);
+        var desired=desiredStates(j);
+        var air=Blocks.AIR.defaultBlockState();
+        if(j.clearCursor>=total) { finishTeamClear(level,j); return; }
+        int end=clearingSliceEnd(j,j.clearCursor);
+        var reserved=new HashSet<Integer>();
+        for(Worker w:workers) {
+            boolean live=level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc&&npc.isAlive();
+            if(!live||w.assignment<j.clearCursor||w.assignment>=end||j.clearDone.contains(w.assignment)||!reserved.add(w.assignment)) {
+                w.assignment=-1; resetMovement(w);
+            }
+        }
+        // Scan a bounded window of positions once, skipping air and matching
+        // blocks without a worker trip. Do not read an unloaded chunk.
+        var candidates=new ArrayList<Integer>();
+        boolean progressed=false, requestedChunk=false;
+        int scanStart=j.clearCursor;
+        Villager primary=level.getEntity(UUID.fromString(j.worker)) instanceof Villager npc?npc:null;
+        if(primary==null) return;
+        for(int i=scanStart;i<end&&i-scanStart<CLEAR_BATCH;i++) {
+            if(j.clearDone.contains(i)||reserved.contains(i)) continue;
+            var pos=clearPosition(j,i);
+            if(!level.hasChunkAt(pos)) {
+                // Request only the first missing scan chunk, with the primary's
+                // target ticket only when it has no outstanding assignment.
+                if(j.assignment<0&&!requestedChunk) { loadTarget(level,j,pos); requestedChunk=true; }
+                // Still offer work from already-loaded chunks in this window.
+                continue;
+            }
+            String problem=siteProblem(level,pos);
+            if(problem!=null) { blocked(j,primary,problem+" at "+pos.toShortString()); return; }
+            var current=level.getBlockState(pos);
+            if(current.isAir()||current.equals(desired.getOrDefault(pos,air))) {
+                j.clearDone.add(i); progressed=true; continue;
+            }
+            if(!canClear(level,pos,current)) { blocked(j,primary,"Protected or unbreakable block at "+pos.toShortString()); return; }
+            candidates.add(i);
+        }
+        while(j.clearDone.remove(j.clearCursor)) j.clearCursor++;
+        if(progressed&&!save()) return;
+        if(j.clearCursor>=total) { finishTeamClear(level,j); return; }
+        if(j.clearCursor>=end) return;
+        for(Worker w:workers) {
+            if(storageFailed||!j.status.equals("RUNNING")) return;
+            if(!(level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
+            if(w.assignment<0) {
+                double best=Double.MAX_VALUE;
+                for(int index:candidates) {
+                    if(index<j.clearCursor||j.clearDone.contains(index)||reserved.contains(index)) continue;
+                    double distance=npc.position().distanceToSqr(Vec3.atCenterOf(clearPosition(j,index)));
+                    if(distance<best) { best=distance; w.assignment=index; }
+                }
+                if(w.assignment<0) continue;
+                reserved.add(w.assignment); w.teamStalled=0;
+            }
+            int index=w.assignment;
+            var pos=clearPosition(j,index);
+            if(!loadTarget(level,w,pos)) continue;
+            String problem=siteProblem(level,pos);
+            if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
+            var current=level.getBlockState(pos);
+            boolean done=current.isAir()||current.equals(desired.getOrDefault(pos,air));
+            if(!done) {
+                if(!canClear(level,pos,current)) { blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString()); return; }
+                if(approach(w,npc,level,pos)) {
+                    npc.swing(InteractionHand.MAIN_HAND);
+                    if(level.destroyBlock(pos,false,npc)) {
+                        j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));
+                        done=true;
+                    }
+                }
+            }
+            if(done) {
+                j.clearDone.add(index); w.assignment=-1; w.teamStalled=0; resetMovement(w);
+                while(j.clearDone.remove(j.clearCursor)) j.clearCursor++;
+                j.reason="";
+                if(!save()) return;
+                if(j.clearCursor>=total) { finishTeamClear(level,j); return; }
+                if(j.clearCursor>=end) return;
+            } else if(++w.teamStalled>=60) {
+                blocked(j,npc,"Team builder cannot reach or clear "+pos.toShortString()); return;
+            }
+        }
+    }
+    private void finishTeamClear(ServerLevel level,Job j) {
+        j.clearing=false; j.clearDone.clear(); j.stalled=0; j.reason="";
+        for(Worker w:team(j)) { w.assignment=-1; w.teamStalled=0; resetMovement(w); }
+        if(save()) LOGGER.info("NPC Architects job {} finished team clearing",j.id);
+    }
     private void teamBuild(MinecraftServer server,ServerLevel level,Job j) {
         var plan=cells(j);
         if(j.cursor>=plan.size()) {
@@ -909,7 +1025,7 @@ public final class Architects {
             for(Worker w:j.assistants) {
                 if(j.status.equals("RUNNING")) {
                     ticket(level,w,workerAnchor(w),true);
-                    if(level.getEntity(UUID.fromString(w.worker)) instanceof Villager worker&&worker.isAlive()) { protect(worker); setWorking(worker,!j.surveying&&!j.clearing); checkpointWorker(level,w,worker); }
+                    if(level.getEntity(UUID.fromString(w.worker)) instanceof Villager worker&&worker.isAlive()) { protect(worker); setWorking(worker,!j.surveying); checkpointWorker(level,w,worker); }
                     else if(w.workerDied) replaceWorker(level,j,w,workerAnchor(w));
                 } else { if(level.getEntity(UUID.fromString(w.worker)) instanceof Villager worker) setWorking(worker,false); releaseTickets(level,w); }
             }
@@ -938,7 +1054,7 @@ public final class Architects {
             }
         }
         if(j.surveying) { return; }
-        if(j.clearing) { clearStep(level,npc,j); return; }
+        if(j.clearing) { if(j.assistants.isEmpty()) clearStep(level,npc,j); else teamClear(level,j); return; }
         if(!j.assistants.isEmpty()) { teamBuild(server,level,j); return; }
         if(j.cursor>=cells.size()) { j.status="DONE"; j.completedAt=System.currentTimeMillis(); j.reason=""; setWorking(npc,false); resetMovement(j); releaseTickets(level,j); LOGGER.info("NPC Architects job {} completed",j.id); if(save()) { cleanupWorker(server,j); notifyCompletion(server,j); } return; }
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
