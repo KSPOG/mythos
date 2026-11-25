@@ -10,6 +10,8 @@ import net.minecraft.core.particles.ParticleTypes;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
@@ -26,6 +28,7 @@ import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.server.level.TicketType;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingChangeTargetEvent;
 import net.minecraftforge.event.TickEvent;
@@ -68,6 +71,9 @@ public final class Architects {
         String reason = "";
         List<Integer> placed = new ArrayList<>();
         String dimension, worker, status = "RUNNING";
+        String owner;
+        long completedAt;
+        boolean completionNotified;
     }
     private static final class Cleared {
         int x,y,z,state;
@@ -80,7 +86,9 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::tick);
         MinecraftForge.EVENT_BUS.addListener(this::workerDeath);
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
-        LOGGER.info("NPC Architects 0.1.6 initialized; Forge event listeners registered");
+        MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
+        MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
+        LOGGER.info("NPC Architects 0.1.7 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; storageFailed=false;
@@ -112,9 +120,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.6 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.7 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.6 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.7 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -150,7 +158,7 @@ public final class Architects {
         root.then(Commands.literal("recover").requires(src->src.hasPermission(2))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->recover(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
         root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)+" "+j.status+" "+(j.surveying?"SURVEYING "+j.surveyCursor+"/"+(j.width*j.depth*j.height):j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
-        for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; resetMovement(j); var world=jobLevel(c.getSource().getServer(),j); if(world!=null) { if(world.getEntity(UUID.fromString(j.worker)) instanceof Villager worker) setWorking(worker,j.status.equals("RUNNING")); if(j.status.equals("RUNNING")) ticket(world,j,workerAnchor(j),true); else releaseTickets(world,j); } if(!save()) return 0; c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
+        for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; resetMovement(j); var world=jobLevel(c.getSource().getServer(),j); if(world!=null) { if(world.getEntity(UUID.fromString(j.worker)) instanceof Villager worker) setWorking(worker,j.status.equals("RUNNING")); if(j.status.equals("RUNNING")) ticket(world,j,workerAnchor(j),true); else releaseTickets(world,j); } if(!save()) return 0; if(terminal(j)) cleanupWorker(c.getSource().getServer(),j); c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
         e.getDispatcher().register(root);
         LOGGER.info("NPC Architects registered /architect commands");
     }
@@ -376,7 +384,7 @@ public final class Architects {
         if(npc==null) return fail(source,"Could not spawn builder");
         protect(npc);
         remember(j,npc);
-        j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.worker=npc.getUUID().toString();
+        j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.worker=npc.getUUID().toString(); j.owner=player.getUUID().toString();
         try { if(j.imported!=null) persistPlan(j); } catch(Exception ex) { npc.discard(); LOGGER.error("Cannot persist schematic plan",ex); return fail(source,"Cannot persist schematic plan: "+ex.getMessage()); }
         jobs.put(j.id,j);
         if(!save()) { jobs.remove(j.id); npc.discard(); return fail(source,"Failed to save job"); }
@@ -412,7 +420,7 @@ public final class Architects {
             var old=j.cleared.get(i); var pos=new BlockPos(old.x,old.y,old.z);
             if(level.getBlockState(pos).isAir() && level.getEntities(null,new AABB(pos)).isEmpty() && level.setBlock(pos,net.minecraft.world.level.block.Block.stateById(old.state),3)) restored++; else skipped++;
         }
-        j.cleared.clear(); j.placed.clear(); j.status="UNDONE"; if(!save()) return fail(source,"Undo applied but storage failed; inspect server log.");
+        j.cleared.clear(); j.placed.clear(); j.status="UNDONE"; if(!save()) return fail(source,"Undo applied but storage failed; inspect server log."); cleanupWorker(source.getServer(),j);
         final int count=removed, ignored=skipped, recovered=restored;
         source.sendSuccess(()->Component.literal("Undo job "+id+": "+count+" removed, "+recovered+" terrain blocks restored, "+ignored+" changed/missing blocks skipped."),false); return 1;
     }
@@ -549,6 +557,56 @@ public final class Architects {
         LOGGER.info("NPC Architects job {} finished site clearing",j.id);
     }
     private static BlockState material(Job j,String name) { if(j.imported!=null) { if(j.importedStates==null) j.importedStates=new HashMap<>(); return j.importedStates.computeIfAbsent(name,SchematicImport::parseState); } return switch(name) { case "floor"->Blocks.COBBLESTONE.defaultBlockState(); case "roof"->Blocks.SPRUCE_PLANKS.defaultBlockState(); case "glass"->Blocks.GLASS.defaultBlockState(); default->Blocks.OAK_PLANKS.defaultBlockState(); }; }
+    // Keep terminal job records as durable cleanup tombstones and preserve undo history.
+    private void cleanupWorker(MinecraftServer server,Job j) {
+        if(storageFailed || !terminal(j)) return;
+        var world=jobLevel(server,j);
+        if(world!=null) releaseTickets(world,j);
+        UUID id=UUID.fromString(j.worker);
+        for(var level:server.getAllLevels()) {
+            if(level.getEntity(id) instanceof Villager worker) {
+                worker.getNavigation().stop();
+                worker.discard();
+                LOGGER.info("NPC Architects removed builder {} for terminal job {}",id,j.id);
+            }
+        }
+    }
+    private void workerJoined(EntityJoinLevelEvent event) {
+        if(storageFailed || !(event.getLevel() instanceof ServerLevel) || !(event.getEntity() instanceof Villager worker)) return;
+        String id=worker.getUUID().toString();
+        for(Job j:jobs.values()) if(terminal(j)&&id.equals(j.worker)) {
+            // Cancel insertion of an unloaded terminal builder when its chunk is loaded again.
+            event.setCanceled(true);
+            LOGGER.debug("NPC Architects suppressed returning builder {} for terminal job {}",id,j.id);
+            return;
+        }
+    }
+    private void playerJoined(PlayerEvent.PlayerLoggedInEvent event) {
+        if(storageFailed || !(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+        for(Job j:jobs.values()) if(player.getUUID().toString().equals(j.owner)) notifyCompletion(player.serverLevel().getServer(),j);
+    }
+    private void notifyCompletion(MinecraftServer server,Job j) {
+        if(storageFailed || j.completionNotified || !j.status.equals("DONE") || j.completedAt<=0) return;
+        var players=server.getPlayerList();
+        String name=j.schematic==null?"house":j.schematic;
+        var message=Component.literal("[NPC Architects] ").withStyle(ChatFormatting.GOLD)
+            .append(Component.literal("Job #"+j.id+" ("+name+") completed! ").withStyle(ChatFormatting.GREEN))
+            .append(Component.literal(cells(j).size()+" blueprint blocks | "+j.dimension+" | "+j.x+", "+j.y+", "+j.z).withStyle(ChatFormatting.WHITE));
+        if(j.owner!=null) {
+            UUID owner;
+            try { owner=UUID.fromString(j.owner); } catch(IllegalArgumentException ex) { LOGGER.warn("Invalid owner for job {}",j.id); return; }
+            var player=players.getPlayer(owner);
+            if(player==null) return;
+            player.sendSystemMessage(message);
+        } else {
+            // Older jobs have no owner. Report new completions to online operators only.
+            boolean delivered=false;
+            for(var player:players.getPlayers()) if(player.hasPermissions(2)) { player.sendSystemMessage(message); delivered=true; }
+            if(!delivered) return;
+        }
+        j.completionNotified=true;
+        save();
+    }
     private static boolean terminal(Job j) {
         return j.status.equals("DONE")||j.status.equals("CANCELLED")||j.status.equals("UNDONE");
     }
@@ -620,6 +678,7 @@ public final class Architects {
             if(storageFailed) break;
             var level=jobLevel(e.getServer(),j);
             if(level==null) continue;
+            if(terminal(j)) { cleanupWorker(e.getServer(),j); notifyCompletion(e.getServer(),j); continue; }
             if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager worker && worker.isAlive()) { protect(worker); setWorking(worker,j.status.equals("RUNNING")&&!storageFailed); if(j.status.equals("RUNNING")) checkpointWorker(level,j,worker); }
             if(j.status.equals("RUNNING")) {
                 ticket(level,j,workerAnchor(j),true);
@@ -647,7 +706,7 @@ public final class Architects {
         }
         if(j.surveying) { surveyStep(level,npc,j); return; }
         if(j.clearing) { clearStep(level,npc,j); return; }
-        if(j.cursor>=cells.size()) { j.status="DONE"; j.reason=""; setWorking(npc,false); resetMovement(j); releaseTickets(level,j); LOGGER.info("NPC Architects job {} completed",j.id); save(); return; }
+        if(j.cursor>=cells.size()) { j.status="DONE"; j.completedAt=System.currentTimeMillis(); j.reason=""; setWorking(npc,false); resetMovement(j); releaseTickets(level,j); LOGGER.info("NPC Architects job {} completed",j.id); if(save()) { cleanupWorker(server,j); notifyCompletion(server,j); } return; }
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
         if(!loadTarget(level,j,pos)) { waiting(j,"Loading construction chunk "+new ChunkPos(pos)); return; }
         String problem=siteProblem(level,pos);

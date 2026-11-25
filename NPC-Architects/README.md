@@ -1,4 +1,4 @@
-# NPC Architects 0.1.6 — experimental source prototype
+# NPC Architects 0.1.7 — experimental source prototype
 Forge 1.21.1-52.1.5 / Java 21. No custom client content. Vanilla connection not tested.
 
 ## Build
@@ -22,7 +22,7 @@ Architect workers are invulnerable and persistent; hostile targeting is canceled
 ## Elevated construction controller
 Builders no longer use ordinary villager wandering goals. During active clearing/building, controlled movement uses eye-height reach and collision-checked elevated work positions with temporary hovering. If a direct movement route is blocked, the controller may reposition the builder to a verified empty loaded stance near the current target. This is a creative-style fallback, not scaffolding or survival pathfinding. Gravity is restored when paused, blocked, cancelled or finished; builders remain stationary rather than wander. Existing jobs retain their blueprint cursor; use `/architect resume <id>` for blocked jobs. Layer completion and exact blocking reasons are logged. In-game movement still requires verification.
 
-## Custom schematics (v0.1.6)
+## Custom schematics (v0.1.7)
 Place Sponge v2/v3 `.schem` files in `<world>/npcarchitects-schematics/` (created automatically). Use filename stems containing letters, numbers, underscores or hyphens. `/architect schematic list`, `/architect schematic info <name>`, `/architect pos1` to select the minimum corner, `/architect rotate 90`, `/architect schematic preview <name>`, `/architect schematic build <name>`. If pos1 is not selected, the origin is three blocks southeast of the player. Pos2 is not used. Imports normalize to the minimum corner and ignore the file offset, metadata and biome data. No fixed gameplay dimension or volume cap. Sponge unsigned-short dimensions, Java array indexing, world bounds and available heap still apply. NBT parsing budget defaults to one quarter of JVM max heap (minimum 16 MiB), configurable with -Dnpcarchitects.nbtBudgetBytes=<bytes>. Only vanilla block states supported; block entities, fluids and entities rejected. Legacy .schematic and .litematic not supported. No DataFixer migration; use compatible 1.21.1 blocks. Air is intentionally cleared across the whole volume; preview before building. Imported plan stored with the job so restarts and undo do not depend on source file. Neighbor updates, gravity and unsupported multipart blocks may affect final fidelity; in-game testing required. Existing house jobs unchanged.
 
 ### Map-scale jobs
@@ -30,3 +30,9 @@ Large imports save the immutable plan separately under `<world>/npcarchitects-pl
 
 ### Autonomous chunk loading for all builders
 Every running job (house or schematic) refreshes expiring region tickets around its worker and current work target, including after server startup. Tickets move with the worker, and crossing a chunk boundary checkpoints the saved worker position. Tickets are removed when paused, blocked, cancelled, completed, undone, storage fails or the server shuts down. Missing workers are not duplicated automatically merely because their chunk is loading; legacy jobs without worker coordinates reload the build origin and may require manual recovery. The server must remain running and ticking; this does not override host shutdown or server pause behavior. Initial house creation still requires a loaded site; subsequent work does not require a nearby player. Chunk generation and multiple concurrent jobs increase server load. Runtime verification with all players disconnected is required.
+
+## Automatic builder cleanup
+Completed, cancelled and undone jobs remove the associated villager by saved UUID without drops. Existing terminal jobs are cleaned on management ticks; unloaded builders are prevented from joining the world when their chunks load. Paused and blocked jobs retain their worker. Terminal job records and undo history remain, and cancellation/completion do not release the reserved site. No extra chunks are loaded solely for cleanup. Runtime verification required.
+
+### Completion notifications
+New jobs record the initiating player's UUID. When construction reaches DONE and its state is saved, the owner receives a green completion chat message containing the job ID, schematic name (or house), blueprint block count, dimension and origin coordinates. If the owner is offline, the persisted completion is delivered when they return; normal server ticks also retry pending notifications. Jobs created before v0.1.7 have no owner, so newly completed legacy jobs notify online operators instead (pending until one is online). Previously completed jobs are not retroactively announced. Delivery is best-effort; a crash or failed save immediately after sending may repeat a notice. Cancelled and undone jobs do not announce successful completion.
