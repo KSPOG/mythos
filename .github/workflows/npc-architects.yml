@@ -36,6 +36,8 @@ jobs:
           java -cp build/blueprint-test com.npcarchitects.WorkZonesTest
           javac --release 21 -d build/blueprint-test src/main/java/com/npcarchitects/ChunkWork.java tests/ChunkWorkTest.java
           java -cp build/blueprint-test com.npcarchitects.ChunkWorkTest
+          javac --release 21 -d build/blueprint-test tests/ChunkLifecycleTest.java
+          java -cp build/blueprint-test com.npcarchitects.ChunkLifecycleTest
       - name: Obtain exact Forge MDK wrapper
         run: |
           curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.5/forge-1.21.1-52.1.5-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
@@ -46,6 +48,6 @@ jobs:
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
         with:
-          name: npc-architects-0.2.5
+          name: npc-architects-0.2.6
           path: NPC-Architects/build/libs/*.jar
           if-no-files-found: error

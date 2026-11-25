@@ -78,6 +78,8 @@ public final class Architects {
         transient int movementFailures;
         transient ChunkPos workChunk,workerChunk;
         transient int assignment=-1, teamStalled;
+        transient boolean assignmentClearing;
+        transient String chunkStage="IDLE";
     }
     private static final class Job extends Worker {
         List<Worker> assistants=new ArrayList<>();
@@ -92,6 +94,11 @@ public final class Architects {
         transient Map<Worker,Long> chunkOwners;
         transient boolean chunkPhaseClearing;
         transient int chunkPhaseLayer=Integer.MIN_VALUE;
+        transient Map<Long,ClearChunk> lifecycleChunks;
+        transient Map<Long,Long> deferredChunks;
+        transient int lifecycleScan;
+        transient boolean lifecycleIndexed;
+        boolean independentChunks;
 
         Set<Integer> teamDone=new HashSet<>();
         Set<Integer> clearDone=new HashSet<>();
@@ -145,7 +152,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.2.5 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.2.6 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
@@ -177,9 +184,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.5 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.6 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.5 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.6 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -262,6 +269,7 @@ public final class Architects {
             +(storageFailed?" | storage error":" | storage ready")),false);
         for(Job j:visible) {
             String progress=terminal(j)?"":j.surveying?" SURVEYING "+j.surveyCursor+"/"+(j.width*j.depth*j.height)
+                :j.independentChunks?" CHUNK WORK | cleared "+(j.clearCursor+j.clearDone.size())+"/"+(j.width*j.depth*j.height)+" | built "+(j.cursor+j.teamDone.size())+"/"+cells(j).size()
                 :j.clearing?" CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height)
                 :" BUILDING "+j.cursor+"/"+cells(j).size();
             source.sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)
@@ -961,7 +969,7 @@ public final class Architects {
         long volume=(long)j.width*j.depth*j.height;
         for(int i:j.clearDone) if(!j.clearing||i<j.clearCursor||i>=volume) throw new IllegalArgumentException("Invalid parallel clearing progress");
         var plan=cells(j);
-        for(int i:j.teamDone) if(i<j.cursor||i>=plan.size()||j.cursor>=plan.size()||plan.get(i).y()!=plan.get(j.cursor).y()) throw new IllegalArgumentException("Invalid parallel progress");
+        for(int i:j.teamDone) if(i<j.cursor||i>=plan.size()||j.cursor>=plan.size()||(!j.independentChunks&&plan.get(i).y()!=plan.get(j.cursor).y())) throw new IllegalArgumentException("Invalid parallel progress");
     }
     private static void stopTeam(ServerLevel level,Job j) {
         for(Worker w:team(j)) {
@@ -993,7 +1001,7 @@ public final class Architects {
         }
         if(added.size()!=count) { added.forEach(Villager::discard); return fail(source,"Not enough safe loaded spawn positions near you."); }
         j.assistants.addAll(members);
-        j.chunkOwners=null;
+        if(j.chunkOwners!=null)j.chunkOwners.clear();
         for(Worker w:team(j)) { resetMovement(w); w.assignment=-1; }
         if(!save()) { j.assistants.removeAll(members); added.forEach(Villager::discard); return fail(source,"Could not persist team."); }
         if(j.status.equals("RUNNING")) for(Worker w:members) ticket(level,w,workerAnchor(w),true);
@@ -1033,7 +1041,7 @@ public final class Architects {
         if(mode!=null&&!WorkZones.MODES.contains(mode))return fail(source,"Use adaptive, quadrants, strips or chunks.");
         if(mode!=null)j.distribution=mode;
         if(spacing>=0)j.spacing=spacing;
-        j.zoneQueues=null; j.chunkOwners=null; j.buildChunks=null;
+        j.zoneQueues=null; j.chunkOwners=null; j.buildChunks=null; j.lifecycleChunks=null; j.lifecycleIndexed=false; j.lifecycleScan=0; j.deferredChunks=null;
         for(Worker w:team(j)){w.assignment=-1;w.teamStalled=0;resetMovement(w);}
         if(!save())return 0;
         source.sendSuccess(()->Component.literal("Project #"+id+" distribution="+mode(j)+", preferred spacing="+j.spacing+" blocks; assignments refreshed."),false);
@@ -1046,9 +1054,9 @@ public final class Architects {
         var player=source.getEntity() instanceof net.minecraft.server.level.ServerPlayer p?p:null;
         // Bounded, requester-only markers at current targets (no force loading).
         for(int i=0;i<ws.size();i++){
-            Worker w=ws.get(i);BlockPos pos=w.assignment<0?null:j.clearing?clearPosition(j,w.assignment):w.assignment<cells(j).size()?buildPosition(j,cells(j).get(w.assignment)):null;
+            Worker w=ws.get(i);BlockPos pos=w.assignment<0?null:(j.independentChunks?w.assignmentClearing:j.clearing)?clearPosition(j,w.assignment):w.assignment<cells(j).size()?buildPosition(j,cells(j).get(w.assignment)):null;
             Long owned=j.chunkOwners==null?null:j.chunkOwners.get(w);
-            String line="Architect "+(i+1)+" | chunk "+(owned==null?"unassigned":ChunkWork.x(owned)+","+ChunkWork.z(owned))+" | "+(pos==null?"no target":pos.toShortString());
+            String line="Architect "+(i+1)+" | chunk "+(owned==null?"unassigned":ChunkWork.x(owned)+","+ChunkWork.z(owned))+" | "+(j.independentChunks?(w.chunkStage==null?"IDLE":w.chunkStage)+" | ":"")+(pos==null?"no target":pos.toShortString());
             source.sendSuccess(()->Component.literal(line),false);
             if(pos!=null&&player!=null&&level==player.serverLevel()&&player.distanceToSqr(Vec3.atCenterOf(pos))<=96*96){
                 float hue=(float)i/ws.size();int rgb=java.awt.Color.HSBtoRGB(hue,.85f,1f);
@@ -1115,142 +1123,140 @@ public final class Architects {
             j.clearChunks.add(new ClearChunk(ChunkWork.key(cx,cz),Math.max(j.x,cx*16),Math.min(maxX,cx*16+15),Math.max(j.z,cz*16),Math.min(maxZ,cz*16+15),j.y+j.height-1));
         }
     }
-    private void teamClear(ServerLevel level,Job j) {
-        int total=j.width*j.depth*j.height;
-        if(j.clearCursor>=total){finishTeamClear(level,j);return;}
-        initClearChunks(j);ownershipPhase(j,true,0);
-        var workers=team(j);var desired=desiredStates(j);var air=Blocks.AIR.defaultBlockState();
-        int top=j.y+j.height-1,bottom=j.y;
+    // Both phases share one chunk reservation. Durable legacy indices are retained,
+    // so a restart can reconstruct partially cleared and partially built chunks.
+    private boolean prepareLifecycle(Job j){
+        if(j.lifecycleChunks==null){
+            j.clearChunks=null;initClearChunks(j);
+            j.lifecycleChunks=new LinkedHashMap<>();
+            for(ClearChunk c:j.clearChunks){
+                if(!j.clearing)c.x=c.maxX+1;
+                j.lifecycleChunks.put(c.key,c);
+            }
+            j.buildChunks=new LinkedHashMap<>();j.lifecycleScan=j.cursor;j.lifecycleIndexed=false;
+            j.chunkOwners=new IdentityHashMap<>();j.deferredChunks=new HashMap<>();
+            for(Worker w:team(j)){w.assignment=-1;resetMovement(w);}
+        }
+        if(j.lifecycleIndexed)return true;
+        var plan=cells(j);
+        int scanned=0;
+        while(j.lifecycleScan<plan.size()&&scanned++<8192){
+            int i=j.lifecycleScan++;
+            if(i>=j.cursor&&!j.teamDone.contains(i))j.buildChunks.computeIfAbsent(chunkKey(buildPosition(j,plan.get(i))),k->new TreeSet<>()).add(i);
+        }
+        return j.lifecycleIndexed=j.lifecycleScan>=plan.size();
+    }
+    private void independentWork(MinecraftServer server,ServerLevel level,Job j){
+        if(!j.independentChunks){
+            j.independentChunks=true;
+            // Older jobs already in the build phase have fully cleared their site.
+            if(!j.clearing){j.clearCursor=j.width*j.depth*j.height;j.clearDone.clear();}
+            if(!save())return;
+        }
+        if(!prepareLifecycle(j))return;
+        var workers=team(j);var desired=desiredStates(j);var plan=cells(j);
+        var air=Blocks.AIR.defaultBlockState();int top=j.y+j.height-1,bottom=j.y,total=j.width*j.depth*j.height;
         for(Worker w:workers)if(w.returningHome&&level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc&&npc.isAlive()){
             returnHome(level,j,w,npc);if(storageFailed||!j.status.equals("RUNNING"))return;
         }
         releaseUnavailable(level,j);
-        var active=new LinkedHashMap<Long,ClearChunk>();
-        for(ClearChunk c:j.clearChunks)if(!c.done())active.put(c.key,c);
+        j.lifecycleChunks.entrySet().removeIf(e->e.getValue().done()&&(!j.buildChunks.containsKey(e.getKey())||j.buildChunks.get(e.getKey()).isEmpty()));
+        j.chunkOwners.entrySet().removeIf(e->!j.lifecycleChunks.containsKey(e.getValue()));
+        if(j.lifecycleChunks.isEmpty()){
+            if(j.clearCursor!=total||j.cursor!=plan.size()){blocked(j,(Villager)level.getEntity(UUID.fromString(j.worker)),"Chunk progress mismatch; inspect saved job");return;}
+            j.clearing=false;j.clearDone.clear();j.status="DONE";j.completedAt=System.currentTimeMillis();j.reason="";
+            stopTeam(level,j);if(save()){cleanupWorker(server,j);notifyCompletion(server,j);}return;
+        }
         boolean dirty=false;int budget=Math.max(1,CLEAR_BATCH/workers.size());
+        long now=System.currentTimeMillis();
+        var available=new LinkedHashSet<Long>();
+        for(long key:j.lifecycleChunks.keySet())if(j.deferredChunks.getOrDefault(key,0L)<=now)available.add(key);
         for(int wi=0;wi<workers.size();wi++){
             Worker w=workers.get(wi);
             if(!workerAvailable(level,w))continue;
             Villager npc=(Villager)level.getEntity(UUID.fromString(w.worker));
-            Long key=claimChunk(j,w,npc,active.keySet(),wi,workers.size());
-            if(key==null){w.assignment=-1;resetMovement(w);continue;}
-            ClearChunk c=active.get(key);
-            for(int scanned=0;scanned<budget&&!c.done();scanned++){
-                int index=clearIndex(j,c.x,c.y,c.z);
-                if(index<j.clearCursor||j.clearDone.contains(index)){c.advance(top,bottom);continue;}
-                BlockPos pos=new BlockPos(c.x,c.y,c.z);
-                w.assignment=index;
-                if(!loadTarget(level,w,pos))break;
-                String problem=siteProblem(level,pos);
-                if(problem!=null){blocked(j,npc,problem+" at "+pos.toShortString());return;}
-                var current=level.getBlockState(pos);
-                boolean done=current.isAir()||current.equals(desired.getOrDefault(pos,air)),changed=false;
-                if(!done){
-                    if(!canClear(level,pos,current)){blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString());return;}
-                    if(approach(w,npc,level,pos)){
-                        npc.swing(InteractionHand.MAIN_HAND);
-                        if(level.destroyBlock(pos,false,npc)){
-                            j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));
-                            done=true;changed=true;
+            Long key=claimChunk(j,w,npc,available,wi,workers.size());
+            if(key==null){w.assignment=-1;w.chunkStage="WAITING";resetMovement(w);continue;}
+            ClearChunk c=j.lifecycleChunks.get(key);
+            if(!c.done()){
+                w.chunkStage="CLEARING";w.assignmentClearing=true;
+                for(int scanned=0;scanned<budget&&!c.done();scanned++){
+                    int index=clearIndex(j,c.x,c.y,c.z);
+                    if(index<j.clearCursor||j.clearDone.contains(index)){c.advance(top,bottom);continue;}
+                    BlockPos pos=new BlockPos(c.x,c.y,c.z);
+                    w.assignment=index;
+                    if(!loadTarget(level,w,pos))break;
+                    String problem=siteProblem(level,pos);
+                    if(problem!=null){blocked(j,npc,problem+" at "+pos.toShortString());return;}
+                    var current=level.getBlockState(pos);
+                    boolean done=current.isAir()||current.equals(desired.getOrDefault(pos,air)),changed=false;
+                    if(!done){
+                        if(!canClear(level,pos,current)){blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString());return;}
+                        if(approach(w,npc,level,pos)){
+                            npc.swing(InteractionHand.MAIN_HAND);
+                            if(level.destroyBlock(pos,false,npc)){
+                                j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));
+                                done=true;changed=true;
+                            }
                         }
                     }
+                    if(!done){
+                        if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot clear "+pos.toShortString());
+                        break;
+                    }
+                    j.clearDone.add(index);while(j.clearDone.remove(j.clearCursor))j.clearCursor++;
+                    c.advance(top,bottom);w.assignment=-1;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);dirty=true;
+                    if(changed){if(!save())return;dirty=false;break;}
                 }
+                if(!j.status.equals("RUNNING")||storageFailed)return;
+                if(!c.done())continue;
+                w.assignment=-1;resetMovement(w);
+            }
+            // Keep the same reservation when switching from clearing to building.
+            w.chunkStage="BUILDING";w.assignmentClearing=false;
+            var queue=j.buildChunks.get(key);
+            if(queue!=null&&!queue.isEmpty()){
+                int index=queue.first();var cell=plan.get(index);var pos=buildPosition(j,cell);
+                w.assignment=index;
+                if(!loadTarget(level,w,pos))continue;
+                String problem=siteProblem(level,pos);
+                if(problem!=null){blocked(j,npc,problem+" at "+pos.toShortString());return;}
+                var wanted=material(j,cell.material());var current=level.getBlockState(pos);
+                boolean done=current.equals(wanted);
                 if(!done){
-                    if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Team builder cannot reach or clear "+pos.toShortString());
-                    break;
+                    if(!current.isAir()){blocked(j,npc,"New obstruction at "+pos.toShortString());return;}
+                    // Attachment-dependent states at a chunk boundary may need a neighbor.
+                    // Defer the entire chunk instead of placing unsupported blocks or deadlocking the team.
+                    // Only query survival when adjacent chunks are loaded.
+                    boolean loaded=true;
+                    for(net.minecraft.core.Direction d:net.minecraft.core.Direction.Plane.HORIZONTAL)if(!level.hasChunkAt(pos.relative(d))){loaded=false;break;}
+                    if(!loaded)continue;
+                    if(!wanted.canSurvive(level,pos)){
+                        j.deferredChunks.put(key,now+5000L);available.remove(key);j.chunkOwners.remove(w);
+                        w.assignment=-1;w.chunkStage="WAITING FOR SUPPORT";resetMovement(w);
+                        j.reason="Waiting for support at "+pos.toShortString();
+                        continue;
+                    }
+                    if(approach(w,npc,level,pos)&&level.getEntities(npc,new AABB(pos)).isEmpty()){
+                        npc.swing(InteractionHand.MAIN_HAND);
+                        if(level.setBlock(pos,wanted,3)){j.placed.add(index);done=true;}
+                    }
                 }
-                j.clearDone.add(index);while(j.clearDone.remove(j.clearCursor))j.clearCursor++;
-                c.advance(top,bottom);w.assignment=-1;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);j.reason="";dirty=true;
-                if(changed){if(!save())return;dirty=false;break;}
+                if(done){
+                    queue.remove(index);j.teamDone.add(index);while(j.teamDone.remove(j.cursor))j.cursor++;
+                    w.assignment=-1;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);j.reason="";
+                    if(!save())return;dirty=false;
+                }else if(++w.teamStalled>=STUCK_ATTEMPTS){
+                    startHomeRecovery(level,j,w,npc,"Cannot place "+pos.toShortString());if(!j.status.equals("RUNNING"))return;
+                }
             }
-            if(!j.status.equals("RUNNING")||storageFailed)return;
-            if(c.done()){active.remove(key);j.chunkOwners.remove(w);}
+            if(queue==null||queue.isEmpty()){
+                j.lifecycleChunks.remove(key);j.buildChunks.remove(key);j.chunkOwners.remove(w);available.remove(key);
+                w.assignment=-1;w.chunkStage="COMPLETE";resetMovement(w);
+            }
         }
-        if(j.clearCursor>=total){finishTeamClear(level,j);return;}
+        if(j.clearCursor>=total&&j.clearing){j.clearing=false;j.clearDone.clear();dirty=true;}
         if(dirty)save();
-    }
-    private static boolean indexBuildChunks(Job j,List<Blueprint.Cell> plan,int layer){
-        if(j.buildChunks==null||j.buildChunkLayer!=layer){
-            j.buildChunks=new LinkedHashMap<>();j.buildChunkLayer=layer;j.buildChunkScan=j.cursor;
-        }
-        int scanned=0;
-        while(j.buildChunkScan<plan.size()&&plan.get(j.buildChunkScan).y()==layer&&scanned++<8192){
-            int i=j.buildChunkScan++;
-            if(i>=j.cursor&&!j.teamDone.contains(i))j.buildChunks.computeIfAbsent(chunkKey(buildPosition(j,plan.get(i))),k->new TreeSet<>()).add(i);
-        }
-        return j.buildChunkScan>=plan.size()||plan.get(j.buildChunkScan).y()!=layer;
-    }
-    private void finishTeamClear(ServerLevel level,Job j) {
-        j.clearing=false; j.clearDone.clear(); j.clearChunks=null; j.chunkOwners=null; j.stalled=0; j.reason="";
-        for(Worker w:team(j)) { w.assignment=-1; w.teamStalled=0; resetMovement(w); }
-        if(save()) LOGGER.info("NPC Architects job {} finished team clearing",j.id);
-    }
-    private void teamBuild(MinecraftServer server,ServerLevel level,Job j) {
-        var plan=cells(j);
-        if(j.cursor>=plan.size()) {
-            j.status="DONE"; j.completedAt=System.currentTimeMillis(); j.reason="";
-            stopTeam(level,j);
-            if(save()) { cleanupWorker(server,j); notifyCompletion(server,j); }
-            return;
-        }
-        int layer=plan.get(j.cursor).y();
-        var workers=team(j);
-        var reserved=new HashSet<Integer>();
-        for(Worker w:workers) {
-            boolean live=!w.returningHome&&level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc&&npc.isAlive();
-            if(!live||w.assignment<j.cursor||w.assignment>=plan.size()||plan.get(w.assignment).y()!=layer||j.teamDone.contains(w.assignment)||!reserved.add(w.assignment)) {
-                w.assignment=-1; resetMovement(w);
-            }
-        }
-        ownershipPhase(j,false,layer);releaseUnavailable(level,j);
-        if(!indexBuildChunks(j,plan,layer))return;
-        j.buildChunks.entrySet().removeIf(e->e.getValue().isEmpty());
-        j.chunkOwners.entrySet().removeIf(e->!j.buildChunks.containsKey(e.getValue()));
-        for(int wi=0;wi<workers.size();wi++) {
-            Worker w=workers.get(wi);
-            if(storageFailed||!j.status.equals("RUNNING")) return;
-            if(!(level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
-            if(returnHome(level,j,w,npc)) continue;
-            if(!workerAvailable(level,w))continue;
-            Long key=claimChunk(j,w,npc,j.buildChunks.keySet(),wi,workers.size());
-            if(key==null){w.assignment=-1;resetMovement(w);continue;}
-            if(w.assignment>=0&&chunkKey(buildPosition(j,plan.get(w.assignment)))!=key){reserved.remove(w.assignment);w.assignment=-1;resetMovement(w);}
-            if(w.assignment<0){
-                double best=Double.MAX_VALUE;int examined=0;
-                for(int index:j.buildChunks.get(key)){
-                    if(index<j.cursor||j.teamDone.contains(index)||reserved.contains(index))continue;
-                    if(examined++>=128)break;
-                    double distance=npc.position().distanceToSqr(Vec3.atCenterOf(buildPosition(j,plan.get(index))));
-                    if(distance<best){best=distance;w.assignment=index;}
-                }
-                if(w.assignment<0)continue;
-                reserved.add(w.assignment);w.teamStalled=0;
-            }
-            int index=w.assignment;
-            var c=plan.get(index); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
-            if(!loadTarget(level,w,pos)) continue;
-            String problem=siteProblem(level,pos);
-            if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
-            var wanted=material(j,c.material()); var current=level.getBlockState(pos);
-            boolean done=current.equals(wanted);
-            if(!done) {
-                if(!current.isAir()) { blocked(j,npc,"New obstruction at "+pos.toShortString()); return; }
-                if(approach(w,npc,level,pos)&&level.getEntities(npc,new AABB(pos)).isEmpty()) {
-                    npc.swing(InteractionHand.MAIN_HAND);
-                    if(level.setBlock(pos,wanted,3)) { j.placed.add(index); done=true; }
-                }
-            }
-            if(done) {
-                j.teamDone.add(index); j.buildChunks.get(key).remove(index); if(j.buildChunks.get(key).isEmpty()){j.buildChunks.remove(key);j.chunkOwners.remove(w);} w.assignment=-1; w.teamStalled=0; w.recoveryAttempts=0; resetMovement(w);
-                while(j.teamDone.remove(j.cursor)) j.cursor++;
-                j.reason="";
-                if(!save()) return;
-                if(j.cursor>=plan.size()||plan.get(j.cursor).y()!=layer) return;
-            } else if(++w.teamStalled>=STUCK_ATTEMPTS) {
-                startHomeRecovery(level,j,w,npc,"Team builder cannot reach or place "+pos.toShortString());
-                if(!j.status.equals("RUNNING")) return;
-            }
-        }
     }
     private void travelTick(MinecraftServer server) {
         for(Job j:jobs.values()) {
@@ -1315,25 +1321,6 @@ public final class Architects {
             }
         }
         if(j.surveying) { return; }
-        if(j.assistants.isEmpty()&&returnHome(level,j,j,npc)) return;
-        if(j.clearing) { if(j.assistants.isEmpty()) clearStep(level,npc,j); else teamClear(level,j); return; }
-        if(!j.assistants.isEmpty()) { teamBuild(server,level,j); return; }
-        if(j.cursor>=cells.size()) { j.status="DONE"; j.completedAt=System.currentTimeMillis(); j.reason=""; setWorking(npc,false); resetMovement(j); releaseTickets(level,j); LOGGER.info("NPC Architects job {} completed",j.id); if(save()) { cleanupWorker(server,j); notifyCompletion(server,j); } return; }
-        var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
-        if(!loadTarget(level,j,pos)) { waiting(j,"Loading construction chunk "+new ChunkPos(pos)); return; }
-        String problem=siteProblem(level,pos);
-        if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
-        var wanted=material(j,c.material()); var current=level.getBlockState(pos);
-        if(current.equals(wanted)) { j.cursor++; j.stalled=0; j.reason=""; save(); return; }
-        if(!current.isAir() || !level.getWorldBorder().isWithinBounds(pos)) { blocked(j,npc,"New obstruction at "+pos.toShortString()); return; }
-        if(approach(j,npc,level,pos) && level.getEntities(npc,new AABB(pos)).isEmpty()) {
-            npc.swing(InteractionHand.MAIN_HAND);
-            if(level.setBlock(pos,wanted,3)) {
-                j.placed.add(j.cursor); j.cursor++; j.stalled=0; j.recoveryAttempts=0; j.reason="";
-                if(j.cursor==cells.size() || cells.get(j.cursor).y()!=c.y()) LOGGER.info("NPC Architects job {} finished layer {} of {}",j.id,c.y()+1,j.height);
-                save(); return;
-            }
-        }
-        if(++j.stalled>=STUCK_ATTEMPTS) startHomeRecovery(level,j,j,npc,"Cannot reach or place "+pos.toShortString());
+        independentWork(server,level,j);
     }
 }
