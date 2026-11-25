@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="randomteleport"
-version="0.1.0"
+version="0.1.1"
 displayName="Random Teleport"
 displayTest="IGNORE_ALL_VERSION"
 description='''Server-side random teleport command.'''
