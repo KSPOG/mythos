@@ -132,6 +132,7 @@ public final class Architects {
     private static final class ClearChunk {
         final long key; final int minX,maxX,minZ,maxZ;
         int x,z,y;
+        int verifyOffset, drainPasses;
         ClearChunk(long key,int minX,int maxX,int minZ,int maxZ,int top){
             this.key=key;this.minX=minX;this.maxX=maxX;this.minZ=minZ;this.maxZ=maxZ;
             x=minX;z=minZ;y=top;
@@ -628,9 +629,17 @@ public final class Architects {
         String reason;
         if(state.hasBlockEntity()||level.getBlockEntity(pos)!=null) reason="block entity (protected data)";
         else if(state.getDestroySpeed(level,pos)<0) reason="unbreakable (negative hardness)";
-        else if(!state.getFluidState().isEmpty()) reason="fluid or waterlogged block";
+        else if(!state.getFluidState().isEmpty()&&!isDrainableFluid(state)) reason="unsupported fluid or waterlogged block";
         else return null;
         return "Cannot clear "+state+" at "+pos.toShortString()+": "+reason;
+    }
+    private static boolean isDrainableFluid(BlockState state){
+        return state.is(Blocks.WATER)||state.is(Blocks.LAVA);
+    }
+    // Direct replacement displaces liquid instead of using destroyBlock,
+    // which can restore a fluid's legacy block state in the same position.
+    private static boolean drainFluid(ServerLevel level,BlockPos pos,BlockState state){
+        return isDrainableFluid(state)&&level.setBlock(pos,Blocks.AIR.defaultBlockState(),3);
     }
     private static boolean canClear(ServerLevel level,BlockPos pos,BlockState state) {
         return clearRestriction(level,pos,state)==null;
@@ -733,7 +742,7 @@ public final class Architects {
             if(approach(j,npc,level,pos)) {
                 npc.swing(InteractionHand.MAIN_HAND);
                 // No drops: undo can restore cleared terrain without duplicating resources.
-                if(level.destroyBlock(pos,false,npc)) {
+                if(isDrainableFluid(current)?drainFluid(level,pos,current):level.destroyBlock(pos,false,npc)) {
                     j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));
                     j.clearCursor++; j.stalled=0; j.recoveryAttempts=0; save(); return;
                 }
@@ -1222,7 +1231,7 @@ public final class Architects {
             returnHome(level,j,w,npc);if(storageFailed||!j.status.equals("RUNNING"))return;
         }
         releaseUnavailable(level,j);
-        j.lifecycleChunks.entrySet().removeIf(e->e.getValue().done()&&(!j.buildChunks.containsKey(e.getKey())||j.buildChunks.get(e.getKey()).isEmpty()));
+        // Chunks are removed only after their final fluid verification pass.
         j.chunkOwners.entrySet().removeIf(e->!j.lifecycleChunks.containsKey(e.getValue()));
         if(j.lifecycleChunks.isEmpty()){
             if(j.clearCursor!=total||j.cursor!=plan.size()){blocked(j,(Villager)level.getEntity(UUID.fromString(j.worker)),"Chunk progress mismatch; inspect saved job");return;}
@@ -1252,12 +1261,13 @@ public final class Architects {
                     String problem=siteProblem(level,pos);
                     if(problem!=null){blocked(j,npc,problem+" at "+pos.toShortString());return;}
                     var current=level.getBlockState(pos);
-                    boolean done=current.isAir()||current.equals(desired.getOrDefault(pos,air)),changed=false;
+                    var target=desired.getOrDefault(pos,air);
+                    boolean done=current.isAir()||current.equals(target)||(isDrainableFluid(current)&&!target.isAir()),changed=false;
                     if(!done){
                         if(!canClear(level,pos,current)){blocked(j,npc,clearRestriction(level,pos,current));return;}
                         if(approach(w,npc,level,pos)){
                             npc.swing(InteractionHand.MAIN_HAND);
-                            if(level.destroyBlock(pos,false,npc)){
+                            if(isDrainableFluid(current)?drainFluid(level,pos,current):level.destroyBlock(pos,false,npc)){
                                 j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));
                                 done=true;changed=true;
                             }
@@ -1287,7 +1297,7 @@ public final class Architects {
                 var wanted=material(j,cell.material());var current=level.getBlockState(pos);
                 boolean done=current.equals(wanted);
                 if(!done){
-                    if(!current.isAir()){blocked(j,npc,"New obstruction at "+pos.toShortString());return;}
+                    if(!current.isAir()&&!isDrainableFluid(current)){blocked(j,npc,"New obstruction at "+pos.toShortString()+": "+current);return;}
                     // Attachment-dependent states at a chunk boundary may need a neighbor.
                     // Defer the entire chunk instead of placing unsupported blocks or deadlocking the team.
                     // Only query survival when adjacent chunks are loaded.
@@ -1302,18 +1312,55 @@ public final class Architects {
                     }
                     if(approach(w,npc,level,pos)&&level.getEntities(npc,new AABB(pos)).isEmpty()){
                         npc.swing(InteractionHand.MAIN_HAND);
-                        if(level.setBlock(pos,wanted,3)){j.placed.add(index);done=true;}
+                        if(level.setBlock(pos,wanted,3)){if(isDrainableFluid(current))j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));j.placed.add(index);done=true;}
                     }
                 }
                 if(done){
                     queue.remove(index);j.teamDone.add(index);while(j.teamDone.remove(j.cursor))j.cursor++;
                     w.assignment=-1;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);j.reason="";
                     if(!save())return;dirty=false;
+                    continue; // Verify on the next work cycle, retaining the reservation.
                 }else if(++w.teamStalled>=STUCK_ATTEMPTS){
                     startHomeRecovery(level,j,w,npc,"Cannot place "+pos.toShortString());if(!j.status.equals("RUNNING"))return;
                 }
             }
             if(queue==null||queue.isEmpty()){
+                // Verify only intended air positions for refilling vanilla liquids,
+                // once all planned solid blocks in this chunk have been placed.
+                w.chunkStage="DRAINING";w.assignmentClearing=true;
+                int width=c.maxX-c.minX+1,depth=c.maxZ-c.minZ+1,area=width*depth;
+                int volume=area*j.height;
+                boolean removedFluid=false;
+                for(int scanned=0;scanned<budget&&c.verifyOffset<volume;scanned++){
+                    int i=c.verifyOffset,layer=i/area,cellIndex=i%area;
+                    var pos=new BlockPos(c.minX+cellIndex/depth,top-layer,c.minZ+cellIndex%depth);
+                    w.assignment=clearIndex(j,pos.getX(),pos.getY(),pos.getZ());
+                    if(!loadTarget(level,w,pos))break;
+                    String problem=siteProblem(level,pos);
+                    if(problem!=null){blocked(j,npc,problem+" at "+pos.toShortString());return;}
+                    var state=level.getBlockState(pos);
+                    if(!desired.containsKey(pos)&&isDrainableFluid(state)){
+                        if(!approach(w,npc,level,pos)){
+                            if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot drain "+pos.toShortString());
+                            break;
+                        }
+                        npc.swing(InteractionHand.MAIN_HAND);
+                        if(!drainFluid(level,pos,state))break;
+                        j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(state)));
+                        w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);removedFluid=true;
+                        c.drainPasses++;
+                        if(!save())return;
+                        dirty=false;
+                        // Restart the bounded scan after a liquid mutation to catch refilling cells.
+                        c.verifyOffset=0;
+                        if(c.drainPasses>Math.max(64L,volume*4L)){
+                            blocked(j,npc,"Fluid keeps refilling chunk "+ChunkWork.x(key)+","+ChunkWork.z(key)+"; seal external source near "+pos.toShortString());return;
+                        }
+                        break;
+                    }
+                    c.verifyOffset++;
+                }
+                if(removedFluid||c.verifyOffset<volume)continue;
                 j.lifecycleChunks.remove(key);j.buildChunks.remove(key);j.chunkOwners.remove(w);available.remove(key);
                 w.assignment=-1;w.chunkStage="COMPLETE";resetMovement(w);
             }

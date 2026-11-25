@@ -78,3 +78,6 @@ Initial spawning, adding workers, and replacement/respawn now share collision-ch
 
 ## v0.2.9 — obstruction diagnostics
 Survey, preview and construction clearing now report the actual block state, coordinates and protection reason (block entity, negative hardness or fluid). Protection rules remain unchanged; do not remove unknown protected blocks without inspecting them. Resolve obstruction and resume job. Runtime verification pending.
+
+### Fluid displacement (v0.2.9)
+Vanilla water and lava no longer block the survey. Planned solid blocks directly replace liquids, with original states recorded for best-effort undo. Intended air cells are drained using direct air replacement, then checked again after chunk construction. Verification is bounded per work cycle; persistent refilling eventually blocks the job with source-sealing diagnostics. No permanent filler blocks are added outside the schematic. Waterlogged blocks, block entities, unbreakable blocks and other fluids remain protected. External sources are not modified; fluid simulation may refill previously verified chunks. Undo of moving fluids is best effort, not exact simulation restoration. CI and live testing pending.
