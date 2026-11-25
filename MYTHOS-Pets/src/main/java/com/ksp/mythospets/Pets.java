@@ -62,7 +62,7 @@ public final class Pets {
         new Definition("breeze","Storm Familiar","breeze",Source.DUNGEON,0,Ability.SLOW,100,3,false)
     );
     private static Definition def(String id){return CATALOG.stream().filter(d->d.id.equals(id)).findFirst().orElse(null);}
-    private static class Account { long gold; Map<String,String> owned=new LinkedHashMap<>(); }
+    private static class Account { long gold; Map<String,String> owned=new LinkedHashMap<>(); Map<String,String> names=new HashMap<>(); }
     private static class Store { Map<String,Account> accounts=new HashMap<>(); }
     private static final class Active {
         final UUID owner; final Definition definition; final Mob entity;
@@ -88,6 +88,8 @@ public final class Pets {
             for(var entry:store.accounts.entrySet()){
                 UUID.fromString(entry.getKey());var a=entry.getValue();
                 if(a==null||a.gold<0||a.owned==null)throw new IllegalStateException("Invalid account");
+                if(a.names==null)a.names=new HashMap<>();
+                for(var name:a.names.entrySet())if(!a.owned.containsKey(name.getKey())||!validName(name.getValue()))throw new IllegalStateException("Invalid pet name");
                 for(var pet:a.owned.entrySet())if(def(pet.getKey())==null||!ids.add(UUID.fromString(pet.getValue()).toString()))throw new IllegalStateException("Invalid ownership");
             }
             failed=false;
@@ -195,6 +197,24 @@ public final class Pets {
         if(!save()){a.gold+=price;a.owned.remove(id);return fail(s,"Acquisition failed.");}
         return ok(s,"Unlocked "+d.name);
     }
+    private static boolean validName(String name){
+        return name!=null&&name.equals(name.strip())&&!name.isEmpty()&&name.codePointCount(0,name.length())<=24&&name.codePoints().allMatch(c->Character.isLetterOrDigit(c)||c==' '||c=='-'||c=='_'||c=='\'');
+    }
+    private String petName(UUID owner,Definition d){
+        return account(owner).names.getOrDefault(d.id,d.name);
+    }
+    private int rename(CommandSourceStack s,String id,String requested)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        var p=s.getPlayerOrException();var d=def(id);
+        if(d==null||!owns(p.getUUID(),id))return fail(s,"Pet not owned.");
+        if(requested!=null&&!validName(requested))return fail(s,"Use 1–24 letters, digits, spaces, apostrophes, underscores or hyphens.");
+        var a=account(p.getUUID());String old=a.names.get(id);
+        if(requested==null)a.names.remove(id);else a.names.put(id,requested);
+        if(!save()){if(old==null)a.names.remove(id);else a.names.put(id,old);return fail(s,"Name change failed.");}
+        var live=active.get(p.getUUID());
+        String name=petName(p.getUUID(),d);
+        if(live!=null&&live.definition.id.equals(id))live.entity.setCustomName(Component.literal(name));
+        return ok(s,"Pet "+id+" named "+name+".");
+    }
     private int summon(CommandSourceStack s,String id)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();var d=def(id);
         if(d==null||d.locked||!owns(p.getUUID(),id)||!p.isAlive()||p.isSpectator())return fail(s,"Pet not available or owned.");
@@ -203,15 +223,15 @@ public final class Pets {
         var feet=nearby(p,mob);if(feet==null)return fail(s,"No safe pet spawn nearby.");
         dismiss(p.getUUID());
         mob.moveTo(feet.x,feet.y,feet.z,p.getYRot(),0);mob.setNoAi(true);mob.setNoGravity(true);mob.setInvulnerable(true);mob.setSilent(true);mob.setPersistenceRequired();
-        mob.addTag(TAG);mob.setCustomName(Component.literal(d.name));mob.setCustomNameVisible(true);
+        mob.addTag(TAG);mob.setCustomName(Component.literal(petName(p.getUUID(),d)));mob.setCustomNameVisible(true);
         var a=new Active(p.getUUID(),d,mob);a.nextAbility=tick+d.cooldown;active.put(p.getUUID(),a);
         if(!p.serverLevel().addFreshEntity(mob)){dismiss(p.getUUID());return fail(s,"Summon failed.");}
-        return ok(s,"Summoned "+d.name);
+        return ok(s,"Summoned "+petName(p.getUUID(),d));
     }
     private int list(CommandSourceStack s,boolean shop,boolean catalog)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();if(failed)return fail(s,"Storage locked.");var a=account(p.getUUID());
         s.sendSuccess(()->Component.literal("MYTHOS Pets | pet gold "+a.gold),false);
-        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:a.owned.containsKey(d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+d.name+" | "+d.ability+" | "+d.source+(d.source==Source.SHOP?" "+d.price:"")+(d.locked?" LOCKED":"")),false);
+        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:a.owned.containsKey(d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+(a.owned.containsKey(d.id)?petName(p.getUUID(),d):d.name)+" | "+d.ability+" | "+d.source+(d.source==Source.SHOP?" "+d.price:"")+(d.locked?" LOCKED":"")),false);
         return 1;
     }
     private void commands(RegisterCommandsEvent e){
@@ -221,6 +241,8 @@ public final class Pets {
         root.then(Commands.literal("catalog").executes(c->list(c.getSource(),false,true)));
         root.then(Commands.literal("buy").then(Commands.argument("id",StringArgumentType.word()).executes(c->acquire(c.getSource(),c.getSource().getPlayerOrException(),StringArgumentType.getString(c,"id"),"SHOP"))));
         root.then(Commands.literal("summon").then(Commands.argument("id",StringArgumentType.word()).executes(c->summon(c.getSource(),StringArgumentType.getString(c,"id")))));
+        root.then(Commands.literal("rename").then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->rename(c.getSource(),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"name"))))));
+        root.then(Commands.literal("resetname").then(Commands.argument("id",StringArgumentType.word()).executes(c->rename(c.getSource(),StringArgumentType.getString(c,"id"),null))));
         root.then(Commands.literal("dismiss").executes(c->{dismiss(c.getSource().getPlayerOrException().getUUID());return ok(c.getSource(),"Pet dismissed.");}));
         root.then(Commands.literal("reward").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("source",StringArgumentType.word()).executes(c->{String source=StringArgumentType.getString(c,"source");if(source.equalsIgnoreCase("SHOP"))return fail(c.getSource(),"Shop-exclusive pet.");return acquire(c.getSource(),EntityArgument.getPlayer(c,"player"),StringArgumentType.getString(c,"id"),source);})))));
         root.then(Commands.literal("credit").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("amount",IntegerArgumentType.integer(1)).executes(c->{if(failed)return fail(c.getSource(),"Storage locked.");var a=account(EntityArgument.getPlayer(c,"player").getUUID());long old=a.gold;try{a.gold=Math.addExact(old,IntegerArgumentType.getInteger(c,"amount"));}catch(ArithmeticException ex){return fail(c.getSource(),"Balance overflow.");}if(!save()){a.gold=old;return fail(c.getSource(),"Credit failed.");}return ok(c.getSource(),"Pet gold "+a.gold);}))));
