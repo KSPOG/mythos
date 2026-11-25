@@ -84,7 +84,14 @@ public final class Architects {
         int cursor,indexCursor,startTick,completeTick=-1;
         Map<BlockPos,BlockState> desired=new HashMap<>();
         long added,removed,replaced,retained,empty,unknown,protectedCount;
-        List<BlockPos> additions=new ArrayList<>(),removals=new ArrayList<>(),replacements=new ArrayList<>();
+        // Bounded local overlay; never store or mutate live world blocks.
+        Set<BlockPos> shown=new HashSet<>();
+        Iterator<BlockPos> restore;
+        boolean closing;
+        int centerX=Integer.MIN_VALUE,centerZ=Integer.MIN_VALUE,renderCursor;
+        int minX,maxX,minZ,maxZ;
+        int nextRefresh;
+    
     }
     private static final int STUCK_ATTEMPTS=WorkCadence.attempts(Math.max(1,Math.min(3600,Integer.getInteger("npcarchitects.stuckSeconds",15))),WORK_INTERVAL);
     private static final int RECOVERY_LIMIT=Math.max(1,Math.min(20,Integer.getInteger("npcarchitects.stuckRetries",3)));
@@ -180,7 +187,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.3.2 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.3.3 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
         previewScan=null; jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false; progressDirty=false; lastProgressFlush=0; workJobOffset=0;
@@ -280,9 +287,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.2 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.3 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.2 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.3 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -501,8 +508,8 @@ public final class Architects {
     }
     private int clearRedesignPreview(CommandSourceStack source)throws CommandSyntaxException{
         var player=source.getPlayerOrException();
-        if(previewScan!=null&&previewScan.viewer.equals(player.getUUID()))previewScan=null;
-        source.sendSuccess(()->Component.literal("Redesign preview cleared."),false);return 1;
+        if(previewScan!=null&&previewScan.viewer.equals(player.getUUID()))closePreview(previewScan);
+        source.sendSuccess(()->Component.literal("Redesign preview clearing; real blocks restored in bounded batches."),false);return 1;
     }
     private int startRedesignPreview(CommandSourceStack source,int id,String name,int rotation)throws CommandSyntaxException{
         var player=source.getPlayerOrException();
@@ -513,32 +520,89 @@ public final class Architects {
         if(schematicDirectory==null||!name.matches("[A-Za-z0-9_-]{1,64}"))return fail(source,"Invalid schematic name.");
         var path=schematicDirectory.resolve(name+".schem");
         if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS))return fail(source,"Schematic not found: "+name);
-        if(previewScan!=null&&!previewScan.viewer.equals(player.getUUID()))return fail(source,"Another operator is previewing; try after their preview expires.");
+        if(!player.isSpectator())return fail(source,"Switch to spectator mode before textured preview (/gamemode spectator). Preview blocks are visual only.");
+        if(previewScan!=null)return fail(source,"A preview is active or restoring. Use /architect redesign preview clear and wait for restoration.");
         try{
             var replacement=loadRedesignReplacement(source,j,name,rotation,path);
             var p=new PreviewScan();p.viewer=player.getUUID();p.original=j;p.originalPlan=j.planFile;p.replacement=replacement;p.startTick=ticks;
             previewScan=p;
-            source.sendSuccess(()->Component.literal("Read-only redesign preview #"+id+": "+name+". Scanning loaded blocks only; builders continue. Green=add, red=remove, yellow=replace, blue=boundary. Counts are a rolling estimate."),false);return 1;
+            source.sendSuccess(()->Component.literal("Read-only redesign preview #"+id+": "+name+". Actual schematic textures in a local area around you; builders continue. Spectator only. Counts are a rolling estimate."),false);return 1;
         }catch(Exception ex){LOGGER.warn("Cannot preview redesign {}",id,ex);return fail(source,"Cannot preview redesign: "+ex.getMessage());}
     }
-    private static void samplePreview(List<BlockPos> samples,BlockPos pos,long count){
-        // Deterministic bounded reservoir, spread throughout the scan.
-        if(samples.size()<256)samples.add(pos.immutable());
-        else{
-            long slot=Math.floorMod((long)pos.hashCode()*2654435761L,count);
-            if(slot<256)samples.set((int)slot,pos.immutable());
-        }
+    private static final int TEXTURE_RADIUS=24;
+    private static final int TEXTURE_PACKET_BUDGET=256;
+    private static final int TEXTURE_SCAN_BUDGET=8192;
+    private static final int TEXTURE_MAX_SHOWN=32768;
+    private static void closePreview(PreviewScan p){
+        p.closing=true;
+        if(p.restore==null)p.restore=p.shown.iterator();
     }
-    private static void previewDust(ServerLevel level,net.minecraft.server.level.ServerPlayer player,BlockPos pos,float r,float g,float b){
-        if(player.distanceToSqr(Vec3.atCenterOf(pos))>96*96)return;
-        var dust=new net.minecraft.core.particles.DustParticleOptions(new org.joml.Vector3f(r,g,b),1.15f);
-        level.sendParticles(player,dust,false,pos.getX()+.5,pos.getY()+.5,pos.getZ()+.5,1,0,0,0,0);
+    private static void sendPreviewBlock(net.minecraft.server.level.ServerPlayer player,BlockPos pos,BlockState state){
+        player.connection.send(new net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket(pos,state));
+    }
+    private boolean restorePreview(PreviewScan p,net.minecraft.server.level.ServerPlayer player){
+        var level=player.serverLevel();int sent=0,scanned=0;
+        long deadline=System.nanoTime()+PREVIEW_BUDGET_NS;
+        while(p.restore.hasNext()&&sent<TEXTURE_PACKET_BUDGET&&scanned++<TEXTURE_SCAN_BUDGET&&System.nanoTime()<deadline){
+            var pos=p.restore.next();
+            // A client chunk unload discards its fake block state. Never load chunks for restoration.
+            if(level.hasChunkAt(pos)){
+                sendPreviewBlock(player,pos,level.getBlockState(pos));sent++;
+                var be=level.getBlockEntity(pos);
+                if(be!=null&&be.getUpdatePacket()!=null)player.connection.send(be.getUpdatePacket());
+            }
+            p.restore.remove();
+        }
+        if(p.restore.hasNext())return false;
+        p.restore=null;return true;
+    }
+    private void renderTexturedPreview(PreviewScan p,net.minecraft.server.level.ServerPlayer player){
+        var level=player.serverLevel();var j=p.replacement;
+        int cx=player.blockPosition().getX()>>4,cz=player.blockPosition().getZ()>>4;
+        if(p.centerX!=cx||p.centerZ!=cz){
+            if(p.restore==null&&!p.shown.isEmpty())p.restore=p.shown.iterator();
+            if(p.restore!=null&&!restorePreview(p,player))return;
+            p.centerX=cx;p.centerZ=cz;p.renderCursor=0;
+            int x=cx*16+8,z=cz*16+8;
+            p.minX=Math.max(j.x,x-TEXTURE_RADIUS);p.maxX=Math.min(j.x+j.width-1,x+TEXTURE_RADIUS);
+            p.minZ=Math.max(j.z,z-TEXTURE_RADIUS);p.maxZ=Math.min(j.z+j.depth-1,z+TEXTURE_RADIUS);
+            p.nextRefresh=0;
+        }
+        if(p.minX>p.maxX||p.minZ>p.maxZ)return;
+        int width=p.maxX-p.minX+1,depth=p.maxZ-p.minZ+1,area=width*depth,volume=area*j.height;
+        if(p.renderCursor>=volume){
+            if(ticks<p.nextRefresh)return;
+            p.renderCursor=0;
+        }
+        int sent=0,scanned=0;
+        long deadline=System.nanoTime()+PREVIEW_BUDGET_NS;
+        while(p.renderCursor<volume&&sent<TEXTURE_PACKET_BUDGET&&scanned++<TEXTURE_SCAN_BUDGET&&System.nanoTime()<deadline){
+            int i=p.renderCursor++,cell=i%area;
+            var pos=new BlockPos(p.minX+cell/depth,j.y+i/area,p.minZ+cell%depth);
+            if(!level.hasChunkAt(pos))continue;
+            var current=level.getBlockState(pos);var wanted=p.desired.getOrDefault(pos,Blocks.AIR.defaultBlockState());
+            // Do not hide protected blocks or block entity data.
+            if(!current.equals(wanted)&&!current.isAir()&&!canClear(level,pos,current)){
+                if(p.shown.remove(pos)){sendPreviewBlock(player,pos,current);sent++;}
+                continue;
+            }
+            if(current.equals(wanted)||(current.isAir()&&wanted.isAir())){
+                if(p.shown.remove(pos)){sendPreviewBlock(player,pos,current);sent++;}
+                continue;
+            }
+            if(p.shown.size()>=TEXTURE_MAX_SHOWN&&!p.shown.contains(pos))continue;
+            sendPreviewBlock(player,pos,wanted);p.shown.add(pos);sent++;
+        }
+        if(p.renderCursor>=volume)p.nextRefresh=ticks+40;
     }
     private void tickRedesignPreview(MinecraftServer server){
         var p=previewScan;if(p==null)return;
         var player=server.getPlayerList().getPlayer(p.viewer);
-        if(player==null||!p.original.dimension.equals(player.serverLevel().dimension().location().toString())||terminal(p.original)||!Objects.equals(p.originalPlan,p.original.planFile)||storageFailed){previewScan=null;return;}
-        if(p.completeTick<0&&ticks-p.startTick>12000){player.sendSystemMessage(Component.literal("Redesign preview timed out; retry or inspect a smaller loaded area."));previewScan=null;return;}
+        // Disconnect and dimension transition discard the client's old chunk cache.
+        if(player==null||!p.original.dimension.equals(player.serverLevel().dimension().location().toString())){previewScan=null;return;}
+        if(!player.isSpectator()||terminal(p.original)||!Objects.equals(p.originalPlan,p.original.planFile)||storageFailed)closePreview(p);
+        if(p.closing){if(restorePreview(p,player)){previewScan=null;player.sendSystemMessage(Component.literal("Textured preview cleared; real block states restored."));}return;}
+        if(p.completeTick<0&&ticks-p.startTick>12000){player.sendSystemMessage(Component.literal("Redesign preview timed out."));closePreview(p);return;}
         var level=player.serverLevel();var j=p.replacement;
         int volume=j.width*j.depth*j.height;
         if(p.completeTick<0){
@@ -557,9 +621,9 @@ public final class Architects {
                 var current=level.getBlockState(pos);var wanted=desired.getOrDefault(pos,Blocks.AIR.defaultBlockState());
                 if(current.equals(wanted)||(current.isAir()&&wanted.isAir())){if(wanted.isAir())p.empty++;else p.retained++;continue;}
                 if(!current.isAir()&&!canClear(level,pos,current))p.protectedCount++;
-                if(current.isAir()){p.added++;samplePreview(p.additions,pos,p.added);}
-                else if(wanted.isAir()){p.removed++;samplePreview(p.removals,pos,p.removed);}
-                else{p.replaced++;samplePreview(p.replacements,pos,p.replaced);}
+                if(current.isAir())p.added++;
+                else if(wanted.isAir())p.removed++;
+                else p.replaced++;
             }
             if(p.cursor>=volume){
                 p.completeTick=ticks;
@@ -568,17 +632,10 @@ public final class Architects {
                 player.sendSystemMessage(Component.literal("Redesign preview scanned "+p.cursor+"/"+volume+" positions; unloaded "+p.unknown+"."));
             }
         }
-        if(p.completeTick>=0&&ticks-p.completeTick>=PREVIEW_LIFETIME){previewScan=null;return;}
-        if(ticks%10!=0)return;
-        for(var pos:p.additions)previewDust(level,player,pos,.15f,1f,.2f);
-        for(var pos:p.removals)previewDust(level,player,pos,1f,.15f,.15f);
-        for(var pos:p.replacements)previewDust(level,player,pos,1f,.85f,.1f);
-        // Sample the twelve boundary edges; never send particles to other players.
-        int x0=j.x,x1=j.x+j.width-1,y0=j.y,y1=j.y+j.height-1,z0=j.z,z1=j.z+j.depth-1;
-        for(int x=x0;x<=x1;x+=Math.max(1,j.width/32))for(int y:new int[]{y0,y1})for(int z:new int[]{z0,z1})previewDust(level,player,new BlockPos(x,y,z),.2f,.5f,1f);
-        for(int z=z0;z<=z1;z+=Math.max(1,j.depth/32))for(int y:new int[]{y0,y1})for(int x:new int[]{x0,x1})previewDust(level,player,new BlockPos(x,y,z),.2f,.5f,1f);
-        for(int y=y0;y<=y1;y+=Math.max(1,j.height/16))for(int x:new int[]{x0,x1})for(int z:new int[]{z0,z1})previewDust(level,player,new BlockPos(x,y,z),.2f,.5f,1f);
+        if(p.completeTick>=0&&ticks-p.completeTick>=PREVIEW_LIFETIME){closePreview(p);return;}
+        if(p.indexCursor>=cells(j).size())renderTexturedPreview(p,player);
     }
+
     private static void validatePlan(Job j) {
         var plan=cells(j);
         if(j.imported==null) return;
