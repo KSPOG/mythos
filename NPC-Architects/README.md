@@ -1,4 +1,4 @@
-# NPC Architects 0.1.4 — experimental source prototype
+# NPC Architects 0.1.5 — experimental source prototype
 Forge 1.21.1-52.1.5 / Java 21. No custom client content. Vanilla connection not tested.
 
 ## Build
@@ -18,3 +18,6 @@ New jobs survey the entire rotated rectangular volume, then clear mismatched blo
 
 ## Builder protection and recovery
 Architect workers are invulnerable and persistent; hostile targeting is canceled for tagged builders. Existing loaded job workers are protected on the next management tick. Confirmed worker death triggers replacement at a safe loaded position when a running job resumes. Missing workers may simply be unloaded, so they are not automatically replaced. For a worker known to be gone, stand near the site and use `/architect recover <id>` as an operator; it preserves clearing and building progress. If the old worker was merely unloaded, a manual replacement can leave an orphan villager. No normal villagers are modified. Protection does not protect nearby players or buildings, and administrative removal can still require recovery. Runtime behavior requires testing.
+
+## Elevated construction controller
+Builders no longer use ordinary villager wandering goals. During active clearing/building, controlled movement uses eye-height reach and collision-checked elevated work positions with temporary hovering. If a direct movement route is blocked, the controller may reposition the builder to a verified empty loaded stance near the current target. This is a creative-style fallback, not scaffolding or survival pathfinding. Gravity is restored when paused, blocked, cancelled or finished; builders remain stationary rather than wander. Existing jobs retain their blueprint cursor; use `/architect resume <id>` for blocked jobs. Layer completion and exact blocking reasons are logged. In-game movement still requires verification.
