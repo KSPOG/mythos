@@ -1,0 +1,21 @@
+modLoader="javafml"
+loaderVersion="[52,53)"
+license="All Rights Reserved"
+[[mods]]
+modId="mythosmerchants"
+version="0.1.0"
+displayName="MYTHOS Merchants"
+displayTest="IGNORE_ALL_VERSION"
+description='''Persistent merchant NPCs and native trading.'''
+[[dependencies.mythosmerchants]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.mythosmerchants]]
+modId="forge"
+mandatory=true
+versionRange="[52.1.5,53)"
+ordering="NONE"
+side="BOTH"
