@@ -1,0 +1,12 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+}
+group = 'com.ksp.serverrestart'
+version = '0.1.0'
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+minecraft {
+    mappings channel: 'official', version: '1.21.1'
+}
+repositories { mavenCentral() }
+dependencies { minecraft 'net.minecraftforge:forge:1.21.1-52.1.5' }
