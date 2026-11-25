@@ -266,7 +266,7 @@ public final class Mounts {
         if(speed!=null)speed.setBaseValue(d.speed);
         if(mob instanceof AbstractHorse horse){horse.setTamed(true);}
         // Native horses can be mounted with force but require saddle equipment for steering.
-        if(mob instanceof net.minecraft.world.entity.Saddleable saddle&&d.nativeControl)saddle.equipSaddle(net.minecraft.sounds.SoundSource.NEUTRAL);
+        if(mob instanceof net.minecraft.world.entity.Saddleable saddle&&d.nativeControl)saddle.equipSaddle(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.SADDLE),net.minecraft.sounds.SoundSource.NEUTRAL);
         active.put(p.getUUID(),new Active(p.getUUID(),id,mob));
         if(!level.addFreshEntity(mob)){active.remove(p.getUUID());mob.discard();return fail(s,"Summon failed.");}
         return ok(s,"Summoned "+d.name+(d.nativeControl?". Right-click to ride.":". Right-click to ride; /mount travel toggles look-directed movement."));
