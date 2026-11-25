@@ -1,0 +1,21 @@
+modLoader="javafml"
+loaderVersion="[52,53)"
+license="All Rights Reserved"
+[[mods]]
+modId="playercleanup"
+version="0.1.0"
+displayName="Player Cleanup"
+displayTest="IGNORE_ALL_VERSION"
+description='''Server-side ownership tracking and selective cleanup.'''
+[[dependencies.playercleanup]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.playercleanup]]
+modId="forge"
+mandatory=true
+versionRange="[52.1.5,53)"
+ordering="NONE"
+side="BOTH"
