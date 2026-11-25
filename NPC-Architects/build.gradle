@@ -3,7 +3,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 group = 'com.npcarchitects'
-version = '0.3.4'
+version = '0.3.5'
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 minecraft {
     mappings channel: 'official', version: '1.21.1'

@@ -106,6 +106,9 @@ public final class Architects {
         transient BlockPos workTarget;
         transient Vec3 workStand;
         transient int movementFailures;
+        transient double lastWorkDistance=Double.POSITIVE_INFINITY;
+        transient BlockPos lastStallTarget;
+        transient long recoveryCooldown;
         transient ChunkPos workChunk,workerChunk;
         transient int assignment=-1, teamStalled;
         transient boolean assignmentClearing;
@@ -126,6 +129,7 @@ public final class Architects {
         transient int chunkPhaseLayer=Integer.MIN_VALUE;
         transient Map<Long,ClearChunk> lifecycleChunks;
         transient Map<Long,Long> deferredChunks;
+        transient Map<Long,Integer> chunkRecoveryFailures;
         transient int lifecycleScan;
         transient boolean lifecycleIndexed;
         boolean independentChunks;
@@ -187,7 +191,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.3.4 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.3.5 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
         previewScan=null; jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false; progressDirty=false; lastProgressFlush=0; workJobOffset=0;
@@ -224,6 +228,7 @@ public final class Architects {
                 if(frame.clearCursor==j.width*j.depth*j.height){j.clearing=false;j.clearDone.clear();}
             });
             for(Job j:jobs.values()){
+                if(j.independentChunks)for(Worker w:team(j)){w.returningHome=false;w.recoveryAttempts=0;}
                 validateTeam(j);j.journalCleared=j.cleared.size();j.journalPlaced=j.placed.size();
                 j.pendingClear=new HashSet<>();j.pendingBuild=new HashSet<>();
             }
@@ -287,9 +292,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.4 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.5 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.4 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.5 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -955,7 +960,7 @@ public final class Architects {
         return clearRestriction(level,pos,state)==null;
     }
     private void blocked(Job j,Villager npc,String reason) {
-        j.status="BLOCKED"; j.reason=reason; setWorking(npc,false); resetMovement(j); if(npc.level() instanceof ServerLevel world) stopTeam(world,j);
+        j.status="BLOCKED"; j.reason=reason; resetMovement(j); if(npc!=null){setWorking(npc,false); if(npc.level() instanceof ServerLevel world)stopTeam(world,j);}
         LOGGER.warn("NPC Architects job {} blocked: {}",j.id,reason); save();
     }
     // The construction controller owns movement; ordinary villager brain goals must not compete.
@@ -979,7 +984,10 @@ public final class Architects {
         if(level.isOutsideBuildHeight(low)||level.isOutsideBuildHeight(high)) return false;
         for(int x=low.getX();x<=high.getX();x++) for(int z=low.getZ();z<=high.getZ();z++)
             if(!level.hasChunkAt(new BlockPos(x,low.getY(),z))) return false;
-        return level.noCollision(npc,box) && level.getEntities(npc,box).isEmpty();
+        if(!level.noCollision(npc,box)||!level.getEntities(npc,box).isEmpty())return false;
+        for(int y=low.getY();y<=high.getY();y++)for(int x=low.getX();x<=high.getX();x++)for(int z=low.getZ();z<=high.getZ();z++)
+            if(!level.getFluidState(new BlockPos(x,y,z)).isEmpty())return false;
+        return true;
     }
     private static Vec3 chooseStand(ServerLevel level,Villager npc,BlockPos target) {
         Vec3 best=null; double bestScore=Double.MAX_VALUE;
@@ -996,7 +1004,7 @@ public final class Architects {
     private boolean approach(Worker j,Villager npc,ServerLevel level,BlockPos pos) {
         setWorking(npc,true);
         npc.setDeltaMovement(Vec3.ZERO);
-        if(inReach(npc,pos)&&!npc.getBoundingBox().intersects(new AABB(pos))) {
+        if(inReach(npc,pos)&&safeStand(level,npc,npc.position(),pos)) {
             resetMovement(j);
             npc.getLookControl().setLookAt(pos.getX()+0.5,pos.getY()+0.5,pos.getZ()+0.5);
             return true;
@@ -1139,7 +1147,41 @@ public final class Architects {
     private static BlockPos home(Worker w) {
         return w.homeX==null||w.homeY==null||w.homeZ==null?workerAnchor(w):new BlockPos(w.homeX,w.homeY,w.homeZ);
     }
+    private static boolean stalledAt(Worker w,Villager npc,BlockPos pos){
+        double distance=npc.position().distanceToSqr(Vec3.atCenterOf(pos));
+        if(!pos.equals(w.lastStallTarget)){
+            w.lastStallTarget=pos;w.lastWorkDistance=distance;w.teamStalled=0;w.recoveryAttempts=0;
+        }else if(distance<w.lastWorkDistance-.04){
+            w.teamStalled=0;w.lastWorkDistance=distance;
+        }else w.lastWorkDistance=distance;
+        return ++w.teamStalled>=STUCK_ATTEMPTS;
+    }
     private void startHomeRecovery(ServerLevel level,Job j,Worker w,Villager npc,String reason) {
+        if(j.independentChunks&&j.chunkOwners!=null){
+            Long key=j.chunkOwners.get(w);
+            BlockPos target=w.assignment<0?null:w.assignmentClearing?clearPosition(j,w.assignment):w.assignment<cells(j).size()?buildPosition(j,cells(j).get(w.assignment)):null;
+            if(!Objects.equals(target,w.lastStallTarget)){w.recoveryAttempts=0;w.lastStallTarget=target;}
+            if(w.recoveryAttempts<RECOVERY_LIMIT&&target!=null){
+                var stand=chooseStand(level,npc,target);
+                if(stand!=null){
+                    w.recoveryAttempts++;w.teamStalled=0;
+                    npc.teleportTo(stand.x,stand.y,stand.z);npc.setDeltaMovement(Vec3.ZERO);
+                    resetMovement(w);checkpointWorker(level,w,npc);
+                    LOGGER.warn("NPC Architects job {} worker {} local recovery at target {} attempt {}/{}: {}",j.id,w.worker,target, w.recoveryAttempts,RECOVERY_LIMIT,reason);
+                    return;
+                }
+            }
+            if(key!=null){
+                int failures=j.chunkRecoveryFailures.merge(key,1,Integer::sum);
+                long delay=Math.min(120000L,5000L*(1L<<Math.min(5,failures-1)));
+                j.deferredChunks.put(key,System.currentTimeMillis()+delay);
+                j.chunkOwners.remove(w);
+                j.reason="Deferred chunk "+ChunkWork.x(key)+","+ChunkWork.z(key)+": "+reason;
+                LOGGER.warn("NPC Architects job {} deferred chunk {},{} after worker {} failed target {}; retry in {}ms; other chunks continue",j.id,ChunkWork.x(key),ChunkWork.z(key),w.worker,target,delay);
+            }
+            w.recoveryAttempts=0;w.teamStalled=0;w.assignment=-1;w.returningHome=false;w.lastStallTarget=null;w.recoveryCooldown=System.currentTimeMillis()+1000L;
+            resetMovement(w);w.chunkStage="RECOVERY COOLDOWN";return;
+        }
         if(w.recoveryAttempts>=RECOVERY_LIMIT) {
             blocked(j,npc,reason+"; home recovery limit reached for "+w.worker); return;
         }
@@ -1439,7 +1481,7 @@ public final class Architects {
     private int showZones(CommandSourceStack source,int id){
         Job j=jobs.get(id);if(j==null)return fail(source,"Unknown project.");
         var ws=team(j);var level=jobLevel(source.getServer(),j);
-        source.sendSuccess(()->Component.literal("Project #"+id+" | "+mode(j)+" | preferred spacing "+j.spacing+" | "+ws.size()+" zones"),false);
+        source.sendSuccess(()->Component.literal("Project #"+id+" | "+mode(j)+" | preferred spacing "+j.spacing+" | "+ws.size()+" zones | deferred chunks "+(j.deferredChunks==null?0:j.deferredChunks.values().stream().filter(until->until>System.currentTimeMillis()).count())),false);
         var player=source.getEntity() instanceof net.minecraft.server.level.ServerPlayer p?p:null;
         // Bounded, requester-only markers at current targets (no force loading).
         for(int i=0;i<ws.size();i++){
@@ -1476,7 +1518,7 @@ public final class Architects {
         }
     }
     private static boolean workerAvailable(ServerLevel level,Worker w){
-        return !w.returningHome&&!w.respawnRequested&&level.getEntity(UUID.fromString(w.worker)) instanceof Villager n&&n.isAlive();
+        return !w.returningHome&&!w.respawnRequested&&w.recoveryCooldown<=System.currentTimeMillis()&&level.getEntity(UUID.fromString(w.worker)) instanceof Villager n&&n.isAlive();
     }
     private static void releaseUnavailable(ServerLevel level,Job j){
         j.chunkOwners.entrySet().removeIf(e->!workerAvailable(level,e.getKey()));
@@ -1488,7 +1530,7 @@ public final class Architects {
         var occupied=new HashSet<>(j.chunkOwners.values());
         Long best=null;double bestScore=Double.NEGATIVE_INFINITY;
         for(long key:available){
-            if(occupied.contains(key))continue;
+            if(occupied.contains(key)||j.deferredChunks.getOrDefault(key,0L)>System.currentTimeMillis())continue;
             int x=ChunkWork.x(key)*16+8,z=ChunkWork.z(key)*16+8;
             double separation=Double.POSITIVE_INFINITY;
             for(long other:occupied){
@@ -1498,10 +1540,10 @@ public final class Architects {
             if(occupied.isEmpty())separation=0;
             double dx=x-npc.getX(),dz=z-npc.getZ();
             boolean preferred=zone(j,new BlockPos(x,j.y,z),count)==ordinal;
-            double score=separation*256+(preferred?64:0)-Math.hypot(dx,dz)*.01;
+            double score=Math.min(separation,16)*4+(preferred?16:0)-Math.hypot(dx,dz);
             if(score>bestScore){bestScore=score;best=key;}
         }
-        if(best!=null)j.chunkOwners.put(w,best);
+        if(best!=null){j.chunkOwners.put(w,best);w.teamStalled=0;w.recoveryAttempts=0;w.lastStallTarget=null;w.lastWorkDistance=Double.POSITIVE_INFINITY;resetMovement(w);}
         return best;
     }
     private static void initClearChunks(Job j){
@@ -1523,7 +1565,7 @@ public final class Architects {
                 j.lifecycleChunks.put(c.key,c);
             }
             j.buildChunks=new LinkedHashMap<>();j.lifecycleScan=j.cursor;j.lifecycleIndexed=false;
-            j.chunkOwners=new IdentityHashMap<>();j.deferredChunks=new HashMap<>();
+            j.chunkOwners=new IdentityHashMap<>();j.deferredChunks=new HashMap<>();j.chunkRecoveryFailures=new HashMap<>();
             for(Worker w:team(j)){w.assignment=-1;resetMovement(w);}
         }
         if(j.lifecycleIndexed)return true;
@@ -1569,6 +1611,7 @@ public final class Architects {
             Villager npc=(Villager)level.getEntity(UUID.fromString(w.worker));
             Long key=claimChunk(j,w,npc,available,wi,workers.size());
             if(key==null){w.assignment=-1;w.chunkStage="WAITING";resetMovement(w);continue;}
+            if(j.deferredChunks.getOrDefault(key,0L)>System.currentTimeMillis()){j.chunkOwners.remove(w);available.remove(key);continue;}
             ClearChunk c=j.lifecycleChunks.get(key);
             boolean clearedBlock=false;
             if(!c.done()){
@@ -1595,7 +1638,7 @@ public final class Architects {
                         }
                     }
                     if(!done){
-                        if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot clear "+pos.toShortString());
+                        if(stalledAt(w,npc,pos))startHomeRecovery(level,j,w,npc,"Cannot clear "+pos.toShortString());
                         break;
                     }
                     j.clearDone.add(index);while(j.clearDone.remove(j.clearCursor))j.clearCursor++;markProgress(j,index,true);
@@ -1634,7 +1677,7 @@ public final class Architects {
                                 continue;
                             }
                         }
-                        if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot clear new obstruction "+current+" at "+pos.toShortString());
+                        if(stalledAt(w,npc,pos))startHomeRecovery(level,j,w,npc,"Cannot clear new obstruction "+current+" at "+pos.toShortString());
                         if(storageFailed||!j.status.equals("RUNNING"))return;
                         continue;
                     }
@@ -1659,7 +1702,7 @@ public final class Architects {
                     queue.remove(index);j.teamDone.add(index);while(j.teamDone.remove(j.cursor))j.cursor++;markProgress(j,index,false);
                     w.assignment=-1;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);j.reason="";
                     continue; // Verify on the next work cycle, retaining the reservation.
-                }else if(++w.teamStalled>=STUCK_ATTEMPTS){
+                }else if(stalledAt(w,npc,pos)){
                     startHomeRecovery(level,j,w,npc,"Cannot place "+pos.toShortString());if(!j.status.equals("RUNNING"))return;
                 }
             }
@@ -1683,12 +1726,12 @@ public final class Architects {
                         if(restriction!=null){blocked(j,npc,restriction);return;}
                         w.chunkStage=isDrainableFluid(state)?"DRAINING":"CLEARING OBSTRUCTION";
                         if(!approach(w,npc,level,pos)){
-                            if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot drain "+pos.toShortString());
+                            if(stalledAt(w,npc,pos))startHomeRecovery(level,j,w,npc,"Cannot drain "+pos.toShortString());
                             break;
                         }
                         npc.swing(InteractionHand.MAIN_HAND);
                         if(!(isDrainableFluid(state)?drainFluid(level,pos,state):level.destroyBlock(pos,false,npc))){
-                            if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot clear final obstruction "+pos.toShortString());
+                            if(stalledAt(w,npc,pos))startHomeRecovery(level,j,w,npc,"Cannot clear final obstruction "+pos.toShortString());
                             break;
                         }
                         j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(state)));
@@ -1705,7 +1748,7 @@ public final class Architects {
                     c.verifyOffset++;
                 }
                 if(removedFluid||c.verifyOffset<volume)continue;
-                j.lifecycleChunks.remove(key);j.buildChunks.remove(key);j.chunkOwners.remove(w);available.remove(key);
+                j.lifecycleChunks.remove(key);j.buildChunks.remove(key);j.chunkOwners.remove(w);j.deferredChunks.remove(key);j.chunkRecoveryFailures.remove(key);available.remove(key);
                 w.assignment=-1;w.chunkStage="COMPLETE";resetMovement(w);
             }
         }
@@ -1776,6 +1819,9 @@ public final class Architects {
                 npc=replaceWorker(level,j,j,anchor);
                 if(npc==null) { waiting(j,"Builder died; waiting for a safe loaded respawn position. Use /architect recover "+j.id); return; }
             } else {
+                if(!j.surveying&&j.independentChunks){
+                    independentWork(server,level,j);return;
+                }
                 waiting(j,"Builder unavailable; loading saved worker chunk "+new ChunkPos(workerAnchor(j))+". Use /architect recover "+j.id+" only if the builder is gone.");
                 return;
             }
