@@ -68,8 +68,54 @@ public final class Mounts {
         new Definition("cow","Farm Steed","cow",Source.SHOP,3500,.18,false),
         new Definition("sheep","Woolly Steed","sheep",Source.SHOP,3500,.18,false),
         new Definition("magma_cube","Magma Hopper","magma_cube",Source.DUNGEON,0,.20,false),
-        new Definition("slime","Slime Hopper","slime",Source.EVENT,0,.20,false)
+        new Definition("slime","Slime Hopper","slime",Source.EVENT,0,.20,false),
+        new Definition("void_dragon","Void Dragon","ender_dragon",Source.RAID,0,0.35,false),
+        new Definition("soul_reaper","Soul Reaper","wither",Source.RAID,0,0.32,false),
+        new Definition("skywhale","Nether Skywhale","ghast",Source.SHOP,150000,0.24,false),
+        new Definition("nightmare","Nightmare","phantom",Source.DUNGEON,0,0.28,false),
+        new Definition("infernal_spirit","Infernal Spirit","blaze",Source.DUNGEON,0,0.23,false),
+        new Definition("storm_spirit","Storm Spirit","breeze",Source.DUNGEON,0,0.23,false),
+        new Definition("wraith","Spectral Wraith","vex",Source.QUEST,0,0.25,false),
+        new Definition("bumblebee","Royal Bumblebee","bee",Source.SHOP,45000,0.21,false),
+        new Definition("twilight_bat","Twilight Bat","bat",Source.SHOP,35000,0.22,false),
+        new Definition("celestial_sprite","Celestial Sprite","allay",Source.ACHIEVEMENT,0,0.25,false),
+        new Definition("tropical_roc","Tropical Roc","parrot",Source.SHOP,50000,0.24,false),
+        new Definition("ocean_runner","Ocean Runner","dolphin",Source.SHOP,35000,0.3,false),
+        new Definition("sea_guardian","Ancient Sea Guardian","elder_guardian",Source.WORLD_BOSS,0,0.25,false),
+        new Definition("reef_guardian","Reef Guardian","guardian",Source.DUNGEON,0,0.25,false),
+        new Definition("emerald_turtle","Emerald Turtle","turtle",Source.SHOP,18000,0.18,false),
+        new Definition("kraken","Abyssal Kraken","squid",Source.QUEST,0,0.23,false),
+        new Definition("luminous_kraken","Luminous Kraken","glow_squid",Source.EVENT,0,0.23,false),
+        new Definition("coral_dragon","Coral Dragon","axolotl",Source.QUEST,0,0.23,false),
+        new Definition("colossus","Colossus","giant",Source.WORLD_BOSS,0,0.25,false),
+        new Definition("voidwalker","Voidwalker","enderman",Source.DUNGEON,0,0.26,false),
+        new Definition("arctic_golem","Arctic Golem","snow_golem",Source.EVENT,0,0.19,false),
+        new Definition("swift_fox","Swift Fox","fox",Source.SHOP,20000,0.26,false),
+        new Definition("giant_hare","Giant Hare","rabbit",Source.SHOP,12000,0.24,false),
+        new Definition("jungle_stalker","Jungle Stalker","ocelot",Source.SHOP,22000,0.26,false),
+        new Definition("armored_roller","Armored Roller","armadillo",Source.SHOP,15000,0.2,false),
+        new Definition("marsh_hopper","Marsh Hopper","frog",Source.QUEST,0,0.22,false),
+        new Definition("burrower","Giant Burrower","silverfish",Source.DUNGEON,0,0.23,false),
+        new Definition("royal_fowl","Royal Fowl","chicken",Source.SHOP,10000,0.21,false)
     );
+    private enum Movement { NATIVE, GROUND, FLIGHT, WATER, LOCKED }
+    // Bosses and special vanilla tick behavior require dedicated isolation, not setNoAi alone.
+    private static Movement movement(Definition d){
+        if(d.nativeControl)return Movement.NATIVE;
+        return switch(d.entity){
+            case "ender_dragon","wither","warden","enderman","snow_golem","vex","bat","giant"->Movement.LOCKED;
+            case "ghast","phantom","blaze","breeze","bee","allay","parrot"->Movement.FLIGHT;
+            case "dolphin","guardian","elder_guardian","squid","glow_squid","axolotl","turtle"->Movement.WATER;
+            default->Movement.GROUND;
+        };
+    }
+    private static double scale(Definition d){
+        return switch(d.entity){
+            case "bee","allay","parrot","rabbit","chicken","silverfish","axolotl","frog"->2.5;
+            case "fox","ocelot","armadillo","wolf","cave_spider"->1.8;
+            default->1.0;
+        };
+    }
     private static Definition definition(String id){return CATALOG.stream().filter(d->d.id.equals(id)).findFirst().orElse(null);}
     private static class Account {
         long gold;
@@ -156,22 +202,36 @@ public final class Mounts {
             if(failed||p==null||!p.isAlive()||!a.entity.isAlive()||a.entity.level()!=p.level()||!owns(id,a.id)){dismiss(id);continue;}
             for(var passenger:List.copyOf(a.entity.getPassengers()))if(passenger!=p)passenger.stopRiding();
             var d=definition(a.id);
-            if(!d.nativeControl&&p.getVehicle()==a.entity){
-                // Vanilla non-steerable mobs use an explicit look-to-travel toggle, not fabricated WASD input.
+            var mode=movement(d);
+            if(mode!=Movement.NATIVE&&p.getVehicle()==a.entity){
                 a.entity.setYRot(p.getYRot());
-                if(a.entity.getTags().contains("mythos_mount_travel")){
-                    double yaw=Math.toRadians(p.getYRot());
+                boolean travel=a.entity.getTags().contains("mythos_mount_travel");
+                Vec3 look=p.getLookAngle();
+                Vec3 delta=mode==Movement.GROUND?new Vec3(look.x,0,look.z).normalize().scale(d.speed):look.normalize().scale(d.speed);
+                if(!travel)delta=Vec3.ZERO;
+                if(mode==Movement.GROUND){
                     var v=a.entity.getDeltaMovement();
-                    a.entity.setDeltaMovement(-Math.sin(yaw)*d.speed,v.y,Math.cos(yaw)*d.speed);
-                }else{var v=a.entity.getDeltaMovement();a.entity.setDeltaMovement(0,v.y,0);}
-            }else a.entity.removeTag("mythos_mount_travel");
+                    a.entity.setDeltaMovement(delta.x,v.y,delta.z);
+                }else{
+                    var level=p.serverLevel();
+                    var sweep=a.entity.getBoundingBox().expandTowards(delta);
+                    boolean safe=level.getWorldBorder().isWithinBounds(sweep)&&!level.isOutsideBuildHeight(BlockPos.containing(sweep.minX,sweep.minY,sweep.minZ))&&!level.isOutsideBuildHeight(BlockPos.containing(sweep.maxX,sweep.maxY,sweep.maxZ));
+                    for(int x=((int)Math.floor(sweep.minX))>>4;x<=((int)Math.floor(sweep.maxX))>>4;x++)for(int z=((int)Math.floor(sweep.minZ))>>4;z<=((int)Math.floor(sweep.maxZ))>>4;z++)if(!level.hasChunkAt(new BlockPos(x<<4,a.entity.blockPosition().getY(),z<<4)))safe=false;
+                    if(safe&&mode==Movement.WATER&&!level.getFluidState(BlockPos.containing(a.entity.position().add(delta))).is(net.minecraft.tags.FluidTags.WATER))safe=false;
+                    a.entity.setDeltaMovement(Vec3.ZERO);
+                    if(safe&&level.noCollision(a.entity,sweep))a.entity.move(MoverType.SELF,delta);
+                }
+            }else{
+                a.entity.removeTag("mythos_mount_travel");
+                if(mode==Movement.FLIGHT||mode==Movement.WATER)a.entity.setDeltaMovement(Vec3.ZERO);
+            }
         }
     }
     private int fail(CommandSourceStack s,String message){s.sendFailure(Component.literal(message));return 0;}
     private int ok(CommandSourceStack s,String message){s.sendSuccess(()->Component.literal(message),false);return 1;}
     private int buy(CommandSourceStack s,String id)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();var d=definition(id);
-        if(failed||d==null||d.source!=Source.SHOP)return fail(s,"Not available for purchase.");
+        if(failed||d==null||d.source!=Source.SHOP||movement(d)==Movement.LOCKED)return fail(s,"Not available for purchase.");
         var a=account(p.getUUID());if(a.owned.containsKey(id))return fail(s,"Already owned.");
         if(a.gold<d.price)return fail(s,"Insufficient mount gold: "+d.price);
         a.gold-=d.price;a.owned.put(id,UUID.randomUUID().toString());
@@ -180,7 +240,7 @@ public final class Mounts {
     }
     private int reward(CommandSourceStack s,ServerPlayer p,String id,String source){
         var d=definition(id);
-        if(failed||d==null||d.source==Source.SHOP||!d.source.name().equalsIgnoreCase(source))return fail(s,"Acquisition source does not match mount definition.");
+        if(failed||d==null||movement(d)==Movement.LOCKED||d.source==Source.SHOP||!d.source.name().equalsIgnoreCase(source))return fail(s,"Acquisition source does not match mount definition.");
         var a=account(p.getUUID());if(a.owned.containsKey(id))return fail(s,"Already owned.");
         a.owned.put(id,UUID.randomUUID().toString());
         if(!save()){a.owned.remove(id);return fail(s,"Reward failed.");}return ok(s,"Granted "+d.name+" to "+p.getScoreboardName());
@@ -193,26 +253,33 @@ public final class Mounts {
     }
     private int summon(CommandSourceStack s,String id)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();var d=definition(id);
-        if(d==null||!owns(p.getUUID(),id)||p.isSpectator()||!p.isAlive())return fail(s,"Mount unavailable or not owned.");
+        if(d==null||movement(d)==Movement.LOCKED||!owns(p.getUUID(),id)||p.isSpectator()||!p.isAlive())return fail(s,"Mount unavailable or not owned.");
         ServerLevel level=p.serverLevel();
         var type=BuiltInRegistries.ENTITY_TYPE.get(ResourceLocation.withDefaultNamespace(d.entity));
         var entity=type.create(level);
         if(!(entity instanceof Mob mob))return fail(s,"Unsupported mount entity.");
+        var size=mob.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.SCALE);
+        if(size!=null)size.setBaseValue(scale(d));
+        mob.refreshDimensions();
+        var mode=movement(d);
         boolean found=false;
         for(int radius=2;radius<=5&&!found;radius++)for(int x=-radius;x<=radius&&!found;x++)for(int z=-radius;z<=radius&&!found;z++){
             if(Math.max(Math.abs(x),Math.abs(z))!=radius)continue;
             var pos=p.blockPosition().offset(x,0,z);
-            if(!level.hasChunkAt(pos)||!level.hasChunkAt(pos.below())||!level.getBlockState(pos.below()).isFaceSturdy(level,pos.below(),net.minecraft.core.Direction.UP))continue;
+            if(!level.hasChunkAt(pos)||!level.hasChunkAt(pos.below()))continue;
+            if(mode==Movement.WATER){
+                if(!level.getFluidState(pos).is(net.minecraft.tags.FluidTags.WATER))continue;
+            }else if(!level.getBlockState(pos.below()).isFaceSturdy(level,pos.below(),net.minecraft.core.Direction.UP))continue;
             mob.moveTo(pos.getX()+.5,pos.getY(),pos.getZ()+.5,p.getYRot(),0);
             var box=mob.getBoundingBox();
             if(!level.getWorldBorder().isWithinBounds(box)||level.isOutsideBuildHeight(BlockPos.containing(box.maxX,box.maxY,box.maxZ))||!level.noCollision(mob,box)||!level.getEntities(mob,box).isEmpty())continue;
-            if(!level.getFluidState(pos).isEmpty())continue;
+            if(mode!=Movement.WATER&&!level.getFluidState(pos).isEmpty())continue;
             found=true;
         }
         if(!found)return fail(s,"No safe nearby mount spawn.");
         dismiss(p.getUUID());
         mob.addTag(TAG);mob.setCustomName(Component.literal(d.name));mob.setCustomNameVisible(true);
-        mob.setPersistenceRequired();mob.setNoAi(true);mob.setInvulnerable(true);mob.setSilent(true);
+        mob.setPersistenceRequired();mob.setNoAi(true);mob.setInvulnerable(true);mob.setSilent(true);mob.setNoGravity(mode==Movement.FLIGHT||mode==Movement.WATER);
         var speed=mob.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED);
         if(speed!=null)speed.setBaseValue(d.speed);
         if(mob instanceof AbstractHorse horse){horse.setTamed(true);}
@@ -232,7 +299,7 @@ public final class Mounts {
     private int list(CommandSourceStack s,boolean shop)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();if(failed)return fail(s,"Storage locked.");var a=account(p.getUUID());
         s.sendSuccess(()->Component.literal("MYTHOS Mounts | mount gold "+a.gold),false);
-        for(var d:CATALOG)if(shop?d.source==Source.SHOP:a.owned.containsKey(d.id))
+        for(var d:CATALOG)if(shop?d.source==Source.SHOP&&movement(d)!=Movement.LOCKED:a.owned.containsKey(d.id))
             s.sendSuccess(()->Component.literal(d.id+" — "+d.name+(shop?" | "+d.price+" gold":" | "+d.source)),false);
         return 1;
     }
@@ -244,7 +311,7 @@ public final class Mounts {
         root.then(Commands.literal("summon").then(Commands.argument("id",StringArgumentType.word()).executes(c->summon(c.getSource(),StringArgumentType.getString(c,"id")))));
         root.then(Commands.literal("dismiss").executes(c->{dismiss(c.getSource().getPlayerOrException().getUUID());return ok(c.getSource(),"Mount dismissed.");}));
         root.then(Commands.literal("travel").executes(c->travel(c.getSource())));
-        root.then(Commands.literal("catalog").executes(c->{for(var d:CATALOG)c.getSource().sendSuccess(()->Component.literal(d.id+" | "+d.name+" | "+d.source+" | "+(d.nativeControl?"native":"look travel")),false);return 1;}));
+        root.then(Commands.literal("catalog").executes(c->{for(var d:CATALOG)c.getSource().sendSuccess(()->Component.literal(d.id+" | "+d.name+" | "+d.source+" | "+movement(d).name()),false);return 1;}));
         root.then(Commands.literal("credit").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("amount",com.mojang.brigadier.arguments.IntegerArgumentType.integer(1)).executes(c->credit(c.getSource(),EntityArgument.getPlayer(c,"player"),com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(c,"amount"))))));
         root.then(Commands.literal("reward").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("source",StringArgumentType.word()).executes(c->reward(c.getSource(),EntityArgument.getPlayer(c,"player"),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"source")))))));
         e.getDispatcher().register(root);
