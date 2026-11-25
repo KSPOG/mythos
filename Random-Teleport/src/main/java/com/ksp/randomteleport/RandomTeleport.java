@@ -2,6 +2,10 @@ package com.ksp.randomteleport;
 
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
@@ -36,12 +40,15 @@ public final class RandomTeleport {
     private static final class Search {
         final UUID player; final ServerLevel level; final int startX,startZ,size,relief,radius;
         final Set<String> biomes;
+        final String targetBiome;
         int attempts,x,z,min,max,probe,chunkIndex,column;
         boolean candidate,full;
         ChunkPos ticket;
         int clock,requestedAt,nextRequest;
         final Set<Long> visited=new HashSet<>();
-        Search(ServerPlayer p,int size,int relief,Config c){
+        Search(ServerPlayer p,int size,int relief,Config c){this(p,size,relief,c,null);}
+        Search(ServerPlayer p,int size,int relief,Config c,String targetBiome){
+            this.targetBiome=targetBiome;
             player=p.getUUID();level=p.serverLevel();startX=p.blockPosition().getX();startZ=p.blockPosition().getZ();
             this.size=size;this.relief=relief;radius=c.searchRadius();biomes=c.biomes();
         }
@@ -68,9 +75,17 @@ public final class RandomTeleport {
                     .executes(c->start(c.getSource(),IntegerArgumentType.getInteger(c,"size"),-1))
                     .then(Commands.argument("relief",IntegerArgumentType.integer(0,64))
                         .executes(c->start(c.getSource(),IntegerArgumentType.getInteger(c,"size"),IntegerArgumentType.getInteger(c,"relief"))))))
+            .then(Commands.literal("biome")
+                .then(Commands.literal("list").executes(c->{
+                    var ids=c.getSource().getServer().registryAccess().registryOrThrow(Registries.BIOME).keySet().stream().map(ResourceLocation::toString).sorted().toList();
+                    c.getSource().sendSuccess(()->Component.literal("Biomes: "+String.join(", ",ids)),false);return 1;
+                }))
+                .then(Commands.argument("biome",StringArgumentType.string())
+                    .suggests((c,b)->SharedSuggestionProvider.suggest(c.getSource().getServer().registryAccess().registryOrThrow(Registries.BIOME).keySet().stream().flatMap(id->id.getNamespace().equals("minecraft")?java.util.stream.Stream.of(id.getPath(),id.toString()):java.util.stream.Stream.of(id.toString())),b))
+                    .executes(c->startBiome(c.getSource(),StringArgumentType.getString(c,"biome")))))
             .then(Commands.literal("status").executes(c->{
                 var p=c.getSource().getPlayerOrException();var s=searches.get(p.getUUID());
-                say(p,s==null?"No active terrain search.": "Candidate "+s.attempts+"/"+MAX_ATTEMPTS+" | "+(s.full?"Full survey "+s.chunkIndex+"/"+(s.chunks()*s.chunks())+" chunks":"Coarse survey")+" | footprint "+s.size+" x "+s.size+(s.ticket==null?"":" | chunk "+s.ticket.x+", "+s.ticket.z));
+                say(p,s==null?"No active terrain search.": "Candidate "+s.attempts+"/"+MAX_ATTEMPTS+" | "+(s.targetBiome!=null?"Biome survey: "+s.targetBiome:s.full?"Full survey "+s.chunkIndex+"/"+(s.chunks()*s.chunks())+" chunks":"Coarse survey | footprint "+s.size+" x "+s.size)+(s.ticket==null?"":" | chunk "+s.ticket.x+", "+s.ticket.z));
                 return 1;
             }))
             .then(Commands.literal("cancel").executes(c->{var p=c.getSource().getPlayerOrException();cancel(p.getUUID());say(p,"Terrain search cancelled.");return 1;})));
@@ -85,6 +100,24 @@ public final class RandomTeleport {
         var search=new Search(p,size,relief,c);
         searches.put(p.getUUID(),search);
         say(p,"Searching "+size+" x "+size+" sites within "+search.radius+" blocks using throttled nonblocking chunk requests. Use /rtp status or /rtp cancel.");
+        return 1;
+    }
+    private int startBiome(CommandSourceStack source,String raw)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        ServerPlayer p=source.getPlayerOrException();
+        if(!p.level().dimension().equals(Level.OVERWORLD)){source.sendFailure(Component.literal("Biome search is limited to the Overworld."));return 0;}
+        var id=ResourceLocation.tryParse(raw.toLowerCase(Locale.ROOT).trim().replace(' ','_'));
+        if(id==null||!source.getServer().registryAccess().registryOrThrow(Registries.BIOME).containsKey(id)){
+            source.sendFailure(Component.literal("Unknown biome: "+raw+". Use /rtp biome list."));return 0;
+        }
+        // Reject vanilla biomes that cannot be found at an Overworld surface.
+        if(id.getNamespace().equals("minecraft")&&Set.of("nether_wastes","soul_sand_valley","crimson_forest","warped_forest","basalt_deltas","the_end","end_highlands","end_midlands","small_end_islands","end_barrens","the_void","deep_dark","lush_caves","dripstone_caves").contains(id.getPath())){
+            source.sendFailure(Component.literal("This biome is not an Overworld surface biome."));return 0;
+        }
+        cancel(p.getUUID());
+        if(!searches.isEmpty()){source.sendFailure(Component.literal("Another terrain search is active."));return 0;}
+        var search=new Search(p,16,0,config(),id.toString());
+        searches.put(p.getUUID(),search);
+        say(p,"Searching for "+id+" within "+search.radius+" blocks. No flatness or footprint requirement. Use /rtp status or /rtp cancel.");
         return 1;
     }
     private static void say(ServerPlayer p,String message){p.sendSystemMessage(Component.literal("[Random Teleport] "+message));}
@@ -155,9 +188,10 @@ public final class RandomTeleport {
         s.clock++;
         if(!s.candidate){
             if(s.clock<s.nextRequest)return;
-            if(!nextCandidate(s)){say(p,"No qualifying site found after "+MAX_ATTEMPTS+" candidates. Try greater relief, a smaller footprint, or a different starting location.");cancel(s.player);return;}
+            if(!nextCandidate(s)){say(p,s.targetBiome!=null?"No safe surface in "+s.targetBiome+" found after "+MAX_ATTEMPTS+" candidates. Try another starting location.":"No qualifying site found after "+MAX_ATTEMPTS+" candidates. Try greater relief, a smaller footprint, or a different starting location.");cancel(s.player);return;}
             if(!s.candidate)return;
         }
+        if(s.targetBiome!=null){surveyBiome(s,p);return;}
         int budget=COLUMN_BUDGET;
         long deadline=System.nanoTime()+1_000_000L;
         while(budget-->0&&System.nanoTime()<deadline){
@@ -178,6 +212,32 @@ public final class RandomTeleport {
             if(!s.full){if(++s.probe==25){s.full=true;s.min=Integer.MAX_VALUE;s.max=Integer.MIN_VALUE;}}
             else advance(s);
         }
+    }
+    private void surveyBiome(Search s,ServerPlayer p){
+        var chunk=loaded(s,s.x,s.z);
+        if(chunk==null)return;
+        // Inspect 16 evenly spaced points in a single chunk, rather than a city-sized footprint.
+        // Retain the same nonblocking chunk ticket lifecycle as the flat search.
+        for(int i=0;i<16;i++){
+            int x=s.x+2+(i%4)*4,z=s.z+2+(i/4)*4;
+            int y=chunk.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,x&15,z&15);
+            BlockPos floor=new BlockPos(x,y,z);
+            if(y<s.level.getMinBuildHeight()||y>s.level.getMaxBuildHeight()-3)continue;
+            if(!s.level.getWorldBorder().isWithinBounds(floor))continue;
+            var block=chunk.getBlockState(floor);
+            // No fluid landing, fire, powder snow, cactus, magma or unstable/non-full support.
+            if(!block.getFluidState().isEmpty()||!block.isCollisionShapeFullBlock(chunk,floor)
+                ||block.is(Blocks.MAGMA_BLOCK)||block.is(Blocks.CACTUS)||block.is(Blocks.POWDER_SNOW)
+                ||block.is(Blocks.CAMPFIRE)||block.is(Blocks.SOUL_CAMPFIRE)||block.is(net.minecraft.tags.BlockTags.LEAVES))continue;
+            var feet=chunk.getBlockState(floor.above());var head=chunk.getBlockState(floor.above(2));
+            if(!(feet.isAir()||vegetation(feet))||!(head.isAir()||vegetation(head)))continue;
+            var biome=chunk.getNoiseBiome(x>>2,(y+1)>>2,z>>2).unwrapKey();
+            if(biome.isEmpty()||!biome.get().location().toString().equals(s.targetBiome))continue;
+            p.teleportTo(s.level,x+.5,y+1,z+.5,p.getYRot(),p.getXRot());
+            say(p,"Biome found: "+s.targetBiome+" at "+x+", "+(y+1)+", "+z+".");
+            cancel(s.player);return;
+        }
+        s.candidate=false;release(s);
     }
     private static void advance(Search s){if(++s.column==256){s.column=0;s.chunkIndex++;}}
     private void finish(Search s,ServerPlayer p){
