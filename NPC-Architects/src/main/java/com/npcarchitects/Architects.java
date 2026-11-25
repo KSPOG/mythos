@@ -187,7 +187,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.3.3 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.3.4 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
         previewScan=null; jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false; progressDirty=false; lastProgressFlush=0; workJobOffset=0;
@@ -287,9 +287,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.3 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.4 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.3 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.4 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -1276,8 +1276,16 @@ public final class Architects {
         boolean pending=team(j).stream().anyMatch(w->w.respawnRequested);
         if(!pending) return false;
         for(Worker w:team(j)) if(level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc) setWorking(npc,false);
-        for(Worker w:team(j)) {
-            if(!w.respawnRequested) continue;
+        int attempted=0;
+        long deadline=System.nanoTime()+WORK_BUDGET_NS;
+        var members=team(j);
+        int first=Math.floorMod(j.workerOffset,members.size());
+        for(int turn=0;turn<members.size();turn++){
+            int slot=(first+turn)%members.size();
+            Worker w=members.get(slot);
+            if(!w.respawnRequested)continue;
+            if(attempted>0&&(attempted>=1||System.nanoTime()>=deadline))break;
+            attempted++;j.workerOffset=(slot+1)%members.size();
             // Preserve the old NPC until a safe replacement and its new UUID are saved.
             pending=true;
             w.assignment=-1; resetMovement(w); w.teamStalled=0; w.returningHome=false;
@@ -1610,7 +1618,26 @@ public final class Architects {
                 var wanted=material(j,cell.material());var current=level.getBlockState(pos);
                 boolean done=current.equals(wanted);
                 if(!done){
-                    if(!current.isAir()&&!isDrainableFluid(current)){blocked(j,npc,"New obstruction at "+pos.toShortString()+": "+current);return;}
+                    if(!current.isAir()&&!isDrainableFluid(current)){
+                        // Terrain can change after the clearing pass (grass spread,
+                        // falling blocks, player edits, neighbor updates).
+                        String restriction=clearRestriction(level,pos,current);
+                        if(restriction!=null){blocked(j,npc,restriction);return;}
+                        w.chunkStage="CLEARING OBSTRUCTION";
+                        if(approach(w,npc,level,pos)){
+                            npc.swing(InteractionHand.MAIN_HAND);
+                            if(level.destroyBlock(pos,false,npc)){
+                                j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(current)));
+                                progressDirty=true;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);
+                                // Keep the placement queued and reserve the same chunk.
+                                // Never clear and place two blocks in a single work cycle.
+                                continue;
+                            }
+                        }
+                        if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot clear new obstruction "+current+" at "+pos.toShortString());
+                        if(storageFailed||!j.status.equals("RUNNING"))return;
+                        continue;
+                    }
                     // Attachment-dependent states at a chunk boundary may need a neighbor.
                     // Defer the entire chunk instead of placing unsupported blocks or deadlocking the team.
                     // Only query survival when adjacent chunks are loaded.
@@ -1651,13 +1678,19 @@ public final class Architects {
                     String problem=siteProblem(level,pos);
                     if(problem!=null){blocked(j,npc,problem+" at "+pos.toShortString());return;}
                     var state=level.getBlockState(pos);
-                    if(!desired.containsKey(pos)&&isDrainableFluid(state)){
+                    if(!desired.containsKey(pos)&&!state.isAir()){
+                        String restriction=clearRestriction(level,pos,state);
+                        if(restriction!=null){blocked(j,npc,restriction);return;}
+                        w.chunkStage=isDrainableFluid(state)?"DRAINING":"CLEARING OBSTRUCTION";
                         if(!approach(w,npc,level,pos)){
                             if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot drain "+pos.toShortString());
                             break;
                         }
                         npc.swing(InteractionHand.MAIN_HAND);
-                        if(!drainFluid(level,pos,state))break;
+                        if(!(isDrainableFluid(state)?drainFluid(level,pos,state):level.destroyBlock(pos,false,npc))){
+                            if(++w.teamStalled>=STUCK_ATTEMPTS)startHomeRecovery(level,j,w,npc,"Cannot clear final obstruction "+pos.toShortString());
+                            break;
+                        }
                         j.cleared.add(new Cleared(pos.getX(),pos.getY(),pos.getZ(),net.minecraft.world.level.block.Block.getId(state)));
                         w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);removedFluid=true;
                         c.drainPasses++;
@@ -1665,7 +1698,7 @@ public final class Architects {
                         // Restart the bounded scan after a liquid mutation to catch refilling cells.
                         c.verifyOffset=0;
                         if(c.drainPasses>Math.max(64L,volume*4L)){
-                            blocked(j,npc,"Fluid keeps refilling chunk "+ChunkWork.x(key)+","+ChunkWork.z(key)+"; seal external source near "+pos.toShortString());return;
+                            blocked(j,npc,"Obstructions keep returning in chunk "+ChunkWork.x(key)+","+ChunkWork.z(key)+"; seal external source near "+pos.toShortString());return;
                         }
                         break;
                     }
