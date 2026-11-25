@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="arcanebow"
-version="0.1.0"
+version="0.1.1"
 displayName="Arcane Bow"
 displayTest="IGNORE_ALL_VERSION"
 description='''Procedural Arcane Bow prototype for vanilla clients.'''
