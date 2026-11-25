@@ -1,0 +1,2 @@
+# Random Teleport v0.1.0
+Minecraft 1.21.1, Forge 52.1.5, Java 21. Server-side only. `/rtp` (operator level 2) invokes vanilla spreadplayers for the executing player in the Overworld, centered on their current position. Config `config/randomteleport.properties` generated on first use, `radius=5000` (1–10000), read each command. Vanilla surface safety only; no additional biome, world-border, hazard or region checks. May synchronously generate chunks. Console and non-Overworld use rejected. Build and runtime verification pending.
