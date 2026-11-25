@@ -313,7 +313,16 @@ public final class Architects {
         }
         Job j=new Job(); j.width=imported.width(); j.depth=imported.depth(); j.height=imported.height();
         j.rotation=0; j.schematic=name; j.imported=imported.cells();
-        var origin=sel.first!=null?sel.first:source.getPlayerOrException().blockPosition().offset(3,0,3);
+        // Pos1 records the player's feet; align the lowest occupied schematic layer
+        // with the supporting ground block instead of retaining empty bottom padding.
+        var anchor=sel.first!=null?sel.first:source.getPlayerOrException().blockPosition().offset(3,0,3);
+        int lowestY=imported.cells().get(0).y();
+        if(lowestY>0){
+            j.height-=lowestY;
+            j.imported=imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowestY,c.z(),c.material())).toList();
+        }
+        var origin=anchor.below();
+        source.sendSuccess(()->Component.literal("Schematic ground origin: "+origin.toShortString()+" | empty bottom layers removed: "+lowestY),false);
         return createJob(source,origin,j,action.equals("preview"));
     }
     private static void validatePlan(Job j) {
