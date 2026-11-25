@@ -14,6 +14,17 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.Clearable;
+import net.minecraft.world.Container;
+import net.minecraft.world.Containers;
+import net.minecraftforge.fml.loading.FMLPaths;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.item.Items;
+import net.minecraftforge.event.entity.player.FillBucketEvent;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
@@ -39,8 +50,11 @@ public final class PlayerCleanup {
     private final Map<String,Entry> entries=new LinkedHashMap<>();
     private final Map<String,String> names=new HashMap<>();
     private final List<Pending> pending=new ArrayList<>();
+    private final List<BucketChange> buckets=new ArrayList<>();
+    record BucketChange(String owner,String dimension,BlockPos pos,String before,boolean pickup,boolean lava){}
     private Path file;
     private boolean failed,dirty;
+    private boolean removeContainerItems;
     private Task task;
     private int ticks;
     record Entry(String owner,String dimension,int x,int y,int z,String before,String after,String entity) {
@@ -51,8 +65,9 @@ public final class PlayerCleanup {
     static final class Store { Map<String,String> names=new HashMap<>(); List<Entry> entries=new ArrayList<>(); }
     static final class Task {
         final String owner; final ArrayDeque<Entry> queue; final int total;
+        final boolean deleteContents;
         int removed,skipped,wait; ServerLevel level; ChunkPos chunk;
-        Task(String owner,List<Entry> list){this.owner=owner;queue=new ArrayDeque<>(list);total=list.size();}
+        Task(String owner,List<Entry> list,boolean deleteContents){this.owner=owner;queue=new ArrayDeque<>(list);total=list.size();this.deleteContents=deleteContents;}
     }
     public PlayerCleanup(){
         var bus=MinecraftForge.EVENT_BUS;
@@ -61,9 +76,29 @@ public final class PlayerCleanup {
         bus.addListener(EventPriority.LOWEST,this::place);
         bus.addListener(EventPriority.LOWEST,this::broken);
         bus.addListener(EventPriority.LOWEST,this::entityJoin);
+        bus.addListener(EventPriority.LOWEST,this::bucket);
+    }
+    private void loadConfig(){
+        // Fail safe: an absent or invalid option never authorizes inventory deletion.
+        removeContainerItems=false;
+        Path config=FMLPaths.CONFIGDIR.get().resolve("playercleanup.properties");
+        try {
+            Files.createDirectories(config.getParent());
+            if(!Files.exists(config)) Files.writeString(config,
+                "# true: delete container contents; false: preserve contents as drops or retain unsupported containers.\nremoveContainerItems=false\n",
+                StandardOpenOption.CREATE_NEW);
+            var props=new Properties();
+            try(var reader=Files.newBufferedReader(config)){props.load(reader);}
+            String value=props.getProperty("removeContainerItems","false").trim();
+            if(!value.equalsIgnoreCase("true")&&!value.equalsIgnoreCase("false"))
+                throw new IllegalArgumentException("removeContainerItems must be true or false");
+            removeContainerItems=Boolean.parseBoolean(value);
+        }catch(Exception ex){LOG.warn("Player Cleanup config invalid; preserving container items",ex);}
+        LOG.info("Player Cleanup removeContainerItems={}",removeContainerItems);
     }
     private void start(ServerStartedEvent e){
-        entries.clear();names.clear();pending.clear();task=null;failed=false;dirty=false;ticks=0;
+        entries.clear();names.clear();pending.clear();buckets.clear();task=null;failed=false;dirty=false;ticks=0;
+        loadConfig();
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("playercleanup.json");
         try {
             if(Files.exists(file)){
@@ -105,6 +140,34 @@ public final class PlayerCleanup {
         var pos=e.getPos();
         pending.add(new Pending(new Entry(p.getUUID().toString(),dimension(l),pos.getX(),pos.getY(),pos.getZ(),state(e.getState()),null,null),true));
     }
+    private void bucket(FillBucketEvent e){
+        if(failed||e.isCanceled()||!(e.getEntity() instanceof ServerPlayer p)||!(e.getTarget() instanceof BlockHitResult hit))return;
+        if(!(p.level() instanceof ServerLevel l))return;
+        var item=e.getEmptyBucket();
+        boolean pickup=item.is(Items.BUCKET), lava=item.is(Items.LAVA_BUCKET);
+        if(!pickup&&!lava&&!item.is(Items.WATER_BUCKET)&&!item.is(Items.COD_BUCKET)&&!item.is(Items.SALMON_BUCKET)&&!item.is(Items.PUFFERFISH_BUCKET)&&!item.is(Items.TROPICAL_FISH_BUCKET)&&!item.is(Items.AXOLOTL_BUCKET)&&!item.is(Items.TADPOLE_BUCKET))return;
+        remember(p);
+        var clicked=hit.getBlockPos();
+        for(var pos:pickup?List.of(clicked):List.of(clicked,clicked.relative(hit.getDirection()))){
+            if(l.hasChunkAt(pos))buckets.add(new BucketChange(p.getUUID().toString(),dimension(l),pos,state(l.getBlockState(pos)),pickup,lava));
+        }
+    }
+    private void flushBuckets(MinecraftServer server){
+        for(var b:buckets){
+            var l=level(server,b.dimension());if(l==null||!l.hasChunkAt(b.pos()))continue;
+            var current=l.getBlockState(b.pos());
+            String after=state(current);
+            if(after.equals(b.before()))continue;
+            var row=new Entry(b.owner(),b.dimension(),b.pos().getX(),b.pos().getY(),b.pos().getZ(),b.before(),after,null);
+            if(b.pickup()){entries.remove(row.key());dirty=true;continue;}
+            // Record confirmed source fluid or waterlogging only, never spread by proximity.
+            var fluid=current.getFluidState();
+            if(fluid.isSource()&&fluid.is(b.lava()?net.minecraft.tags.FluidTags.LAVA:net.minecraft.tags.FluidTags.WATER)){
+                entries.put(row.key(),row);dirty=true;
+            }
+        }
+        buckets.clear();
+    }
     // Only explicitly owner-tagged entities are attributed; never guess from proximity.
     private void entityJoin(EntityJoinLevelEvent e){
         if(failed||e.isCanceled()||!(e.getLevel() instanceof ServerLevel l))return;
@@ -125,19 +188,60 @@ public final class PlayerCleanup {
     }
     private static ServerLevel level(MinecraftServer server,String name){for(var l:server.getAllLevels())if(dimension(l).equals(name))return l;return null;}
     private void flush(MinecraftServer server){
-        if(failed){pending.clear();return;}
+        if(failed){pending.clear();buckets.clear();return;}
+        flushBuckets(server);
         for(Pending p:pending){
             Entry row=p.entry();var l=level(server,row.dimension());
             if(l==null||!l.hasChunkAt(row.pos()))continue;
             String current=state(l.getBlockState(row.pos()));
             if(p.broken()){
-                if(!current.equals(row.before())){entries.remove(row.key());dirty=true;}
-            }else if(current.equals(row.after())){
+                entries.remove(row.key());dirty=true;
+            }else if(sameBlock(current,row.after())){
                 // Retain only the latest owner; do not inherit another player's placement.
                 entries.put(row.key(),row);dirty=true;
             }else{entries.remove(row.key());dirty=true;}
         }
         pending.clear();
+    }
+    private static BlockState parse(String value)throws Exception{
+        return BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(),value,false).blockState();
+    }
+    private static boolean sameBlock(String a,String b){
+        if(a==null||b==null)return false;
+        return a.split("\\[",2)[0].equals(b.split("\\[",2)[0]);
+    }
+    private boolean removeBlock(ServerLevel l,Entry row,boolean deleteContents){
+        var pos=row.pos();
+        var current=l.getBlockState(pos);
+        if(!sameBlock(state(current),row.after()))return false;
+        try{
+            var before=parse(row.before());
+            // Original block entity NBT was not recorded by v0.1.0. Never reconstruct
+            // a former container as an empty container and claim its contents were restored.
+            if(before.hasBlockEntity())return false;
+            var be=l.getBlockEntity(pos);
+            if(be!=null){
+                if(deleteContents){
+                    // Clear supported inventories and discard the block entity before removal.
+                    Clearable.tryClear(be);
+                    l.removeBlockEntity(pos);
+                }else if(be instanceof Container inventory){
+                    // Vanilla container drop logic empties the stacks. This operates on
+                    // the placed block's own inventory, not a combined double chest.
+                    Containers.dropContents(l,pos,inventory);
+                    Clearable.tryClear(be);
+                    l.removeBlockEntity(pos);
+                }else{
+                    // Special item holders and modded block entities may not implement
+                    // Container. Preserve their data through vanilla loot/onRemove
+                    // rather than deleting it before those hooks run.
+                    if(!l.getGameRules().getBoolean(net.minecraft.world.level.GameRules.RULE_DOBLOCKDROPS)) return false;
+                    if(!l.destroyBlock(pos,true)) return false;
+                    if(l.getBlockState(pos).equals(before)) return true;
+                }
+            }
+            return l.setBlock(pos,before,Block.UPDATE_ALL);
+        }catch(Exception ex){LOG.warn("Cannot restore {}",pos,ex);return false;}
     }
     private void commands(RegisterCommandsEvent e){
         var target=Commands.argument("player",StringArgumentType.word())
@@ -148,6 +252,7 @@ public final class PlayerCleanup {
         e.getDispatcher().register(Commands.literal("remove").requires(s->s.hasPermission(2))
             .then(target)
             .then(Commands.literal("status").executes(c->{say(c.getSource(),task==null?"No active cleanup.":"Cleanup: "+(task.total-task.queue.size())+"/"+task.total+" | removed "+task.removed+" | skipped "+task.skipped);return 1;}))
+            .then(Commands.literal("reload").executes(c->{loadConfig();say(c.getSource(),"Configuration reloaded. Container items: "+(removeContainerItems?"DELETE":"PRESERVE")+". Active cleanup keeps its original setting.");return 1;}))
             .then(Commands.literal("cancel").executes(c->{release();task=null;say(c.getSource(),"Cleanup cancelled; completed changes remain.");return 1;})));
     }
     private static void say(CommandSourceStack s,String m){s.sendSuccess(()->Component.literal("[Player Cleanup] "+m),false);}
@@ -159,11 +264,11 @@ public final class PlayerCleanup {
         if(owner==null){s.sendFailure(Component.literal("Unknown player; no tracked login."));return 0;}
         var rows=new ArrayList<Entry>();
         for(Entry row:entries.values())if(owner.equals(row.owner())&&(mode.equals("all")||mode.equals("blocks")&&row.entity()==null||mode.equals("entities")&&row.entity()!=null))rows.add(row);
-        if(preview){long blocks=rows.stream().filter(r->r.entity()==null).count();say(s,name+": "+blocks+" tracked blocks, "+(rows.size()-blocks)+" tracked entities. Protected or changed placements may be skipped.");return 1;}
+        if(preview){long blocks=rows.stream().filter(r->r.entity()==null).count();say(s,name+": "+blocks+" tracked blocks, "+(rows.size()-blocks)+" tracked entities. Container items: "+(removeContainerItems?"DELETE":"PRESERVE")+". Protected or changed placements may be skipped.");return 1;}
         if(task!=null){s.sendFailure(Component.literal("Cleanup already running."));return 0;}
         if(!save())return 0;
         rows.sort(Comparator.comparing(Entry::dimension).thenComparingInt(r->r.x()>>4).thenComparingInt(r->r.z()>>4).thenComparing(Comparator.comparingInt(Entry::y).reversed()));
-        task=new Task(owner,rows);say(s,"Queued "+rows.size()+" tracked placements for "+name+".");return 1;
+        task=new Task(owner,rows,removeContainerItems);say(s,"Queued "+rows.size()+" tracked placements for "+name+". Container items: "+(task.deleteContents?"DELETE":"PRESERVE")+".");return 1;
     }
     private void release(){if(task!=null&&task.level!=null&&task.chunk!=null){task.level.getChunkSource().removeRegionTicket(TICKET,task.chunk,2,0);task.level=null;task.chunk=null;}}
     private void tick(TickEvent.ServerTickEvent.Post e){
@@ -190,13 +295,7 @@ public final class PlayerCleanup {
                     if(entity!=null&&!(entity instanceof ServerPlayer)&&!entity.getTags().contains("npcarchitects_worker")&&entity.getTags().contains("playercleanup_owner_"+row.owner())){entity.discard();removed=true;break;}
                 }
             }else{
-                var current=l.getBlockState(row.pos());
-                if(state(current).equals(row.after())&&!current.hasBlockEntity()&&l.getBlockEntity(row.pos())==null&&current.getFluidState().isEmpty()){
-                    try{
-                        var before=BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(),row.before(),false).blockState();
-                        if(!before.hasBlockEntity()&&before.getFluidState().isEmpty())removed=l.setBlock(row.pos(),before,3);
-                    }catch(Exception ex){LOG.warn("Cannot restore {}",row.pos(),ex);}
-                }
+                removed=removeBlock(l,row,task.deleteContents);
             }
             if(removed){entries.remove(row.key());dirty=true;task.removed++;}else task.skipped++;
             task.queue.remove();
