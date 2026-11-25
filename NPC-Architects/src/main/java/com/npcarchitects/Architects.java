@@ -49,6 +49,9 @@ public final class Architects {
     private static final TicketType<String> WORK_TICKET=TicketType.create("npcarchitects_work",String::compareTo,40);
     private static final int MAX_TEAM=Math.max(1,Math.min(64,Integer.getInteger("npcarchitects.maxTeam",16)));
     private static final int CLEAR_BATCH=1024;
+    // One block mutation per worker per work cycle. Keep the durable save after each mutation.
+    private static final int WORK_INTERVAL=WorkCadence.interval(Integer.getInteger("npcarchitects.workIntervalTicks",4));
+    private static final int HOME_ATTEMPTS=WorkCadence.attempts(60,WORK_INTERVAL);
     // Distance per movement tick, independent of the block mutation cadence.
     private static final double MOVE_SPEED=movementSpeed();
     private static double movementSpeed() {
@@ -63,7 +66,7 @@ public final class Architects {
     private int surveyRoundRobin;
     private int ticks;
     private boolean storageFailed;
-    private static final int STUCK_ATTEMPTS=Math.max(1,Math.min(3600,Integer.getInteger("npcarchitects.stuckSeconds",15)))*2;
+    private static final int STUCK_ATTEMPTS=WorkCadence.attempts(Math.max(1,Math.min(3600,Integer.getInteger("npcarchitects.stuckSeconds",15))),WORK_INTERVAL);
     private static final int RECOVERY_LIMIT=Math.max(1,Math.min(20,Integer.getInteger("npcarchitects.stuckRetries",3)));
     private static class Worker {
         String worker;
@@ -152,7 +155,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.2.6 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.2.7 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
@@ -184,9 +187,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.6 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.7 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.6 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.7 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -310,7 +313,16 @@ public final class Architects {
         }
         Job j=new Job(); j.width=imported.width(); j.depth=imported.depth(); j.height=imported.height();
         j.rotation=0; j.schematic=name; j.imported=imported.cells();
-        var origin=sel.first!=null?sel.first:source.getPlayerOrException().blockPosition().offset(3,0,3);
+        // Pos1 records the player's feet; align the lowest occupied schematic layer
+        // with the supporting ground block instead of retaining empty bottom padding.
+        var anchor=sel.first!=null?sel.first:source.getPlayerOrException().blockPosition().offset(3,0,3);
+        int lowestY=imported.cells().get(0).y();
+        if(lowestY>0){
+            j.height-=lowestY;
+            j.imported=imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowestY,c.z(),c.material())).toList();
+        }
+        var origin=anchor.below();
+        source.sendSuccess(()->Component.literal("Schematic ground origin: "+origin.toShortString()+" | empty bottom layers removed: "+lowestY),false);
         return createJob(source,origin,j,action.equals("preview"));
     }
     private static void validatePlan(Job j) {
@@ -817,7 +829,7 @@ public final class Architects {
         var origin=home(w);
         ticket(level,w,origin,false);
         if(!level.hasChunkAt(origin)) {
-            if(++w.homeWait>=120) blocked(j,npc,"Home chunk unavailable for "+w.worker);
+            if(++w.homeWait>=HOME_ATTEMPTS) blocked(j,npc,"Home chunk unavailable for "+w.worker);
             return true;
         }
         // Prefer exact starting block, then nearby collision-free positions.
@@ -837,7 +849,7 @@ public final class Architects {
             LOGGER.info("NPC Architects job {} worker {} recovered at {}",j.id,w.worker,p);
             save(); return true;
         }
-        if(++w.homeWait>=120) blocked(j,npc,"No safe recovery position near home "+origin.toShortString());
+        if(++w.homeWait>=HOME_ATTEMPTS) blocked(j,npc,"No safe recovery position near home "+origin.toShortString());
         return true;
     }
     private static void remember(Worker j,Villager npc) {
@@ -907,7 +919,7 @@ public final class Architects {
                 ticket(level,w,old.blockPosition(),true);
             }
             if(!level.hasChunkAt(origin)) {
-                if(++w.homeWait>=120) finishFailedRespawn(level,j,w,"Starting chunk unavailable");
+                if(++w.homeWait>=HOME_ATTEMPTS) finishFailedRespawn(level,j,w,"Starting chunk unavailable");
                 continue;
             }
             // The spawn helper checks loaded chunks, solid ground, headroom and entities.
@@ -917,7 +929,7 @@ public final class Architects {
             j.reason=oldReason;
             if(replacement==null) {
                 if(storageFailed) return true;
-                if(++w.homeWait>=120) finishFailedRespawn(level,j,w,"No safe spawn position near "+origin.toShortString());
+                if(++w.homeWait>=HOME_ATTEMPTS) finishFailedRespawn(level,j,w,"No safe spawn position near "+origin.toShortString());
                 continue;
             }
             // The previous UUID is already a durable tombstone. Remove any loaded
@@ -1178,6 +1190,7 @@ public final class Architects {
             Long key=claimChunk(j,w,npc,available,wi,workers.size());
             if(key==null){w.assignment=-1;w.chunkStage="WAITING";resetMovement(w);continue;}
             ClearChunk c=j.lifecycleChunks.get(key);
+            boolean clearedBlock=false;
             if(!c.done()){
                 w.chunkStage="CLEARING";w.assignmentClearing=true;
                 for(int scanned=0;scanned<budget&&!c.done();scanned++){
@@ -1206,10 +1219,10 @@ public final class Architects {
                     }
                     j.clearDone.add(index);while(j.clearDone.remove(j.clearCursor))j.clearCursor++;
                     c.advance(top,bottom);w.assignment=-1;w.teamStalled=0;w.recoveryAttempts=0;resetMovement(w);dirty=true;
-                    if(changed){if(!save())return;dirty=false;break;}
+                    if(changed){if(!save())return;dirty=false;clearedBlock=true;break;}
                 }
                 if(!j.status.equals("RUNNING")||storageFailed)return;
-                if(!c.done())continue;
+                if(!c.done()||clearedBlock)continue;
                 w.assignment=-1;resetMovement(w);
             }
             // Keep the same reservation when switching from clearing to building.
@@ -1274,7 +1287,7 @@ public final class Architects {
     private void tick(TickEvent.ServerTickEvent.Post e) {
         ++ticks;
         if(!storageFailed) runSurveys(e.getServer());
-        if(ticks%10!=0) { if(!storageFailed) travelTick(e.getServer()); return; }
+        if(ticks%WORK_INTERVAL!=0) { if(!storageFailed) travelTick(e.getServer()); return; }
         if(storageFailed) {
             for(Job j:jobs.values()) { var world=jobLevel(e.getServer(),j); if(world!=null) { stopTeam(world,j); } }
             return;
