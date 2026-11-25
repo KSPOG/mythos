@@ -48,6 +48,14 @@ public final class Architects {
     private Path file, schematicDirectory, planDirectory;
     private static final TicketType<Integer> WORK_TICKET=TicketType.create("npcarchitects_work",Integer::compare,40);
     private static final int CLEAR_BATCH=1024;
+    // Distance per movement tick, independent of the block mutation cadence.
+    private static final double MOVE_SPEED=movementSpeed();
+    private static double movementSpeed() {
+        try {
+            double speed=Double.parseDouble(System.getProperty("npcarchitects.moveSpeed","0.65"));
+            return Double.isFinite(speed)?Math.max(0.1,Math.min(1.0,speed)):0.65;
+        } catch(NumberFormatException ex) { return 0.65; }
+    }
     private static final int SURVEY_BATCH=Math.max(1,Integer.getInteger("npcarchitects.surveyBatch",16384));
     private static final long SURVEY_BUDGET_NS=Math.max(1,Math.min(20,Integer.getInteger("npcarchitects.surveyBudgetMs",4)))*1_000_000L;
     private static final int SURVEY_CHECKPOINT_TICKS=100;
@@ -94,7 +102,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.1.8 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.1.9 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
@@ -126,9 +134,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.8 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.9 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.8 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.9 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -557,10 +565,20 @@ public final class Architects {
             npc.teleportTo(j.workStand.x,j.workStand.y,j.workStand.z); checkpointWorker(level,j,npc); return false;
         }
         if(delta.lengthSqr()<0.01) { j.workStand=null; return false; }
-        var movement=delta.normalize().scale(Math.min(0.65,delta.length()));
+        var movement=delta.normalize().scale(Math.min(MOVE_SPEED,delta.length()));
         var before=npc.position();
         // Move through collision-checked space; elevated positions use temporary hover.
-        npc.move(MoverType.SELF,movement);
+        var sweep=npc.getBoundingBox().expandTowards(movement);
+        if(!level.getWorldBorder().isWithinBounds(sweep)
+            ||level.isOutsideBuildHeight(BlockPos.containing(sweep.minX,sweep.minY,sweep.minZ))
+            ||level.isOutsideBuildHeight(BlockPos.containing(sweep.maxX,sweep.maxY,sweep.maxZ))) {
+            j.workStand=null; return false;
+        }
+        boolean loaded=true;
+        for(int cx=((int)Math.floor(sweep.minX))>>4;cx<=((int)Math.floor(sweep.maxX))>>4;cx++)
+            for(int cz=((int)Math.floor(sweep.minZ))>>4;cz<=((int)Math.floor(sweep.maxZ))>>4;cz++)
+                if(!level.hasChunkAt(new BlockPos(cx<<4,npc.blockPosition().getY(),cz<<4))) loaded=false;
+        if(loaded) npc.move(MoverType.SELF,movement);
         npc.setDeltaMovement(Vec3.ZERO);
         if(npc.position().distanceToSqr(before)<0.01 || npc.position().distanceToSqr(j.workStand)>=before.distanceToSqr(j.workStand)-0.01) j.movementFailures++;
         else j.movementFailures=0;
@@ -713,10 +731,22 @@ public final class Architects {
         j.status="RUNNING"; if(!save()) return fail(source,"Replacement spawned but job resume could not be saved."); ticket(level,j,workerAnchor(j),true);
         source.sendSuccess(()->Component.literal("Builder replaced for job "+id+"; construction resumed from saved progress."),false); return 1;
     }
+    // Between construction actions, keep approaching the same pending target.
+    // Never mutate blocks here, advance cursors, or move paused/terminal workers.
+    private void travelTick(MinecraftServer server) {
+        for(Job j:jobs.values()) {
+            if(storageFailed) return;
+            if(!j.status.equals("RUNNING")||j.surveying||j.workTarget==null) continue;
+            var level=jobLevel(server,j);
+            if(level==null||!level.hasChunkAt(j.workTarget)) continue;
+            if(!(level.getEntity(UUID.fromString(j.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
+            approach(j,npc,level,j.workTarget);
+        }
+    }
     private void tick(TickEvent.ServerTickEvent.Post e) {
         ++ticks;
         if(!storageFailed) runSurveys(e.getServer());
-        if(ticks%10!=0) return;
+        if(ticks%10!=0) { if(!storageFailed) travelTick(e.getServer()); return; }
         if(storageFailed) {
             for(Job j:jobs.values()) { var world=jobLevel(e.getServer(),j); if(world!=null) { if(world.getEntity(UUID.fromString(j.worker)) instanceof Villager worker) setWorking(worker,false); releaseTickets(world,j); } }
             return;
