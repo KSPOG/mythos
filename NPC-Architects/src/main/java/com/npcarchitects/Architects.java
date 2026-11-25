@@ -167,7 +167,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.3.0 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.3.1 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false; progressDirty=false; lastProgressFlush=0; workJobOffset=0;
@@ -267,9 +267,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.0 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.1 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.0 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.1 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -299,6 +299,13 @@ public final class Architects {
                 .executes(c->schematicAction(c.getSource(),StringArgumentType.getString(c,"name"),action))));
         }
         root.then(schematics);
+        root.then(Commands.literal("redesign").requires(src->src.hasPermission(2))
+            .then(Commands.argument("id",IntegerArgumentType.integer(1))
+                .then(Commands.argument("name",StringArgumentType.word())
+                    .suggests((c,b)->{for(String name:schematicNames())if(name.startsWith(b.getRemaining()))b.suggest(name);return b.buildFuture();})
+                    .executes(c->redesign(c.getSource(),IntegerArgumentType.getInteger(c,"id"),StringArgumentType.getString(c,"name"),0))
+                    .then(Commands.argument("rotation",IntegerArgumentType.integer(0,270))
+                        .executes(c->redesign(c.getSource(),IntegerArgumentType.getInteger(c,"id"),StringArgumentType.getString(c,"name"),IntegerArgumentType.getInteger(c,"rotation")))))));
         root.then(Commands.literal("undo").requires(src->src.hasPermission(2))
             .executes(c->undo(c.getSource(),jobs.keySet().stream().mapToInt(i->i).max().orElse(0)))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->undo(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
@@ -404,6 +411,66 @@ public final class Architects {
         var origin=anchor.below();
         source.sendSuccess(()->Component.literal("Schematic ground origin: "+origin.toShortString()+" | empty bottom layers removed: "+lowestY),false);
         return createJob(source,origin,j,action.equals("preview"));
+    }
+    // A redesign changes the blueprint, never the project's world origin or roster.
+    // Old plan indices have no meaning in the new plan. Archive the old record
+    // before resetting progress and use the existing world as the new undo baseline.
+    private int redesign(CommandSourceStack source,int id,String name,int rotation) {
+        Job j=jobs.get(id);
+        if(j==null||terminal(j)||storageFailed||j.imported==null)return fail(source,"Redesign requires a nonterminal schematic project.");
+        if(rotation%90!=0)return fail(source,"Use 0, 90, 180 or 270 degrees.");
+        if(!j.dimension.equals(source.getLevel().dimension().location().toString()))return fail(source,"Go to the project dimension first.");
+        if(schematicDirectory==null||!name.matches("[A-Za-z0-9_-]{1,64}"))return fail(source,"Invalid schematic name.");
+        var path=schematicDirectory.resolve(name+".schem");
+        if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS))return fail(source,"Schematic not found: "+name);
+        Job replacement=new Job();
+        try{
+            var imported=SchematicImport.read(path,rotation);
+            replacement.width=imported.width();replacement.depth=imported.depth();
+            int lowest=imported.cells().get(0).y();
+            replacement.height=imported.height()-lowest;
+            replacement.imported=lowest==0?imported.cells():imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowest,c.z(),c.material())).toList();
+            replacement.schematic=name;replacement.rotation=0;
+            replacement.x=j.x;replacement.y=j.y;replacement.z=j.z;replacement.dimension=j.dimension;
+            validatePlan(replacement);
+            // Restrict redesign to the exact normalized volume: shrinking would leave
+            // old blocks behind, growing could destroy terrain outside the approved site.
+            if(replacement.width!=j.width||replacement.depth!=j.depth||replacement.height!=j.height)
+                return fail(source,"Replacement must match existing normalized dimensions "+j.width+" x "+j.height+" x "+j.depth+"; got "+replacement.width+" x "+replacement.height+" x "+replacement.depth+".");
+            for(Job other:jobs.values())if(other!=j&&overlaps(replacement,other))return fail(source,"Replacement overlaps job "+other.id);
+            var origin=new BlockPos(j.x,j.y,j.z);
+            var end=origin.offset(j.width-1,j.height-1,j.depth-1);
+            var level=source.getLevel();
+            if(level.isOutsideBuildHeight(origin)||level.isOutsideBuildHeight(end)||!level.getWorldBorder().isWithinBounds(origin)||!level.getWorldBorder().isWithinBounds(end))return fail(source,"Replacement outside world bounds.");
+            persistPlan(replacement);
+            var archiveDirectory=file.resolveSibling("npcarchitects-redesign-history");
+            Files.createDirectories(archiveDirectory);
+            var archive=archiveDirectory.resolve("job-"+id+"-"+UUID.randomUUID()+".json");
+            var temp=archive.resolveSibling(archive.getFileName()+".tmp");
+            try(var out=Files.newBufferedWriter(temp)){JSON.toJson(j,out);}
+            try{Files.move(temp,archive,StandardCopyOption.ATOMIC_MOVE);}
+            catch(AtomicMoveNotSupportedException ex){Files.move(temp,archive);}
+            // No world mutations occur until the new blueprint and job snapshot exist.
+            stopTeam(level,j);
+            j.imported=replacement.imported;j.planFile=replacement.planFile;j.schematic=name;
+            j.importedStates=null;j.desiredCache=null;
+            j.cursor=0;j.clearCursor=0;j.surveyCursor=0;j.surveyCheckpointCursor=0;j.surveyCheckpointTick=ticks;
+            j.teamDone.clear();j.clearDone.clear();j.placed.clear();j.cleared.clear();
+            j.pendingBuild.clear();j.pendingClear.clear();j.journalCleared=0;j.journalPlaced=0;
+            j.zoneQueues=null;j.chunkOwners=null;j.buildChunks=null;j.clearChunks=null;
+            j.lifecycleChunks=null;j.lifecycleIndexed=false;j.lifecycleScan=0;j.deferredChunks=null;
+            j.workerOffset=0;j.independentChunks=true;j.clearing=true;j.surveying=true;
+            j.status="RUNNING";j.reason="";j.stalled=0;j.completedAt=0;j.completionNotified=false;
+            for(Worker w:team(j)){
+                resetMovement(w);w.assignment=-1;w.teamStalled=0;w.chunkStage="SURVEYING";
+                w.returningHome=false;w.recoveryAttempts=0;w.homeWait=0;
+            }
+            if(!save())return fail(source,"Redesign snapshot failed; construction halted. Restore from backup before continuing.");
+            for(Worker w:team(j))ticket(level,w,workerAnchor(w),true);
+            LOGGER.info("NPC Architects job {} redesigned to {}; old record archived at {}",id,name,archive);
+            source.sendSuccess(()->Component.literal("Project #"+id+" redesigned to "+name+"; "+team(j).size()+" Architects retained. Resurveying same origin. Matching blocks retained. Undo now applies only to redesign changes. Previous record: "+archive.getFileName()),false);
+            return 1;
+        }catch(Exception ex){LOGGER.error("Cannot redesign project {}",id,ex);return fail(source,"Cannot redesign project: "+ex.getMessage());}
     }
     private static void validatePlan(Job j) {
         var plan=cells(j);
