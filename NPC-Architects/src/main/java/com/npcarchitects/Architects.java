@@ -73,6 +73,19 @@ public final class Architects {
     private static final long WORK_BUDGET_NS=Math.max(2,Math.min(40,Integer.getInteger("npcarchitects.workBudgetMs",12)))*1_000_000L;
     private long workDeadline;
     private int workJobOffset;
+    private PreviewScan previewScan;
+    private static final int PREVIEW_BATCH=8192;
+    private static final long PREVIEW_BUDGET_NS=2_000_000L;
+    private static final int PREVIEW_LIFETIME=1200;
+    private static final class PreviewScan {
+        UUID viewer;
+        Job original,replacement;
+        String originalPlan;
+        int cursor,indexCursor,startTick,completeTick=-1;
+        Map<BlockPos,BlockState> desired=new HashMap<>();
+        long added,removed,replaced,retained,empty,unknown,protectedCount;
+        List<BlockPos> additions=new ArrayList<>(),removals=new ArrayList<>(),replacements=new ArrayList<>();
+    }
     private static final int STUCK_ATTEMPTS=WorkCadence.attempts(Math.max(1,Math.min(3600,Integer.getInteger("npcarchitects.stuckSeconds",15))),WORK_INTERVAL);
     private static final int RECOVERY_LIMIT=Math.max(1,Math.min(20,Integer.getInteger("npcarchitects.stuckRetries",3)));
     private static class Worker {
@@ -167,10 +180,10 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.3.1 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
+        LOGGER.info("NPC Architects 0.3.2 initialized; work interval {} ticks, maximum {} block actions/second per worker at 20 TPS, stuck threshold {} cycles",WORK_INTERVAL,20.0/WORK_INTERVAL,STUCK_ATTEMPTS);
     }
     private void started(ServerStartedEvent e) {
-        jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false; progressDirty=false; lastProgressFlush=0; workJobOffset=0;
+        previewScan=null; jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false; progressDirty=false; lastProgressFlush=0; workJobOffset=0;
         LOGGER.info("NPC Architects server started");
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("npcarchitects-jobs.json");
         try {
@@ -245,7 +258,7 @@ public final class Architects {
     private void stopping(ServerStoppingEvent e) {
         for(Job j:jobs.values()){var level=jobLevel(e.getServer(),j);if(level!=null)for(Worker w:team(j))releaseTickets(level,w);}
         save();if(journal!=null)try{journal.close();}catch(Exception ex){LOGGER.error("Cannot close architect journal",ex);}
-        journal=null;jobs.clear();selections.clear();file=null;schematicDirectory=null;planDirectory=null;
+        journal=null;previewScan=null;jobs.clear();selections.clear();file=null;schematicDirectory=null;planDirectory=null;
     }
     // Full snapshots are reserved for control/lifecycle transitions, not block actions.
     private boolean save() {
@@ -267,9 +280,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.1 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.2 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, redesign <id> <name> [rotation], redesign preview <id> <name> [rotation], redesign preview clear, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.1 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.3.2 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -300,6 +313,14 @@ public final class Architects {
         }
         root.then(schematics);
         root.then(Commands.literal("redesign").requires(src->src.hasPermission(2))
+            .then(Commands.literal("preview")
+                .then(Commands.literal("clear").executes(c->clearRedesignPreview(c.getSource())))
+                .then(Commands.argument("id",IntegerArgumentType.integer(1))
+                    .then(Commands.argument("name",StringArgumentType.word())
+                        .suggests((c,b)->{for(String name:schematicNames())if(name.startsWith(b.getRemaining()))b.suggest(name);return b.buildFuture();})
+                        .executes(c->startRedesignPreview(c.getSource(),IntegerArgumentType.getInteger(c,"id"),StringArgumentType.getString(c,"name"),0))
+                        .then(Commands.argument("rotation",IntegerArgumentType.integer(0,270))
+                            .executes(c->startRedesignPreview(c.getSource(),IntegerArgumentType.getInteger(c,"id"),StringArgumentType.getString(c,"name"),IntegerArgumentType.getInteger(c,"rotation")))))))
             .then(Commands.argument("id",IntegerArgumentType.integer(1))
                 .then(Commands.argument("name",StringArgumentType.word())
                     .suggests((c,b)->{for(String name:schematicNames())if(name.startsWith(b.getRemaining()))b.suggest(name);return b.buildFuture();})
@@ -423,25 +444,9 @@ public final class Architects {
         if(schematicDirectory==null||!name.matches("[A-Za-z0-9_-]{1,64}"))return fail(source,"Invalid schematic name.");
         var path=schematicDirectory.resolve(name+".schem");
         if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS))return fail(source,"Schematic not found: "+name);
-        Job replacement=new Job();
         try{
-            var imported=SchematicImport.read(path,rotation);
-            replacement.width=imported.width();replacement.depth=imported.depth();
-            int lowest=imported.cells().get(0).y();
-            replacement.height=imported.height()-lowest;
-            replacement.imported=lowest==0?imported.cells():imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowest,c.z(),c.material())).toList();
-            replacement.schematic=name;replacement.rotation=0;
-            replacement.x=j.x;replacement.y=j.y;replacement.z=j.z;replacement.dimension=j.dimension;
-            validatePlan(replacement);
-            // Restrict redesign to the exact normalized volume: shrinking would leave
-            // old blocks behind, growing could destroy terrain outside the approved site.
-            if(replacement.width!=j.width||replacement.depth!=j.depth||replacement.height!=j.height)
-                return fail(source,"Replacement must match existing normalized dimensions "+j.width+" x "+j.height+" x "+j.depth+"; got "+replacement.width+" x "+replacement.height+" x "+replacement.depth+".");
-            for(Job other:jobs.values())if(other!=j&&overlaps(replacement,other))return fail(source,"Replacement overlaps job "+other.id);
-            var origin=new BlockPos(j.x,j.y,j.z);
-            var end=origin.offset(j.width-1,j.height-1,j.depth-1);
+            Job replacement=loadRedesignReplacement(source,j,name,rotation,path);
             var level=source.getLevel();
-            if(level.isOutsideBuildHeight(origin)||level.isOutsideBuildHeight(end)||!level.getWorldBorder().isWithinBounds(origin)||!level.getWorldBorder().isWithinBounds(end))return fail(source,"Replacement outside world bounds.");
             persistPlan(replacement);
             var archiveDirectory=file.resolveSibling("npcarchitects-redesign-history");
             Files.createDirectories(archiveDirectory);
@@ -471,6 +476,108 @@ public final class Architects {
             source.sendSuccess(()->Component.literal("Project #"+id+" redesigned to "+name+"; "+team(j).size()+" Architects retained. Resurveying same origin. Matching blocks retained. Undo now applies only to redesign changes. Previous record: "+archive.getFileName()),false);
             return 1;
         }catch(Exception ex){LOGGER.error("Cannot redesign project {}",id,ex);return fail(source,"Cannot redesign project: "+ex.getMessage());}
+    }
+    private Job loadRedesignReplacement(CommandSourceStack source,Job j,String name,int rotation,Path path)throws Exception{
+        Job replacement=new Job();
+            var imported=SchematicImport.read(path,rotation);
+            replacement.width=imported.width();replacement.depth=imported.depth();
+            int lowest=imported.cells().get(0).y();
+            replacement.height=imported.height()-lowest;
+            replacement.imported=lowest==0?imported.cells():imported.cells().stream().map(c->new Blueprint.Cell(c.x(),c.y()-lowest,c.z(),c.material())).toList();
+            replacement.schematic=name;replacement.rotation=0;
+            replacement.x=j.x;replacement.y=j.y;replacement.z=j.z;replacement.dimension=j.dimension;
+            validatePlan(replacement);
+            // Restrict redesign to the exact normalized volume: shrinking would leave
+            // old blocks behind, growing could destroy terrain outside the approved site.
+            if(replacement.width!=j.width||replacement.depth!=j.depth||replacement.height!=j.height)
+                throw new IllegalArgumentException("Replacement must match existing normalized dimensions "+j.width+" x "+j.height+" x "+j.depth+"; got "+replacement.width+" x "+replacement.height+" x "+replacement.depth+".");
+            for(Job other:jobs.values())if(other!=j&&overlaps(replacement,other))throw new IllegalArgumentException("Replacement overlaps job "+other.id);
+            var origin=new BlockPos(j.x,j.y,j.z);
+            var end=origin.offset(j.width-1,j.height-1,j.depth-1);
+            var level=source.getLevel();
+            if(level.isOutsideBuildHeight(origin)||level.isOutsideBuildHeight(end)||!level.getWorldBorder().isWithinBounds(origin)||!level.getWorldBorder().isWithinBounds(end))throw new IllegalArgumentException("Replacement outside world bounds.");
+
+        return replacement;
+    }
+    private int clearRedesignPreview(CommandSourceStack source)throws CommandSyntaxException{
+        var player=source.getPlayerOrException();
+        if(previewScan!=null&&previewScan.viewer.equals(player.getUUID()))previewScan=null;
+        source.sendSuccess(()->Component.literal("Redesign preview cleared."),false);return 1;
+    }
+    private int startRedesignPreview(CommandSourceStack source,int id,String name,int rotation)throws CommandSyntaxException{
+        var player=source.getPlayerOrException();
+        Job j=jobs.get(id);
+        if(j==null||terminal(j)||storageFailed||j.imported==null)return fail(source,"Preview requires a nonterminal schematic project.");
+        if(rotation%90!=0)return fail(source,"Use 0, 90, 180 or 270 degrees.");
+        if(!j.dimension.equals(source.getLevel().dimension().location().toString()))return fail(source,"Go to the project dimension first.");
+        if(schematicDirectory==null||!name.matches("[A-Za-z0-9_-]{1,64}"))return fail(source,"Invalid schematic name.");
+        var path=schematicDirectory.resolve(name+".schem");
+        if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS))return fail(source,"Schematic not found: "+name);
+        if(previewScan!=null&&!previewScan.viewer.equals(player.getUUID()))return fail(source,"Another operator is previewing; try after their preview expires.");
+        try{
+            var replacement=loadRedesignReplacement(source,j,name,rotation,path);
+            var p=new PreviewScan();p.viewer=player.getUUID();p.original=j;p.originalPlan=j.planFile;p.replacement=replacement;p.startTick=ticks;
+            previewScan=p;
+            source.sendSuccess(()->Component.literal("Read-only redesign preview #"+id+": "+name+". Scanning loaded blocks only; builders continue. Green=add, red=remove, yellow=replace, blue=boundary. Counts are a rolling estimate."),false);return 1;
+        }catch(Exception ex){LOGGER.warn("Cannot preview redesign {}",id,ex);return fail(source,"Cannot preview redesign: "+ex.getMessage());}
+    }
+    private static void samplePreview(List<BlockPos> samples,BlockPos pos,long count){
+        // Deterministic bounded reservoir, spread throughout the scan.
+        if(samples.size()<256)samples.add(pos.immutable());
+        else{
+            long slot=Math.floorMod((long)pos.hashCode()*2654435761L,count);
+            if(slot<256)samples.set((int)slot,pos.immutable());
+        }
+    }
+    private static void previewDust(ServerLevel level,net.minecraft.server.level.ServerPlayer player,BlockPos pos,float r,float g,float b){
+        if(player.distanceToSqr(Vec3.atCenterOf(pos))>96*96)return;
+        var dust=new net.minecraft.core.particles.DustParticleOptions(new org.joml.Vector3f(r,g,b),1.15f);
+        level.sendParticles(player,dust,false,pos.getX()+.5,pos.getY()+.5,pos.getZ()+.5,1,0,0,0,0);
+    }
+    private void tickRedesignPreview(MinecraftServer server){
+        var p=previewScan;if(p==null)return;
+        var player=server.getPlayerList().getPlayer(p.viewer);
+        if(player==null||!p.original.dimension.equals(player.serverLevel().dimension().location().toString())||terminal(p.original)||!Objects.equals(p.originalPlan,p.original.planFile)||storageFailed){previewScan=null;return;}
+        if(p.completeTick<0&&ticks-p.startTick>12000){player.sendSystemMessage(Component.literal("Redesign preview timed out; retry or inspect a smaller loaded area."));previewScan=null;return;}
+        var level=player.serverLevel();var j=p.replacement;
+        int volume=j.width*j.depth*j.height;
+        if(p.completeTick<0){
+            long deadline=System.nanoTime()+PREVIEW_BUDGET_NS;
+            var plan=cells(j);
+            int indexed=0;
+            while(p.indexCursor<plan.size()&&indexed++<PREVIEW_BATCH&&System.nanoTime()<deadline){
+                var cell=plan.get(p.indexCursor++);p.desired.put(buildPosition(j,cell),material(j,cell.material()));
+            }
+            if(p.indexCursor<plan.size())return;
+            var desired=p.desired;
+            int processed=0;
+            while(p.cursor<volume&&processed++<PREVIEW_BATCH&&System.nanoTime()<deadline){
+                var pos=clearPosition(j,p.cursor++);
+                if(!level.hasChunkAt(pos)){p.unknown++;continue;}
+                var current=level.getBlockState(pos);var wanted=desired.getOrDefault(pos,Blocks.AIR.defaultBlockState());
+                if(current.equals(wanted)||(current.isAir()&&wanted.isAir())){if(wanted.isAir())p.empty++;else p.retained++;continue;}
+                if(!current.isAir()&&!canClear(level,pos,current))p.protectedCount++;
+                if(current.isAir()){p.added++;samplePreview(p.additions,pos,p.added);}
+                else if(wanted.isAir()){p.removed++;samplePreview(p.removals,pos,p.removed);}
+                else{p.replaced++;samplePreview(p.replacements,pos,p.replaced);}
+            }
+            if(p.cursor>=volume){
+                p.completeTick=ticks;
+                player.sendSystemMessage(Component.literal("Redesign preview #"+p.original.id+" | add "+p.added+" | remove "+p.removed+" | replace "+p.replaced+" | retain "+p.retained+" | matching air "+p.empty+" | unloaded/unknown "+p.unknown+" | protected conflicts "+p.protectedCount+" (rolling scan, not an atomic snapshot; protected conflicts included in change counts)."));
+            }else if((ticks-p.startTick)%100==0){
+                player.sendSystemMessage(Component.literal("Redesign preview scanned "+p.cursor+"/"+volume+" positions; unloaded "+p.unknown+"."));
+            }
+        }
+        if(p.completeTick>=0&&ticks-p.completeTick>=PREVIEW_LIFETIME){previewScan=null;return;}
+        if(ticks%10!=0)return;
+        for(var pos:p.additions)previewDust(level,player,pos,.15f,1f,.2f);
+        for(var pos:p.removals)previewDust(level,player,pos,1f,.15f,.15f);
+        for(var pos:p.replacements)previewDust(level,player,pos,1f,.85f,.1f);
+        // Sample the twelve boundary edges; never send particles to other players.
+        int x0=j.x,x1=j.x+j.width-1,y0=j.y,y1=j.y+j.height-1,z0=j.z,z1=j.z+j.depth-1;
+        for(int x=x0;x<=x1;x+=Math.max(1,j.width/32))for(int y:new int[]{y0,y1})for(int z:new int[]{z0,z1})previewDust(level,player,new BlockPos(x,y,z),.2f,.5f,1f);
+        for(int z=z0;z<=z1;z+=Math.max(1,j.depth/32))for(int y:new int[]{y0,y1})for(int x:new int[]{x0,x1})previewDust(level,player,new BlockPos(x,y,z),.2f,.5f,1f);
+        for(int y=y0;y<=y1;y+=Math.max(1,j.height/16))for(int x:new int[]{x0,x1})for(int z:new int[]{z0,z1})previewDust(level,player,new BlockPos(x,y,z),.2f,.5f,1f);
     }
     private static void validatePlan(Job j) {
         var plan=cells(j);
@@ -1530,6 +1637,7 @@ public final class Architects {
     }
     private void tick(TickEvent.ServerTickEvent.Post e) {
         ++ticks;
+        tickRedesignPreview(e.getServer());
         if(!storageFailed&&progressDirty&&ticks-lastProgressFlush>=FLUSH_TICKS)flushProgress();
         if(!storageFailed) runSurveys(e.getServer());
         if(ticks%WORK_INTERVAL!=0) { if(!storageFailed) travelTick(e.getServer()); return; }
