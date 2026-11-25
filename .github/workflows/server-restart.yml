@@ -26,6 +26,8 @@ jobs:
           mkdir -p build/duration-test
           javac --release 21 -d build/duration-test src/main/java/com/ksp/serverrestart/DurationParser.java tests/DurationTest.java
           java -cp build/duration-test com.ksp.serverrestart.DurationTest
+          javac --release 21 -cp build/duration-test -d build/duration-test src/main/java/com/ksp/serverrestart/BroadcastConfig.java tests/BroadcastConfigTest.java
+          java -cp build/duration-test com.ksp.serverrestart.BroadcastConfigTest
           bash -n start-restart.sh
       - name: Forge wrapper
         run: |
@@ -36,7 +38,7 @@ jobs:
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
         with:
-          name: server-restart-0.1.0
+          name: server-restart-0.1.1
           path: |
             Server-Restart/build/libs/*.jar
             Server-Restart/start-restart.ps1
