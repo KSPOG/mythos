@@ -46,7 +46,8 @@ public final class Architects {
     private final Map<UUID, Selection> selections = new HashMap<>();
     private static final class Selection { BlockPos first, second; String dimension; int rotation; }
     private Path file, schematicDirectory, planDirectory;
-    private static final TicketType<Integer> WORK_TICKET=TicketType.create("npcarchitects_work",Integer::compare,40);
+    private static final TicketType<String> WORK_TICKET=TicketType.create("npcarchitects_work",String::compareTo,40);
+    private static final int MAX_TEAM=Math.max(1,Math.min(64,Integer.getInteger("npcarchitects.maxTeam",16)));
     private static final int CLEAR_BATCH=1024;
     // Distance per movement tick, independent of the block mutation cadence.
     private static final double MOVE_SPEED=movementSpeed();
@@ -62,13 +63,23 @@ public final class Architects {
     private int surveyRoundRobin;
     private int ticks;
     private boolean storageFailed;
-    private static final class Job {
-        int id, x, y, z, width, depth, cursor, stalled;
-        int height=5, rotation, clearCursor;
+    private static class Worker {
+        String worker;
+        Integer workerX,workerY,workerZ;
+        boolean workerDied;
         transient BlockPos workTarget;
         transient Vec3 workStand;
         transient int movementFailures;
-        boolean clearing, workerDied;
+        transient ChunkPos workChunk,workerChunk;
+        transient int assignment=-1, teamStalled;
+    }
+    private static final class Job extends Worker {
+        List<Worker> assistants=new ArrayList<>();
+        Set<Integer> teamDone=new HashSet<>();
+        List<String> retiredWorkers=new ArrayList<>();
+        int id, x, y, z, width, depth, cursor, stalled;
+        int height=5, rotation, clearCursor;
+        boolean clearing;
         String schematic;
         transient List<Blueprint.Cell> imported;
         String planFile;
@@ -76,15 +87,15 @@ public final class Architects {
         int surveyCursor;
         transient int surveyCheckpointTick;
         transient int surveyCheckpointCursor;
-        transient ChunkPos workChunk, workerChunk;
+
         
         transient Map<String,BlockState> importedStates;
         transient Map<BlockPos,BlockState> desiredCache;
-        Integer workerX, workerY, workerZ;
+
         List<Cleared> cleared = new ArrayList<>();
         String reason = "";
         List<Integer> placed = new ArrayList<>();
-        String dimension, worker, status = "RUNNING";
+        String dimension, status = "RUNNING";
         String owner;
         long completedAt;
         boolean completionNotified;
@@ -102,7 +113,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.1.9 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.2.0 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
@@ -116,12 +127,12 @@ public final class Architects {
             if (Files.exists(file)) {
                 List<Job> loaded=JSON.fromJson(Files.readString(file),new TypeToken<List<Job>>(){}.getType());
                 if (loaded==null) throw new IllegalStateException("Empty job store");
-                for (Job j:loaded) { loadPlan(j); validatePlan(j); UUID.fromString(j.worker); if(j.cursor<0 || j.cursor>cells(j).size() || j.clearCursor<0 || j.clearCursor>j.width*j.depth*j.height || j.surveyCursor<0 || j.surveyCursor>j.width*j.depth*j.height || j.cleared==null || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
+                for (Job j:loaded) { loadPlan(j); validatePlan(j); UUID.fromString(j.worker); validateTeam(j); if(j.cursor<0 || j.cursor>cells(j).size() || j.clearCursor<0 || j.clearCursor>j.width*j.depth*j.height || j.surveyCursor<0 || j.surveyCursor>j.width*j.depth*j.height || j.cleared==null || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
             }
         } catch(Exception ex) { storageFailed=true; jobs.clear(); LOGGER.error("NPC Architects: cannot load jobs", ex); }
-        if(!storageFailed) for(Job j:jobs.values()) if(j.status.equals("RUNNING")) { var level=jobLevel(e.getServer(),j); if(level!=null) ticket(level,j,workerAnchor(j),true); }
+        if(!storageFailed) for(Job j:jobs.values()) if(j.status.equals("RUNNING")) { var level=jobLevel(e.getServer(),j); if(level!=null) for(Worker w:team(j)) ticket(level,w,workerAnchor(w),true); }
     }
-    private void stopping(ServerStoppingEvent e) { for(Job j:jobs.values()) { var level=jobLevel(e.getServer(),j); if(level!=null) releaseTickets(level,j); } save(); jobs.clear(); selections.clear(); file=null; schematicDirectory=null; planDirectory=null; }
+    private void stopping(ServerStoppingEvent e) { for(Job j:jobs.values()) { var level=jobLevel(e.getServer(),j); if(level!=null) for(Worker w:team(j)) releaseTickets(level,w); } save(); jobs.clear(); selections.clear(); file=null; schematicDirectory=null; planDirectory=null; }
     private boolean save() {
         if(file==null || storageFailed) return false;
         try {
@@ -134,9 +145,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.9 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.0 active. Commands: status [all], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, add <id> <count>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.9 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.0 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -171,10 +182,30 @@ public final class Architects {
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->undo(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
         root.then(Commands.literal("recover").requires(src->src.hasPermission(2))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->recover(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
-        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)+" "+j.status+" "+(j.surveying?"SURVEYING "+j.surveyCursor+"/"+(j.width*j.depth*j.height):j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
-        for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; resetMovement(j); var world=jobLevel(c.getSource().getServer(),j); if(world!=null) { if(world.getEntity(UUID.fromString(j.worker)) instanceof Villager worker) setWorking(worker,j.status.equals("RUNNING")); if(j.status.equals("RUNNING")) ticket(world,j,workerAnchor(j),true); else releaseTickets(world,j); } if(!save()) return 0; if(terminal(j)) cleanupWorker(c.getSource().getServer(),j); c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
+        root.then(Commands.literal("add").requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).then(Commands.argument("count",IntegerArgumentType.integer(1,64)).executes(c->addWorkers(c.getSource(),IntegerArgumentType.getInteger(c,"id"),IntegerArgumentType.getInteger(c,"count"))))));
+        root.then(Commands.literal("status").requires(src->src.hasPermission(2))
+            .executes(c->showStatus(c.getSource(),false))
+            .then(Commands.literal("all").executes(c->showStatus(c.getSource(),true))));
+        for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; var world=jobLevel(c.getSource().getServer(),j); for(Worker w:team(j)) { resetMovement(w); w.assignment=-1; w.teamStalled=0; if(world!=null) { if(world.getEntity(UUID.fromString(w.worker)) instanceof Villager worker) setWorking(worker,j.status.equals("RUNNING")); if(j.status.equals("RUNNING")) ticket(world,w,workerAnchor(w),true); else releaseTickets(world,w); } } if(!save()) return 0; if(terminal(j)) cleanupWorker(c.getSource().getServer(),j); c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
         e.getDispatcher().register(root);
         LOGGER.info("NPC Architects registered /architect commands");
+    }
+    private int showStatus(CommandSourceStack source,boolean all) {
+        var visible=jobs.values().stream()
+            .filter(j->all||!j.status.equals("CANCELLED")&&!j.status.equals("UNDONE")).toList();
+        source.sendSuccess(()->Component.literal("NPC Architects: "+visible.size()+" job(s)"
+            +(storageFailed?" | storage error":" | storage ready")),false);
+        for(Job j:visible) {
+            String progress=terminal(j)?"":j.surveying?" SURVEYING "+j.surveyCursor+"/"+(j.width*j.depth*j.height)
+                :j.clearing?" CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height)
+                :" BUILDING "+j.cursor+"/"+cells(j).size();
+            source.sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)
+                +" "+j.status+progress+" | Architects: "+(terminal(j)?0:team(j).size())
+                +(terminal(j)||j.teamDone.isEmpty()?"":" | parallel completed: "+j.teamDone.size())
+                +(j.reason.isEmpty()?"":" | "+j.reason)),false);
+        }
+        if(!all&&visible.size()!=jobs.size()) source.sendSuccess(()->Component.literal("Hidden cancelled/undone jobs: "+(jobs.size()-visible.size())+" | /architect status all"),false);
+        return 1;
     }
     private static List<Blueprint.Cell> cells(Job j) {
         return j.imported!=null?j.imported:Blueprint.house(j.width,j.depth,j.height,j.rotation);
@@ -266,33 +297,34 @@ public final class Architects {
         j.surveying=true; j.clearing=true;
         return spawnJob(source,j,origin,cells(j).size());
     }
-    private static BlockPos workerAnchor(Job j) {
+    private static BlockPos workerAnchor(Worker j) {
         if(j.workerX!=null && j.workerY!=null && j.workerZ!=null) return new BlockPos(j.workerX,j.workerY,j.workerZ);
         // Legacy jobs without a saved worker location can at least reload their construction origin.
-        return new BlockPos(j.x,j.y,j.z);
+        if(j instanceof Job job) return new BlockPos(job.x,job.y,job.z);
+        throw new IllegalStateException("Assistant anchor missing");
     }
-    private void checkpointWorker(ServerLevel level,Job j,Villager npc) {
+    private void checkpointWorker(ServerLevel level,Worker j,Villager npc) {
         var previous=new ChunkPos(workerAnchor(j));
         remember(j,npc);
         var next=new ChunkPos(npc.blockPosition());
         ticket(level,j,npc.blockPosition(),true);
         if(!previous.equals(next)) save();
     }
-    private static void ticket(ServerLevel level,Job j,BlockPos pos,boolean worker) {
+    private static void ticket(ServerLevel level,Worker j,BlockPos pos,boolean worker) {
         var next=new ChunkPos(pos); var previous=worker?j.workerChunk:j.workChunk;
         if(previous!=null&&!previous.equals(next)) {
             var other=worker?j.workChunk:j.workerChunk;
-            if(!previous.equals(other)) level.getChunkSource().removeRegionTicket(WORK_TICKET,previous,2,j.id);
+            if(!previous.equals(other)) level.getChunkSource().removeRegionTicket(WORK_TICKET,previous,2,j.worker);
         }
-        level.getChunkSource().addRegionTicket(WORK_TICKET,next,2,j.id);
+        level.getChunkSource().addRegionTicket(WORK_TICKET,next,2,j.worker);
         if(worker) j.workerChunk=next; else j.workChunk=next;
     }
-    private static void releaseTickets(ServerLevel level,Job j) {
-        if(j.workChunk!=null) level.getChunkSource().removeRegionTicket(WORK_TICKET,j.workChunk,2,j.id);
-        if(j.workerChunk!=null&&!j.workerChunk.equals(j.workChunk)) level.getChunkSource().removeRegionTicket(WORK_TICKET,j.workerChunk,2,j.id);
+    private static void releaseTickets(ServerLevel level,Worker j) {
+        if(j.workChunk!=null) level.getChunkSource().removeRegionTicket(WORK_TICKET,j.workChunk,2,j.worker);
+        if(j.workerChunk!=null&&!j.workerChunk.equals(j.workChunk)) level.getChunkSource().removeRegionTicket(WORK_TICKET,j.workerChunk,2,j.worker);
         j.workChunk=null; j.workerChunk=null;
     }
-    private static boolean loadTarget(ServerLevel level,Job j,BlockPos pos) {
+    private static boolean loadTarget(ServerLevel level,Worker j,BlockPos pos) {
         ticket(level,j,pos,false);
         // Let the ticket system load/generate asynchronously; never synchronously generate a map in a tick.
         return level.hasChunkAt(pos);
@@ -461,7 +493,7 @@ public final class Architects {
             var pos=new BlockPos(old.x,old.y,old.z);
             if(siteProblem(level,pos)!=null) return fail(source,"Load the entire clearing site before undoing.");
         }
-        j.status="PAUSED"; if(!save()) return fail(source,"Could not save paused job."); releaseTickets(level,j);
+        j.status="PAUSED"; if(!save()) return fail(source,"Could not save paused job."); stopTeam(level,j);
         if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager npc) setWorking(npc,false);
         int removed=0, skipped=0;
         for(int i=j.placed.size()-1;i>=0;i--) {
@@ -473,7 +505,7 @@ public final class Architects {
             var old=j.cleared.get(i); var pos=new BlockPos(old.x,old.y,old.z);
             if(level.getBlockState(pos).isAir() && level.getEntities(null,new AABB(pos)).isEmpty() && level.setBlock(pos,net.minecraft.world.level.block.Block.stateById(old.state),3)) restored++; else skipped++;
         }
-        j.cleared.clear(); j.placed.clear(); j.status="UNDONE"; if(!save()) return fail(source,"Undo applied but storage failed; inspect server log."); cleanupWorker(source.getServer(),j);
+        j.cleared.clear(); j.placed.clear(); j.teamDone.clear(); j.status="UNDONE"; if(!save()) return fail(source,"Undo applied but storage failed; inspect server log."); cleanupWorker(source.getServer(),j);
         final int count=removed, ignored=skipped, recovered=restored;
         source.sendSuccess(()->Component.literal("Undo job "+id+": "+count+" removed, "+recovered+" terrain blocks restored, "+ignored+" changed/missing blocks skipped."),false); return 1;
     }
@@ -510,7 +542,7 @@ public final class Architects {
         return !state.hasBlockEntity() && level.getBlockEntity(pos)==null && state.getDestroySpeed(level,pos)>=0 && state.getFluidState().isEmpty();
     }
     private void blocked(Job j,Villager npc,String reason) {
-        j.status="BLOCKED"; j.reason=reason; setWorking(npc,false); resetMovement(j); if(npc.level() instanceof ServerLevel world) releaseTickets(world,j);
+        j.status="BLOCKED"; j.reason=reason; setWorking(npc,false); resetMovement(j); if(npc.level() instanceof ServerLevel world) stopTeam(world,j);
         LOGGER.warn("NPC Architects job {} blocked: {}",j.id,reason); save();
     }
     // The construction controller owns movement; ordinary villager brain goals must not compete.
@@ -519,7 +551,7 @@ public final class Architects {
         if(npc.isNoGravity()!=working) npc.setNoGravity(working);
         if(!working) npc.setDeltaMovement(Vec3.ZERO);
     }
-    private static void resetMovement(Job j) {
+    private static void resetMovement(Worker j) {
         j.workTarget=null; j.workStand=null; j.movementFailures=0;
     }
     private static boolean inReach(Villager npc,BlockPos pos) {
@@ -548,7 +580,7 @@ public final class Architects {
         }
         return best;
     }
-    private boolean approach(Job j,Villager npc,ServerLevel level,BlockPos pos) {
+    private boolean approach(Worker j,Villager npc,ServerLevel level,BlockPos pos) {
         setWorking(npc,true);
         npc.setDeltaMovement(Vec3.ZERO);
         if(inReach(npc,pos)&&!npc.getBoundingBox().intersects(new AABB(pos))) {
@@ -585,7 +617,7 @@ public final class Architects {
         // A blocked direct route may reposition only to a verified empty loaded stance.
         if(j.movementFailures>=4 && safeStand(level,npc,j.workStand,pos)) {
             npc.teleportTo(j.workStand.x,j.workStand.y,j.workStand.z);
-            LOGGER.debug("NPC Architects job {} repositioned to safe work stance for {}",j.id,pos);
+            LOGGER.debug("NPC Architects worker {} repositioned to safe work stance for {}",j.worker,pos);
             j.movementFailures=0;
         }
         checkpointWorker(level,j,npc);
@@ -624,9 +656,11 @@ public final class Architects {
     private void cleanupWorker(MinecraftServer server,Job j) {
         if(storageFailed || !terminal(j)) return;
         var world=jobLevel(server,j);
-        if(world!=null) releaseTickets(world,j);
-        UUID id=UUID.fromString(j.worker);
-        for(var level:server.getAllLevels()) {
+        if(world!=null) for(Worker w:team(j)) releaseTickets(world,w);
+        var ids=new ArrayList<String>(j.retiredWorkers);
+        for(Worker w:team(j)) ids.add(w.worker);
+        for(String workerId:ids) for(var level:server.getAllLevels()) {
+            UUID id=UUID.fromString(workerId);
             if(level.getEntity(id) instanceof Villager worker) {
                 worker.getNavigation().stop();
                 worker.discard();
@@ -637,7 +671,7 @@ public final class Architects {
     private void workerJoined(EntityJoinLevelEvent event) {
         if(storageFailed || !(event.getLevel() instanceof ServerLevel) || !(event.getEntity() instanceof Villager worker)) return;
         String id=worker.getUUID().toString();
-        for(Job j:jobs.values()) if(terminal(j)&&id.equals(j.worker)) {
+        for(Job j:jobs.values()) if(j.retiredWorkers.contains(id)||(terminal(j)&&team(j).stream().anyMatch(w->id.equals(w.worker)))) {
             // Cancel insertion of an unloaded terminal builder when its chunk is loaded again.
             event.setCanceled(true);
             LOGGER.debug("NPC Architects suppressed returning builder {} for terminal job {}",id,j.id);
@@ -686,7 +720,7 @@ public final class Architects {
             npc.setCustomNameVisible(true);
         }
     }
-    private static void remember(Job j,Villager npc) {
+    private static void remember(Worker j,Villager npc) {
         var pos=npc.blockPosition(); j.workerX=pos.getX(); j.workerY=pos.getY(); j.workerZ=pos.getZ();
     }
     private void targetChanged(LivingChangeTargetEvent event) {
@@ -694,15 +728,16 @@ public final class Architects {
     }
     private void workerDeath(LivingDeathEvent event) {
         if(storageFailed || !(event.getEntity() instanceof Villager npc)) return;
-        for(Job j:jobs.values()) if(!terminal(j)&&npc.getUUID().toString().equals(j.worker)) {
-            remember(j,npc); j.workerDied=true; j.reason="Builder died; replacement pending";
-            LOGGER.warn("NPC Architects job {} lost builder {}",j.id,j.worker); save(); break;
+        for(Job j:jobs.values()) if(!terminal(j)) for(Worker w:team(j)) if(npc.getUUID().toString().equals(w.worker)) {
+            remember(w,npc); w.workerDied=true; w.assignment=-1; resetMovement(w);
+            if(w==j) j.reason="Builder died; replacement pending";
+            LOGGER.warn("NPC Architects job {} lost builder {}",j.id,w.worker); save(); return;
         }
     }
     private void waiting(Job j,String reason) {
         if(!reason.equals(j.reason)) { j.reason=reason; LOGGER.warn("NPC Architects job {}: {}",j.id,reason); save(); }
     }
-    private Villager replaceWorker(ServerLevel level,Job j,BlockPos anchor) {
+    private Villager replaceWorker(ServerLevel level,Job job,Worker j,BlockPos anchor) {
         if(storageFailed) return null;
         for(int radius=0;radius<=3;radius++) for(int dx=-radius;dx<=radius;dx++) for(int dz=-radius;dz<=radius;dz++) for(int dy:new int[]{0,1,-1,2,-2}) {
             if(Math.max(Math.abs(dx),Math.abs(dz))!=radius) continue;
@@ -712,9 +747,9 @@ public final class Architects {
             if(replacement==null) continue;
             protect(replacement);
             String previous=j.worker; boolean died=j.workerDied; Integer oldX=j.workerX,oldY=j.workerY,oldZ=j.workerZ;
-            j.worker=replacement.getUUID().toString(); remember(j,replacement); j.workerDied=false; j.stalled=0; j.reason="";
-            if(!save()) { replacement.discard(); j.worker=previous; j.workerDied=died; j.workerX=oldX;j.workerY=oldY;j.workerZ=oldZ; return null; }
-            LOGGER.info("NPC Architects job {} replaced builder {} with {}",j.id,previous,j.worker);
+            releaseTickets(level,j); job.retiredWorkers.add(previous); j.worker=replacement.getUUID().toString(); remember(j,replacement); j.workerDied=false; j.assignment=-1; resetMovement(j); j.teamStalled=0; if(j==job) { job.stalled=0; job.reason=""; }
+            if(!save()) { replacement.discard(); job.retiredWorkers.remove(previous); j.worker=previous; j.workerDied=died; j.workerX=oldX;j.workerY=oldY;j.workerZ=oldZ; return null; }
+            LOGGER.info("NPC Architects job {} replaced builder {} with {}",job.id,previous,j.worker);
             return replacement;
         }
         return null;
@@ -727,20 +762,134 @@ public final class Architects {
         for(var world:source.getServer().getAllLevels()) if(world.getEntity(UUID.fromString(j.worker)) instanceof Villager npc && npc.isAlive()) {
             protect(npc); return fail(source,"Builder is still alive; no replacement spawned. Use /architect resume "+id);
         }
-        if(replaceWorker(level,j,player.blockPosition())==null) return fail(source,"No safe loaded spawn position nearby or storage failed.");
+        if(replaceWorker(level,j,j,player.blockPosition())==null) return fail(source,"No safe loaded spawn position nearby or storage failed.");
         j.status="RUNNING"; if(!save()) return fail(source,"Replacement spawned but job resume could not be saved."); ticket(level,j,workerAnchor(j),true);
         source.sendSuccess(()->Component.literal("Builder replaced for job "+id+"; construction resumed from saved progress."),false); return 1;
     }
     // Between construction actions, keep approaching the same pending target.
     // Never mutate blocks here, advance cursors, or move paused/terminal workers.
+    private static List<Worker> team(Job j) {
+        var result=new ArrayList<Worker>(1+j.assistants.size()); result.add(j); result.addAll(j.assistants); return result;
+    }
+    private static void validateTeam(Job j) {
+        if(j.assistants==null||j.teamDone==null||j.retiredWorkers==null) throw new IllegalArgumentException("Invalid team");
+        var ids=new HashSet<String>();
+        for(Worker w:team(j)) {
+            UUID.fromString(w.worker);
+            if(!ids.add(w.worker)||(w!=j&&(w.workerX==null||w.workerY==null||w.workerZ==null))) throw new IllegalArgumentException("Invalid worker");
+        }
+        for(String id:j.retiredWorkers) { UUID.fromString(id); if(ids.contains(id)) throw new IllegalArgumentException("Retired worker still active"); }
+        var plan=cells(j);
+        for(int i:j.teamDone) if(i<j.cursor||i>=plan.size()||j.cursor>=plan.size()||plan.get(i).y()!=plan.get(j.cursor).y()) throw new IllegalArgumentException("Invalid parallel progress");
+    }
+    private static void stopTeam(ServerLevel level,Job j) {
+        for(Worker w:team(j)) {
+            resetMovement(w); w.assignment=-1; w.teamStalled=0;
+            if(level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc) setWorking(npc,false);
+            releaseTickets(level,w);
+        }
+    }
+    private int addWorkers(CommandSourceStack source,int id,int count) throws CommandSyntaxException {
+        Job j=jobs.get(id);
+        if(j==null||terminal(j)||storageFailed) return fail(source,"No active project "+id);
+        if(team(j).size()+count>MAX_TEAM) return fail(source,"Maximum "+MAX_TEAM+" Architects per project.");
+        var player=source.getPlayerOrException(); var level=source.getLevel();
+        if(!level.dimension().location().toString().equals(j.dimension)) return fail(source,"Go to the project dimension first.");
+        var anchor=player.blockPosition();
+        var added=new ArrayList<Villager>();
+        var members=new ArrayList<Worker>();
+        for(int r=1;r<=8&&added.size()<count;r++) for(int dx=-r;dx<=r&&added.size()<count;dx++) for(int dz=-r;dz<=r&&added.size()<count;dz++) {
+            if(Math.max(Math.abs(dx),Math.abs(dz))!=r) continue;
+            for(int dy:new int[]{0,1,-1,2,-2}) {
+                var pos=anchor.offset(dx,dy,dz);
+                if(siteProblem(level,pos)!=null||!level.isEmptyBlock(pos)||!level.isEmptyBlock(pos.above())||!level.getBlockState(pos.below()).isFaceSturdy(level,pos.below(),net.minecraft.core.Direction.UP)||!level.getEntities(null,new AABB(pos).expandTowards(0,1,0)).isEmpty()) continue;
+                var npc=EntityType.VILLAGER.spawn(level,pos,MobSpawnType.COMMAND);
+                if(npc==null) continue;
+                protect(npc); setWorking(npc,false);
+                var w=new Worker(); w.worker=npc.getUUID().toString(); remember(w,npc);
+                added.add(npc); members.add(w); break;
+            }
+        }
+        if(added.size()!=count) { added.forEach(Villager::discard); return fail(source,"Not enough safe loaded spawn positions near you."); }
+        j.assistants.addAll(members);
+        for(Worker w:team(j)) { resetMovement(w); w.assignment=-1; }
+        if(!save()) { j.assistants.removeAll(members); added.forEach(Villager::discard); return fail(source,"Could not persist team."); }
+        if(j.status.equals("RUNNING")) for(Worker w:members) ticket(level,w,workerAnchor(w),true);
+        source.sendSuccess(()->Component.literal("Project #"+id+" now has "+team(j).size()+" Architects. Additional builders join after clearing."),false);
+        return 1;
+    }
+    // A layer barrier preserves the original bottom-up build order. Reservations are
+    // transient; completed out-of-order indices are durable, and share undo history.
+    private void teamBuild(MinecraftServer server,ServerLevel level,Job j) {
+        var plan=cells(j);
+        if(j.cursor>=plan.size()) {
+            j.status="DONE"; j.completedAt=System.currentTimeMillis(); j.reason="";
+            stopTeam(level,j);
+            if(save()) { cleanupWorker(server,j); notifyCompletion(server,j); }
+            return;
+        }
+        int layer=plan.get(j.cursor).y();
+        var workers=team(j);
+        var reserved=new HashSet<Integer>();
+        for(Worker w:workers) {
+            boolean live=level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc&&npc.isAlive();
+            if(!live||w.assignment<j.cursor||w.assignment>=plan.size()||plan.get(w.assignment).y()!=layer||j.teamDone.contains(w.assignment)||!reserved.add(w.assignment)) {
+                w.assignment=-1; resetMovement(w);
+            }
+        }
+        for(Worker w:workers) {
+            if(storageFailed||!j.status.equals("RUNNING")) return;
+            if(!(level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
+            if(w.assignment<0) {
+                // Reserve distinct positions in a bounded lookahead, choosing the nearest
+                // among candidates to distribute travel without scanning the entire map.
+                double best=Double.MAX_VALUE; int inspected=0;
+                for(int i=j.cursor;i<plan.size()&&plan.get(i).y()==layer&&inspected<128;i++) {
+                    if(j.teamDone.contains(i)||reserved.contains(i)) continue;
+                    inspected++;
+                    var c=plan.get(i); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
+                    double distance=npc.position().distanceToSqr(Vec3.atCenterOf(pos));
+                    if(distance<best) { best=distance; w.assignment=i; }
+                }
+                if(w.assignment<0) continue;
+                reserved.add(w.assignment); w.teamStalled=0;
+            }
+            int index=w.assignment;
+            var c=plan.get(index); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
+            if(!loadTarget(level,w,pos)) continue;
+            String problem=siteProblem(level,pos);
+            if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
+            var wanted=material(j,c.material()); var current=level.getBlockState(pos);
+            boolean done=current.equals(wanted);
+            if(!done) {
+                if(!current.isAir()) { blocked(j,npc,"New obstruction at "+pos.toShortString()); return; }
+                if(approach(w,npc,level,pos)&&level.getEntities(npc,new AABB(pos)).isEmpty()) {
+                    npc.swing(InteractionHand.MAIN_HAND);
+                    if(level.setBlock(pos,wanted,3)) { j.placed.add(index); done=true; }
+                }
+            }
+            if(done) {
+                j.teamDone.add(index); w.assignment=-1; w.teamStalled=0; resetMovement(w);
+                while(j.teamDone.remove(j.cursor)) j.cursor++;
+                j.reason="";
+                if(!save()) return;
+                if(j.cursor>=plan.size()||plan.get(j.cursor).y()!=layer) return;
+            } else if(++w.teamStalled>=60) {
+                blocked(j,npc,"Team builder cannot reach or place "+pos.toShortString()); return;
+            }
+        }
+    }
     private void travelTick(MinecraftServer server) {
         for(Job j:jobs.values()) {
             if(storageFailed) return;
-            if(!j.status.equals("RUNNING")||j.surveying||j.workTarget==null) continue;
+            if(!j.status.equals("RUNNING")||j.surveying) continue;
             var level=jobLevel(server,j);
-            if(level==null||!level.hasChunkAt(j.workTarget)) continue;
-            if(!(level.getEntity(UUID.fromString(j.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
-            approach(j,npc,level,j.workTarget);
+            if(level==null) continue;
+            for(Worker w:team(j)) {
+                if(w.workTarget==null||!level.hasChunkAt(w.workTarget)) continue;
+                if(!(level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
+                approach(w,npc,level,w.workTarget);
+            }
         }
     }
     private void tick(TickEvent.ServerTickEvent.Post e) {
@@ -748,7 +897,7 @@ public final class Architects {
         if(!storageFailed) runSurveys(e.getServer());
         if(ticks%10!=0) { if(!storageFailed) travelTick(e.getServer()); return; }
         if(storageFailed) {
-            for(Job j:jobs.values()) { var world=jobLevel(e.getServer(),j); if(world!=null) { if(world.getEntity(UUID.fromString(j.worker)) instanceof Villager worker) setWorking(worker,false); releaseTickets(world,j); } }
+            for(Job j:jobs.values()) { var world=jobLevel(e.getServer(),j); if(world!=null) { stopTeam(world,j); } }
             return;
         }
         for(Job j:jobs.values()) {
@@ -757,6 +906,13 @@ public final class Architects {
             if(level==null) continue;
             if(terminal(j)) { cleanupWorker(e.getServer(),j); notifyCompletion(e.getServer(),j); continue; }
             if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager worker && worker.isAlive()) { protect(worker); setWorking(worker,j.status.equals("RUNNING")&&!storageFailed); if(j.status.equals("RUNNING")) checkpointWorker(level,j,worker); }
+            for(Worker w:j.assistants) {
+                if(j.status.equals("RUNNING")) {
+                    ticket(level,w,workerAnchor(w),true);
+                    if(level.getEntity(UUID.fromString(w.worker)) instanceof Villager worker&&worker.isAlive()) { protect(worker); setWorking(worker,!j.surveying&&!j.clearing); checkpointWorker(level,w,worker); }
+                    else if(w.workerDied) replaceWorker(level,j,w,workerAnchor(w));
+                } else { if(level.getEntity(UUID.fromString(w.worker)) instanceof Villager worker) setWorking(worker,false); releaseTickets(level,w); }
+            }
             if(j.status.equals("RUNNING")) {
                 ticket(level,j,workerAnchor(j),true);
                 step(e.getServer(),j);
@@ -774,7 +930,7 @@ public final class Architects {
         } else {
             if(j.workerDied) {
                 var anchor=workerAnchor(j);
-                npc=replaceWorker(level,j,anchor);
+                npc=replaceWorker(level,j,j,anchor);
                 if(npc==null) { waiting(j,"Builder died; waiting for a safe loaded respawn position. Use /architect recover "+j.id); return; }
             } else {
                 waiting(j,"Builder unavailable; loading saved worker chunk "+new ChunkPos(workerAnchor(j))+". Use /architect recover "+j.id+" only if the builder is gone.");
@@ -783,6 +939,7 @@ public final class Architects {
         }
         if(j.surveying) { return; }
         if(j.clearing) { clearStep(level,npc,j); return; }
+        if(!j.assistants.isEmpty()) { teamBuild(server,level,j); return; }
         if(j.cursor>=cells.size()) { j.status="DONE"; j.completedAt=System.currentTimeMillis(); j.reason=""; setWorking(npc,false); resetMovement(j); releaseTickets(level,j); LOGGER.info("NPC Architects job {} completed",j.id); if(save()) { cleanupWorker(server,j); notifyCompletion(server,j); } return; }
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
         if(!loadTarget(level,j,pos)) { waiting(j,"Loading construction chunk "+new ChunkPos(pos)); return; }
