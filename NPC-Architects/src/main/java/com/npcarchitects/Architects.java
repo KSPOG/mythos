@@ -47,7 +47,11 @@ public final class Architects {
     private static final class Selection { BlockPos first, second; String dimension; int rotation; }
     private Path file, schematicDirectory, planDirectory;
     private static final TicketType<Integer> WORK_TICKET=TicketType.create("npcarchitects_work",Integer::compare,40);
-    private static final int SURVEY_BATCH=1024;
+    private static final int CLEAR_BATCH=1024;
+    private static final int SURVEY_BATCH=Math.max(1,Integer.getInteger("npcarchitects.surveyBatch",16384));
+    private static final long SURVEY_BUDGET_NS=Math.max(1,Math.min(20,Integer.getInteger("npcarchitects.surveyBudgetMs",4)))*1_000_000L;
+    private static final int SURVEY_CHECKPOINT_TICKS=100;
+    private int surveyRoundRobin;
     private int ticks;
     private boolean storageFailed;
     private static final class Job {
@@ -62,6 +66,8 @@ public final class Architects {
         String planFile;
         boolean surveying;
         int surveyCursor;
+        transient int surveyCheckpointTick;
+        transient int surveyCheckpointCursor;
         transient ChunkPos workChunk, workerChunk;
         
         transient Map<String,BlockState> importedStates;
@@ -88,10 +94,10 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.1.7 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.1.8 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
-        jobs.clear(); selections.clear(); ticks=0; storageFailed=false;
+        jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
         LOGGER.info("NPC Architects server started");
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("npcarchitects-jobs.json");
         try {
@@ -120,9 +126,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.7 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.8 active. Commands: status, house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.7 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.1.8 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -283,26 +289,65 @@ public final class Architects {
         // Let the ticket system load/generate asynchronously; never synchronously generate a map in a tick.
         return level.hasChunkAt(pos);
     }
-    private void surveyStep(ServerLevel level,Villager npc,Job j) {
+    // Surveying is read-only. Keep all world access on the server thread and share
+    // one time/position budget across active surveys rather than per NPC.
+    private int surveyStep(ServerLevel level,Villager npc,Job j,long deadline,int allowance) {
         int total=j.width*j.depth*j.height;
+        int start=j.surveyCursor;
         var desired=desiredStates(j);
         ChunkPos chunk=null;
-        int start=j.surveyCursor;
-        while(j.surveyCursor<total&&j.surveyCursor-start<SURVEY_BATCH) {
+        var air=Blocks.AIR.defaultBlockState();
+        while(j.surveyCursor<total && j.surveyCursor-start<allowance) {
+            if((j.surveyCursor-start)%32==0 && System.nanoTime()-deadline>=0) break;
             var pos=clearPosition(j,j.surveyCursor);
-            var next=new ChunkPos(pos);
-            if(chunk!=null&&!chunk.equals(next)) break;
-            chunk=next;
-            if(!loadTarget(level,j,pos)) { waiting(j,"Loading survey chunk "+next); return; }
-            String problem=siteProblem(level,pos);
-            if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
+            // Refresh the ticket and check chunk readiness only when the chunk changes.
+            int cx=pos.getX()>>4, cz=pos.getZ()>>4;
+            if(chunk==null||chunk.x!=cx||chunk.z!=cz) {
+                chunk=new ChunkPos(cx,cz);
+                if(!loadTarget(level,j,pos)) {
+                    j.reason="Loading survey chunk "+chunk;
+                    break;
+                }
+            }
+            if(level.isOutsideBuildHeight(pos)||!level.getWorldBorder().isWithinBounds(pos)) {
+                blocked(j,npc,"Outside world bounds at "+pos.toShortString()); return j.surveyCursor-start;
+            }
             var current=level.getBlockState(pos);
-            var wanted=desired.getOrDefault(pos,Blocks.AIR.defaultBlockState());
-            if(!current.isAir()&&!current.equals(wanted)&&!canClear(level,pos,current)) { blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString()); return; }
+            // Empty cells cannot contain an obstruction; skip the blueprint lookup.
+            if(!current.isAir()) {
+                var wanted=desired.getOrDefault(pos,air);
+                if(!current.equals(wanted)&&!canClear(level,pos,current)) {
+                    blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString()); return j.surveyCursor-start;
+                }
+            }
             j.surveyCursor++;
+            j.reason="";
         }
-        if(j.surveyCursor==total) { j.surveying=false; LOGGER.info("NPC Architects job {} completed map survey",j.id); }
-        j.reason=""; save();
+        if(j.surveyCursor==total) {
+            j.surveying=false; j.reason="";
+            LOGGER.info("NPC Architects job {} completed map survey ({} positions)",j.id,total);
+            save();
+        } else if(j.surveyCursor!=j.surveyCheckpointCursor && ticks-j.surveyCheckpointTick>=SURVEY_CHECKPOINT_TICKS) {
+            if(save()) { j.surveyCheckpointTick=ticks; j.surveyCheckpointCursor=j.surveyCursor; }
+        }
+        return j.surveyCursor-start;
+    }
+    private void runSurveys(MinecraftServer server) {
+        var active=new ArrayList<Job>();
+        for(Job j:jobs.values()) if(j.surveying&&j.status.equals("RUNNING")) active.add(j);
+        if(active.isEmpty()) return;
+        int offset=Math.floorMod(surveyRoundRobin++,active.size());
+        long deadline=System.nanoTime()+SURVEY_BUDGET_NS;
+        int remaining=SURVEY_BATCH;
+        for(int i=0;i<active.size() && remaining>0 && !storageFailed;i++) {
+            if(System.nanoTime()-deadline>=0) break;
+            Job j=active.get((offset+i)%active.size());
+            var level=jobLevel(server,j);
+            if(level==null) continue;
+            if(!(level.getEntity(UUID.fromString(j.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
+            int share=Math.max(1,remaining/(active.size()-i));
+            remaining-=surveyStep(level,npc,j,deadline,share);
+        }
     }
     private static int fail(CommandSourceStack source,String message) {
         source.sendFailure(Component.literal(message)); return 0;
@@ -533,7 +578,7 @@ public final class Architects {
         int total=j.width*j.depth*j.height;
         var desired=desiredStates(j);
         int start=j.clearCursor;
-        while(j.clearCursor<total && j.clearCursor-start<SURVEY_BATCH) {
+        while(j.clearCursor<total && j.clearCursor-start<CLEAR_BATCH) {
             var pos=clearPosition(j,j.clearCursor);
             if(!loadTarget(level,j,pos)) { waiting(j,"Loading clearing chunk "+new ChunkPos(pos)); return; }
             String problem=siteProblem(level,pos);
@@ -669,7 +714,9 @@ public final class Architects {
         source.sendSuccess(()->Component.literal("Builder replaced for job "+id+"; construction resumed from saved progress."),false); return 1;
     }
     private void tick(TickEvent.ServerTickEvent.Post e) {
-        if(++ticks%10!=0) return;
+        ++ticks;
+        if(!storageFailed) runSurveys(e.getServer());
+        if(ticks%10!=0) return;
         if(storageFailed) {
             for(Job j:jobs.values()) { var world=jobLevel(e.getServer(),j); if(world!=null) { if(world.getEntity(UUID.fromString(j.worker)) instanceof Villager worker) setWorking(worker,false); releaseTickets(world,j); } }
             return;
@@ -704,7 +751,7 @@ public final class Architects {
                 return;
             }
         }
-        if(j.surveying) { surveyStep(level,npc,j); return; }
+        if(j.surveying) { return; }
         if(j.clearing) { clearStep(level,npc,j); return; }
         if(j.cursor>=cells.size()) { j.status="DONE"; j.completedAt=System.currentTimeMillis(); j.reason=""; setWorking(npc,false); resetMovement(j); releaseTickets(level,j); LOGGER.info("NPC Architects job {} completed",j.id); if(save()) { cleanupWorker(server,j); notifyCompletion(server,j); } return; }
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
