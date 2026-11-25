@@ -34,6 +34,10 @@ public final class ArcaneBow {
     private static final String HELD="ksp_arcane_bow_held";
     private final Map<UUID,HeldModel> held=new HashMap<>();
     private record HeldModel(ServerLevel level,List<Display.BlockDisplay> parts){}
+    private float yawOffset=-90f;
+    private float handHeight=.95f;
+    private float handForward=.22f;
+    private float handSide=.36f;
     private int tick;
     public ArcaneBow(){
         var bus=MinecraftForge.EVENT_BUS;
@@ -172,13 +176,15 @@ public final class ArcaneBow {
             if(!p.isAlive()||p.isSpectator()||(!main&&!off))continue;
             UUID id=p.getUUID();keep.add(id);
             boolean drawing=p.isUsingItem()&&isArcane(p.getUseItem());
-            boolean right=(p.getMainArm()==HumanoidArm.RIGHT)==main;
-            double yaw=Math.toRadians(p.getYRot());
+            boolean useMain=drawing?p.getUsedItemHand()==net.minecraft.world.InteractionHand.MAIN_HAND:main;
+            boolean right=(p.getMainArm()==HumanoidArm.RIGHT)==useMain;
+            float facing=drawing?p.getYRot():p.yBodyRot;
+            double yaw=Math.toRadians(facing);
             Vec3 forward=new Vec3(-Math.sin(yaw),0,Math.cos(yaw));
             Vec3 lateral=new Vec3(-Math.cos(yaw),0,-Math.sin(yaw)).scale(right?1:-1);
-            Vec3 origin=p.position().add(0,p.isCrouching()?1.10:1.34,0).add(lateral.scale(.43)).add(forward.scale(drawing?.65:.36));
+            Vec3 origin=p.position().add(0,handHeight-(p.isCrouching()?.20:0)+(drawing?.45:0),0).add(lateral.scale(drawing?handSide*.65:handSide)).add(forward.scale(drawing?handForward+.36:handForward));
             if(drawing)origin=origin.add(0,-Math.sin(Math.toRadians(p.getXRot()))*.40,0);
-            float rotation=p.getYRot()+90f,pitch=0f;
+            float rotation=facing+yawOffset,pitch=0f;
             HeldModel model=held.get(id);
             if(model!=null&&(model.level()!=p.serverLevel()||model.parts().stream().anyMatch(Entity::isRemoved))){
                 discard(model);held.remove(id);model=null;
@@ -191,8 +197,7 @@ public final class ArcaneBow {
                 held.put(id,model);
             }
             for(var d:model.parts()){
-                d.setPos(origin.x,origin.y,origin.z);
-                d.setYRot(rotation);d.setXRot(pitch);
+                d.moveTo(origin.x,origin.y,origin.z,rotation,pitch);
             }
         }
         var it=held.entrySet().iterator();
@@ -203,6 +208,9 @@ public final class ArcaneBow {
             .then(Commands.literal("spawn").executes(c->spawn(c.getSource(),1f))
                 .then(Commands.argument("scale",FloatArgumentType.floatArg(.25f,3f)).executes(c->spawn(c.getSource(),FloatArgumentType.getFloat(c,"scale")))))
             .then(Commands.literal("give").executes(c->give(c.getSource())))
+            .then(Commands.literal("held").then(Commands.literal("yaw").then(Commands.argument("degrees",FloatArgumentType.floatArg(-360f,360f)).executes(c->{yawOffset=FloatArgumentType.getFloat(c,"degrees");c.getSource().sendSuccess(()->Component.literal("Held bow yaw: "+yawOffset),false);return 1;})))
+                .then(Commands.literal("offset").then(Commands.argument("side",FloatArgumentType.floatArg(0,1)).then(Commands.argument("height",FloatArgumentType.floatArg(0,2)).then(Commands.argument("forward",FloatArgumentType.floatArg(-1,1)).executes(c->{handSide=FloatArgumentType.getFloat(c,"side");handHeight=FloatArgumentType.getFloat(c,"height");handForward=FloatArgumentType.getFloat(c,"forward");c.getSource().sendSuccess(()->Component.literal("Held bow offset updated."),false);return 1;})))))
+                .then(Commands.literal("reset").executes(c->{yawOffset=-90f;handHeight=.95f;handForward=.22f;handSide=.36f;return 1;})))
             .then(Commands.literal("clear").executes(c->{
                 var s=c.getSource();return run(s,"kill @e[type=minecraft:block_display,tag="+TAG+",distance=..32]");
             })));

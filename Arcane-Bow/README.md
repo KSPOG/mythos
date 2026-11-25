@@ -1,5 +1,8 @@
-# Arcane Bow v0.1.1
+# Arcane Bow v0.1.2
 Standalone Forge 52.1.5 / Minecraft 1.21.1 / Java 21 prototype. Operator level 2 commands: /arcanebow spawn [scale] (0.25–3), /arcanebow give, /arcanebow clear (all loaded model parts within 32 blocks). The procedural model uses vanilla block displays and is decorative, billboard vertical, with a static drawn string. It persists in world saves. The functional weapon is a vanilla bow with custom data/name/glint, vanilla ammo/draw/durability, +2 projectile base damage and cyan/white particles. No custom inventory or held model, no resource pack, no class gating or mana in this prototype. Model and weapon are separate. CI and in-game verification required; no MYTHOS or Holograms dependency.
 
-## Held model prototype v0.1.1
+## Held model prototype v0.1.2
 Equip the tagged Arcane Bow in either hand. A 52-part display model follows an approximate hand anchor and player yaw; drawing extends its position. Unequip, death, spectator, logout, dimension change and shutdown clean up temporary entities. Saved temporary parts are rejected on reload. The original vanilla bow remains visible, including in first person; this is a world-space attachment, not a replacement inventory/hand model. No precise arm pose or animated string yet. Check third-person F5 first. Real display entities incur per-player tracking overhead; no packet virtualization or LOD yet.
+
+## v0.1.2
+Reverse held yaw by 180 degrees, use body yaw when idle, use actual active hand while drawing, lower idle grip and adjust draw anchor. Use `/arcanebow held yaw <degrees>` (default -90), `/arcanebow held offset <side> <height> <forward>` (default .36 .95 .22), `/arcanebow held reset`. Settings are global and session-only. World-space attachment remains approximate; vanilla item visible. No change to decorative model or shooting. Actual clip inaccessible during implementation, verify in game.
