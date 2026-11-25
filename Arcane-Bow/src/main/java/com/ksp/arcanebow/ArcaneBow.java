@@ -8,6 +8,12 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Display;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.TagParser;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -25,11 +31,14 @@ public final class ArcaneBow {
     private static final String SHOT="ksp_arcane_bow_arrow";
     private static final String MARKER="ksp_arcane_bow";
     private final Map<UUID,AbstractArrow> arrows=new HashMap<>();
+    private static final String HELD="ksp_arcane_bow_held";
+    private final Map<UUID,HeldModel> held=new HashMap<>();
+    private record HeldModel(ServerLevel level,List<Display.BlockDisplay> parts){}
     private int tick;
     public ArcaneBow(){
         var bus=MinecraftForge.EVENT_BUS;
         bus.addListener(this::register);bus.addListener(this::join);bus.addListener(this::tick);
-        bus.addListener((ServerStoppingEvent e)->arrows.clear());
+        bus.addListener((ServerStoppingEvent e)->{held.values().forEach(this::discard);held.clear();arrows.clear();});
     }
     // Dimensions in model units, centered on the grip; XY plane, Z thickness.
     private record Part(String material,double x,double y,double angle,double w,double h,double depth){}
@@ -107,6 +116,7 @@ public final class ArcaneBow {
         return run(s,"give @s minecraft:bow[minecraft:custom_data={"+MARKER+":1b},minecraft:custom_name='{\"text\":\"Arcane Bow\",\"color\":\"dark_purple\",\"italic\":false}',minecraft:enchantment_glint_override=true] 1");
     }
     private void join(EntityJoinLevelEvent e){
+        if(e.getLevel() instanceof ServerLevel&&e.getEntity().getTags().contains(HELD)&&e.loadedFromDisk()){e.setCanceled(true);return;}
         if(!(e.getLevel() instanceof ServerLevel)||!(e.getEntity() instanceof AbstractArrow a))return;
         if(a.getTags().contains(SHOT)){arrows.put(a.getUUID(),a);return;}
         // Only attribute newly spawned arrows to the weapon used by a server player.
@@ -120,6 +130,7 @@ public final class ArcaneBow {
     }
     private void tick(TickEvent.ServerTickEvent.Post e){
         tick++;
+        updateHeld(e.getServer().getPlayerList().getPlayers());
         var it=arrows.values().iterator();
         while(it.hasNext()){
             var a=it.next();
@@ -129,6 +140,63 @@ public final class ArcaneBow {
                 level.sendParticles(ParticleTypes.END_ROD,a.getX(),a.getY(),a.getZ(),1,0,0,0,0);
             }
         }
+    }
+    private static boolean isArcane(ItemStack stack){
+        if(!stack.is(net.minecraft.world.item.Items.BOW))return false;
+        var data=stack.get(net.minecraft.core.component.DataComponents.CUSTOM_DATA);
+        return data!=null&&data.copyTag().getBoolean(MARKER);
+    }
+    private void discard(HeldModel model){for(var d:model.parts())d.discard();}
+    private HeldModel makeHeld(ServerPlayer player,Vec3 origin,float yaw,float pitch){
+        ServerLevel level=player.serverLevel();
+        List<Display.BlockDisplay> parts=new ArrayList<>();
+        try{
+            for(Part part:PARTS){
+                // Omit the permanently nocked decorative arrow from the held model.
+                if(parts.size()>=52)break;
+                Display.BlockDisplay d=EntityType.BLOCK_DISPLAY.create(level);
+                if(d==null)throw new IllegalStateException("Cannot create display");
+                CompoundTag tag=TagParser.parseTag("{block_state:{Name:\"minecraft:"+part.material+"\"},billboard:\"fixed\",brightness:{block:15,sky:15},view_range:0.6f,teleport_duration:1,transformation:"+transform(part,.62)+"}");
+                d.load(tag);
+                d.addTag(HELD);d.setPos(origin.x,origin.y,origin.z);d.setYRot(yaw);d.setXRot(pitch);
+                if(!level.addFreshEntity(d))throw new IllegalStateException("Cannot spawn display");
+                parts.add(d);
+            }
+            return new HeldModel(level,parts);
+        }catch(Exception ex){for(var d:parts)d.discard();return null;}
+    }
+    private void updateHeld(List<ServerPlayer> players){
+        Set<UUID> keep=new HashSet<>();
+        for(ServerPlayer p:players){
+            boolean main=isArcane(p.getMainHandItem()),off=isArcane(p.getOffhandItem());
+            if(!p.isAlive()||p.isSpectator()||(!main&&!off))continue;
+            UUID id=p.getUUID();keep.add(id);
+            boolean drawing=p.isUsingItem()&&isArcane(p.getUseItem());
+            boolean right=(p.getMainArm()==HumanoidArm.RIGHT)==main;
+            double yaw=Math.toRadians(p.getYRot());
+            Vec3 forward=new Vec3(-Math.sin(yaw),0,Math.cos(yaw));
+            Vec3 lateral=new Vec3(-Math.cos(yaw),0,-Math.sin(yaw)).scale(right?1:-1);
+            Vec3 origin=p.position().add(0,p.isCrouching()?1.10:1.34,0).add(lateral.scale(.43)).add(forward.scale(drawing?.65:.36));
+            if(drawing)origin=origin.add(0,-Math.sin(Math.toRadians(p.getXRot()))*.40,0);
+            float rotation=p.getYRot()+90f,pitch=0f;
+            HeldModel model=held.get(id);
+            if(model!=null&&(model.level()!=p.serverLevel()||model.parts().stream().anyMatch(Entity::isRemoved))){
+                discard(model);held.remove(id);model=null;
+            }
+            if(model==null){
+                // Limit creation bursts, and retry failures only once per second.
+                if(tick%20!=0)continue;
+                model=makeHeld(p,origin,rotation,pitch);
+                if(model==null)continue;
+                held.put(id,model);
+            }
+            for(var d:model.parts()){
+                d.setPos(origin.x,origin.y,origin.z);
+                d.setYRot(rotation);d.setXRot(pitch);
+            }
+        }
+        var it=held.entrySet().iterator();
+        while(it.hasNext()){var entry=it.next();if(!keep.contains(entry.getKey())){discard(entry.getValue());it.remove();}}
     }
     private void register(RegisterCommandsEvent e){
         e.getDispatcher().register(Commands.literal("arcanebow").requires(s->s.hasPermission(2))
