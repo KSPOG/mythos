@@ -81,6 +81,12 @@ public final class Architects {
     }
     private static final class Job extends Worker {
         List<Worker> assistants=new ArrayList<>();
+        String distribution="adaptive";
+        int spacing=8;
+        transient int zoneLayer=Integer.MIN_VALUE, zoneScan, zoneTeam;
+        transient String zoneMode;
+        transient List<NavigableSet<Integer>> zoneQueues;
+
         Set<Integer> teamDone=new HashSet<>();
         Set<Integer> clearDone=new HashSet<>();
         List<String> retiredWorkers=new ArrayList<>();
@@ -120,7 +126,7 @@ public final class Architects {
         MinecraftForge.EVENT_BUS.addListener(this::targetChanged);
         MinecraftForge.EVENT_BUS.addListener(this::workerJoined);
         MinecraftForge.EVENT_BUS.addListener(this::playerJoined);
-        LOGGER.info("NPC Architects 0.2.3 initialized; Forge event listeners registered");
+        LOGGER.info("NPC Architects 0.2.4 initialized; Forge event listeners registered");
     }
     private void started(ServerStartedEvent e) {
         jobs.clear(); selections.clear(); ticks=0; surveyRoundRobin=0; storageFailed=false;
@@ -152,9 +158,9 @@ public final class Architects {
     }
     private void commands(RegisterCommandsEvent e) {
         var root=Commands.literal("architect").executes(c->{
-            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.3 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
+            c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.4 active. Commands: status [all/id], house <width> <depth> [height], pos1, pos2, rotate, preview house, build house, schematic list/info/preview/build, undo [id], recover <id>, respawn <id> [worker]/all, add <id> <count>, distribution, spacing, rebalance, zones, pause, resume, cancel. Construction requires operator level 2."),false); return 1;
         });
-        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.3 is responding."),false); return 1; }));
+        root.then(Commands.literal("ping").executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects 0.2.4 is responding."),false); return 1; }));
         root.then(Commands.literal("house").requires(src->src.hasPermission(2))
             .then(Commands.argument("width",IntegerArgumentType.integer(5,15))
             .then(Commands.argument("depth",IntegerArgumentType.integer(5,15))
@@ -201,6 +207,19 @@ public final class Architects {
             .then(Commands.literal("all").executes(c->showStatus(c.getSource(),true)))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->showRoster(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
         for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; var world=jobLevel(c.getSource().getServer(),j); for(Worker w:team(j)) { resetMovement(w); w.assignment=-1; w.teamStalled=0; w.returningHome=false; w.recoveryAttempts=0; w.homeWait=0; if(world!=null) { if(world.getEntity(UUID.fromString(w.worker)) instanceof Villager worker) setWorking(worker,j.status.equals("RUNNING")); if(j.status.equals("RUNNING")) ticket(world,w,workerAnchor(w),true); else releaseTickets(world,w); } } if(!save()) return 0; if(terminal(j)) cleanupWorker(c.getSource().getServer(),j); c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
+        root.then(Commands.literal("distribution").requires(src->src.hasPermission(2))
+            .then(Commands.argument("id",IntegerArgumentType.integer(1))
+                .then(Commands.argument("mode",StringArgumentType.word())
+                    .suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggest(List.of("adaptive","quadrants","strips","chunks"),b))
+                    .executes(c->configureZones(c.getSource(),IntegerArgumentType.getInteger(c,"id"),StringArgumentType.getString(c,"mode"),-1)))));
+        root.then(Commands.literal("spacing").requires(src->src.hasPermission(2))
+            .then(Commands.argument("id",IntegerArgumentType.integer(1))
+                .then(Commands.argument("blocks",IntegerArgumentType.integer(0,64))
+                    .executes(c->configureZones(c.getSource(),IntegerArgumentType.getInteger(c,"id"),null,IntegerArgumentType.getInteger(c,"blocks"))))));
+        root.then(Commands.literal("rebalance").requires(src->src.hasPermission(2))
+            .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->configureZones(c.getSource(),IntegerArgumentType.getInteger(c,"id"),null,-1))));
+        root.then(Commands.literal("zones").requires(src->src.hasPermission(2))
+            .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->showZones(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
         e.getDispatcher().register(root);
         LOGGER.info("NPC Architects registered /architect commands");
     }
@@ -984,6 +1003,84 @@ public final class Architects {
         int area=sw*sd;
         return (int)(rowStart+((index-rowStart)/area+1)*area);
     }
+    private static String mode(Job j){return WorkZones.MODES.contains(j.distribution==null?"":j.distribution)?j.distribution:"adaptive";}
+    private static int zone(Job j,BlockPos pos,int count){
+        return WorkZones.zone(mode(j),pos.getX()-j.x,pos.getZ()-j.z,physicalWidth(j),physicalDepth(j),count);
+    }
+    private int configureZones(CommandSourceStack source,int id,String mode,int spacing){
+        Job j=jobs.get(id);
+        if(j==null||terminal(j)||storageFailed)return fail(source,"Job unavailable.");
+        if(mode!=null&&!WorkZones.MODES.contains(mode))return fail(source,"Use adaptive, quadrants, strips or chunks.");
+        if(mode!=null)j.distribution=mode;
+        if(spacing>=0)j.spacing=spacing;
+        j.zoneQueues=null;
+        for(Worker w:team(j)){w.assignment=-1;w.teamStalled=0;resetMovement(w);}
+        if(!save())return 0;
+        source.sendSuccess(()->Component.literal("Project #"+id+" distribution="+mode(j)+", preferred spacing="+j.spacing+" blocks; assignments refreshed."),false);
+        return 1;
+    }
+    private int showZones(CommandSourceStack source,int id){
+        Job j=jobs.get(id);if(j==null)return fail(source,"Unknown project.");
+        var ws=team(j);var level=jobLevel(source.getServer(),j);
+        source.sendSuccess(()->Component.literal("Project #"+id+" | "+mode(j)+" | preferred spacing "+j.spacing+" | "+ws.size()+" zones"),false);
+        var player=source.getEntity() instanceof net.minecraft.server.level.ServerPlayer p?p:null;
+        // Bounded, requester-only markers at current targets (no force loading).
+        for(int i=0;i<ws.size();i++){
+            Worker w=ws.get(i);BlockPos pos=w.assignment<0?null:j.clearing?clearPosition(j,w.assignment):w.assignment<cells(j).size()?buildPosition(j,cells(j).get(w.assignment)):null;
+            String line="Architect "+(i+1)+" | preferred zone "+(i+1)+" | "+(pos==null?"unassigned":pos.toShortString());
+            source.sendSuccess(()->Component.literal(line),false);
+            if(pos!=null&&player!=null&&level==player.serverLevel()&&player.distanceToSqr(Vec3.atCenterOf(pos))<=96*96){
+                float hue=(float)i/ws.size();int rgb=java.awt.Color.HSBtoRGB(hue,.85f,1f);
+                var dust=new net.minecraft.core.particles.DustParticleOptions(new org.joml.Vector3f(((rgb>>16)&255)/255f,((rgb>>8)&255)/255f,(rgb&255)/255f),1.5f);
+                level.sendParticles(player,dust,false,pos.getX()+.5,pos.getY()+1.1,pos.getZ()+.5,12,.35,.35,.35,0);
+            }
+        }
+        return 1;
+    }
+    private static BlockPos buildPosition(Job j,Blueprint.Cell c){return new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());}
+    private static double assignmentScore(Job j,Villager npc,BlockPos pos,int preferred,int count,List<BlockPos> occupied){
+        double score=npc.position().distanceToSqr(Vec3.atCenterOf(pos));
+        if(zone(j,pos,count)!=preferred)score+=64;
+        double min=Math.max(0,j.spacing);double minSq=min*min;
+        for(BlockPos other:occupied){
+            double dx=(double)pos.getX()-other.getX(),dz=(double)pos.getZ()-other.getZ(),dist=dx*dx+dz*dz;
+            if(dist<minSq)score+=(minSq-dist)*8;
+        }
+        return score;
+    }
+    // Index the current layer incrementally; retain original plan indices and completion order.
+    private static boolean indexZones(Job j,List<Blueprint.Cell> plan,int layer,int count){
+        if(j.zoneQueues==null||j.zoneLayer!=layer||j.zoneTeam!=count||!mode(j).equals(j.zoneMode)){
+            j.zoneQueues=new ArrayList<>();for(int i=0;i<count;i++)j.zoneQueues.add(new TreeSet<>());
+            j.zoneScan=j.cursor;j.zoneLayer=layer;j.zoneTeam=count;j.zoneMode=mode(j);
+        }
+        int scanned=0;
+        while(j.zoneScan<plan.size()&&plan.get(j.zoneScan).y()==layer&&scanned++<8192){
+            int index=j.zoneScan++;
+            if(!j.teamDone.contains(index))j.zoneQueues.get(zone(j,buildPosition(j,plan.get(index)),count)).add(index);
+        }
+        return j.zoneScan>=plan.size()||plan.get(j.zoneScan).y()!=layer;
+    }
+    private static int chooseBuild(Job j,List<Blueprint.Cell> plan,Villager npc,int preferred,Set<Integer> reserved,List<BlockPos> occupied){
+        int count=j.zoneQueues.size(),best=-1;double score=Double.MAX_VALUE;
+        // Prefer the worker's own zone, then steal work from other zones when empty.
+        for(int pass=0;pass<2;pass++){
+            for(int z=0;z<count;z++){
+                if((pass==0)!=(z==preferred))continue;
+                var queue=j.zoneQueues.get(z);
+                while(!queue.isEmpty()&&(queue.first()<j.cursor||j.teamDone.contains(queue.first())))queue.pollFirst();
+                int examined=0;
+                for(int index:queue){
+                    if(index<j.cursor||j.teamDone.contains(index)||reserved.contains(index))continue;
+                    if(examined++>=128)break;
+                    double value=assignmentScore(j,npc,buildPosition(j,plan.get(index)),preferred,count,occupied);
+                    if(value<score){score=value;best=index;}
+                }
+            }
+            if(best>=0)return best;
+        }
+        return -1;
+    }
     private void teamClear(ServerLevel level,Job j) {
         for(Worker w:team(j)) if(w.returningHome&&level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc&&npc.isAlive()) { returnHome(level,j,w,npc); if(storageFailed||!j.status.equals("RUNNING")) return; }
         int total=j.width*j.depth*j.height;
@@ -1029,19 +1126,24 @@ public final class Architects {
         if(progressed&&!save()) return;
         if(j.clearCursor>=total) { finishTeamClear(level,j); return; }
         if(j.clearCursor>=end) return;
-        for(Worker w:workers) {
+        var occupied=new ArrayList<BlockPos>();
+        for(int index:reserved)occupied.add(clearPosition(j,index));
+        for(int wi=0;wi<workers.size();wi++) {
+            Worker w=workers.get(wi);
             if(storageFailed||!j.status.equals("RUNNING")) return;
             if(!(level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
             if(w.returningHome) continue;
             if(w.assignment<0) {
                 double best=Double.MAX_VALUE;
-                for(int index:candidates) {
+                for(int pass=0;pass<2&&w.assignment<0;pass++)for(int index:candidates) {
                     if(index<j.clearCursor||j.clearDone.contains(index)||reserved.contains(index)) continue;
-                    double distance=npc.position().distanceToSqr(Vec3.atCenterOf(clearPosition(j,index)));
+                    BlockPos target=clearPosition(j,index);
+                    if(pass==0&&zone(j,target,workers.size())!=wi)continue;
+                    double distance=assignmentScore(j,npc,target,wi,workers.size(),occupied);
                     if(distance<best) { best=distance; w.assignment=index; }
                 }
                 if(w.assignment<0) continue;
-                reserved.add(w.assignment); w.teamStalled=0;
+                reserved.add(w.assignment); occupied.add(clearPosition(j,w.assignment)); w.teamStalled=0;
             }
             int index=w.assignment;
             var pos=clearPosition(j,index);
@@ -1095,23 +1197,19 @@ public final class Architects {
                 w.assignment=-1; resetMovement(w);
             }
         }
-        for(Worker w:workers) {
+        boolean indexed=indexZones(j,plan,layer,workers.size());
+        var occupied=new ArrayList<BlockPos>();
+        for(int index:reserved)occupied.add(buildPosition(j,plan.get(index)));
+        for(int wi=0;wi<workers.size();wi++) {
+            Worker w=workers.get(wi);
             if(storageFailed||!j.status.equals("RUNNING")) return;
             if(!(level.getEntity(UUID.fromString(w.worker)) instanceof Villager npc)||!npc.isAlive()) continue;
             if(returnHome(level,j,w,npc)) continue;
             if(w.assignment<0) {
-                // Reserve distinct positions in a bounded lookahead, choosing the nearest
-                // among candidates to distribute travel without scanning the entire map.
-                double best=Double.MAX_VALUE; int inspected=0;
-                for(int i=j.cursor;i<plan.size()&&plan.get(i).y()==layer&&inspected<128;i++) {
-                    if(j.teamDone.contains(i)||reserved.contains(i)) continue;
-                    inspected++;
-                    var c=plan.get(i); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
-                    double distance=npc.position().distanceToSqr(Vec3.atCenterOf(pos));
-                    if(distance<best) { best=distance; w.assignment=i; }
-                }
+                if(!indexed)continue;
+                w.assignment=chooseBuild(j,plan,npc,wi,reserved,occupied);
                 if(w.assignment<0) continue;
-                reserved.add(w.assignment); w.teamStalled=0;
+                reserved.add(w.assignment); occupied.add(buildPosition(j,plan.get(w.assignment))); w.teamStalled=0;
             }
             int index=w.assignment;
             var c=plan.get(index); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
@@ -1128,7 +1226,7 @@ public final class Architects {
                 }
             }
             if(done) {
-                j.teamDone.add(index); w.assignment=-1; w.teamStalled=0; w.recoveryAttempts=0; resetMovement(w);
+                j.teamDone.add(index); if(j.zoneQueues!=null)j.zoneQueues.get(zone(j,pos,workers.size())).remove(index); w.assignment=-1; w.teamStalled=0; w.recoveryAttempts=0; resetMovement(w);
                 while(j.teamDone.remove(j.cursor)) j.cursor++;
                 j.reason="";
                 if(!save()) return;
