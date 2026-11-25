@@ -1,0 +1,45 @@
+name: Server Restart build
+on:
+  pull_request:
+    paths: ['Server-Restart/**', '.github/workflows/server-restart.yml']
+  push:
+    branches: [main]
+    paths: ['Server-Restart/**', '.github/workflows/server-restart.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Server-Restart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Duration tests
+        run: |
+          mkdir -p build/duration-test
+          javac --release 21 -d build/duration-test src/main/java/com/ksp/serverrestart/DurationParser.java tests/DurationTest.java
+          java -cp build/duration-test com.ksp.serverrestart.DurationTest
+          bash -n start-restart.sh
+      - name: Forge wrapper
+        run: |
+          curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.5/forge-1.21.1-52.1.5-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
+          unzip -o "${RUNNER_TEMP}/forge-mdk.zip" gradlew 'gradle/wrapper/*'
+          chmod +x gradlew
+      - name: Compile mod
+        run: ./gradlew --no-daemon build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-restart-0.1.0
+          path: |
+            Server-Restart/build/libs/*.jar
+            Server-Restart/start-restart.ps1
+            Server-Restart/start-restart.sh
+            Server-Restart/README.md
+          if-no-files-found: error

@@ -1,0 +1,7 @@
+# Server Restart 0.1.0
+Standalone server-only Minecraft 1.21.1 / Forge 52.1.5 / Java 21 mod. No MYTHOS or NPC Architects dependency. Vanilla boss bar, operator level 2 commands. /restart 50m, /restart 1h30m, /restart 30s, /restart now (1 second), /restart status, /restart cancel. A new schedule replaces an existing countdown. Uses monotonic real elapsed time, checks on server ticks; if ticking is paused the restart is processed on the next tick. Range 1 second to 365 days. Countdown is intentionally not persisted across an unrelated server shutdown.
+
+## Install
+Copy the compiled JAR to mods and the appropriate start-restart script beside Forge run.bat/run.sh. Windows: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-restart.ps1. Linux: bash ./start-restart.sh. Keep Java 21 selected. The supervisor uses a fresh UUID token and consumes a restart marker after the Java process exits successfully; normal stops and crashes do not trigger relaunch. A mod cannot reliably restart its own JVM without a supervisor. Commands refuse scheduling if launcher token is absent. The launcher waits 5 seconds after a requested clean exit.
+
+The supervisors invoke Java directly with the exact Forge 52.1.5 argument files and user_jvm_args.txt, avoiding generated run.bat pauses and preserving the Java exit code. Do not run multiple supervisors for the same server directory. Hosting panels may need their own supervisor integration. Test graceful shutdown, actual restart, cancellation and ordinary stop on a backup world. No runtime verification yet.
