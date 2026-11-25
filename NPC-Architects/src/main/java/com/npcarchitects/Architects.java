@@ -23,6 +23,8 @@ import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.MoverType;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.server.level.TicketType;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingChangeTargetEvent;
@@ -40,7 +42,9 @@ public final class Architects {
     private final Map<Integer, Job> jobs = new LinkedHashMap<>();
     private final Map<UUID, Selection> selections = new HashMap<>();
     private static final class Selection { BlockPos first, second; String dimension; int rotation; }
-    private Path file, schematicDirectory;
+    private Path file, schematicDirectory, planDirectory;
+    private static final TicketType<Integer> WORK_TICKET=TicketType.create("npcarchitects_work",Integer::compare,40);
+    private static final int SURVEY_BATCH=1024;
     private int ticks;
     private boolean storageFailed;
     private static final class Job {
@@ -51,7 +55,12 @@ public final class Architects {
         transient int movementFailures;
         boolean clearing, workerDied;
         String schematic;
-        List<Blueprint.Cell> imported;
+        transient List<Blueprint.Cell> imported;
+        String planFile;
+        boolean surveying;
+        int surveyCursor;
+        transient ChunkPos workChunk, workerChunk;
+        
         transient Map<String,BlockState> importedStates;
         transient Map<BlockPos,BlockState> desiredCache;
         Integer workerX, workerY, workerZ;
@@ -80,14 +89,16 @@ public final class Architects {
         try {
             schematicDirectory=file.resolveSibling("npcarchitects-schematics");
             Files.createDirectories(schematicDirectory);
+            planDirectory=file.resolveSibling("npcarchitects-plans");
+            Files.createDirectories(planDirectory);
             if (Files.exists(file)) {
                 List<Job> loaded=JSON.fromJson(Files.readString(file),new TypeToken<List<Job>>(){}.getType());
                 if (loaded==null) throw new IllegalStateException("Empty job store");
-                for (Job j:loaded) { validatePlan(j); UUID.fromString(j.worker); if(j.cursor<0 || j.cursor>cells(j).size() || j.clearCursor<0 || j.clearCursor>j.width*j.depth*j.height || j.cleared==null || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
+                for (Job j:loaded) { loadPlan(j); validatePlan(j); UUID.fromString(j.worker); if(j.cursor<0 || j.cursor>cells(j).size() || j.clearCursor<0 || j.clearCursor>j.width*j.depth*j.height || j.surveyCursor<0 || j.surveyCursor>j.width*j.depth*j.height || j.cleared==null || j.placed==null || jobs.putIfAbsent(j.id,j)!=null) throw new IllegalStateException("Invalid job"); }
             }
         } catch(Exception ex) { storageFailed=true; jobs.clear(); LOGGER.error("NPC Architects: cannot load jobs", ex); }
     }
-    private void stopping(ServerStoppingEvent e) { save(); jobs.clear(); selections.clear(); file=null; schematicDirectory=null; }
+    private void stopping(ServerStoppingEvent e) { for(Job j:jobs.values()) { var level=jobLevel(e.getServer(),j); if(level!=null) releaseTickets(level,j); } save(); jobs.clear(); selections.clear(); file=null; schematicDirectory=null; planDirectory=null; }
     private boolean save() {
         if(file==null || storageFailed) return false;
         try {
@@ -137,7 +148,7 @@ public final class Architects {
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->undo(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
         root.then(Commands.literal("recover").requires(src->src.hasPermission(2))
             .then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->recover(c.getSource(),IntegerArgumentType.getInteger(c,"id")))));
-        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)+" "+j.status+" "+(j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
+        root.then(Commands.literal("status").requires(src->src.hasPermission(2)).executes(c->{ c.getSource().sendSuccess(()->Component.literal("NPC Architects: "+jobs.size()+" job(s)"+(storageFailed?" | storage error":" | storage ready")),false); for(Job j:jobs.values()) c.getSource().sendSuccess(()->Component.literal(j.id+": "+(j.schematic==null?"house":j.schematic)+" "+j.status+" "+(j.surveying?"SURVEYING "+j.surveyCursor+"/"+(j.width*j.depth*j.height):j.clearing?"CLEARING "+j.clearCursor+"/"+(j.width*j.depth*j.height):"BUILDING "+j.cursor+"/"+cells(j).size())+(j.reason.isEmpty()?"":" | "+j.reason)),false); return 1; }));
         for(String action:List.of("pause","resume","cancel")) root.then(Commands.literal(action).requires(src->src.hasPermission(2)).then(Commands.argument("id",IntegerArgumentType.integer(1)).executes(c->{ Job j=jobs.get(IntegerArgumentType.getInteger(c,"id")); if(j==null || storageFailed || j.status.equals("DONE") || j.status.equals("CANCELLED") || j.status.equals("UNDONE")) { c.getSource().sendFailure(Component.literal("Job unavailable, terminal or storage failed")); return 0; } j.status=switch(action){case "pause"->"PAUSED";case "cancel"->"CANCELLED";default->"RUNNING";}; j.stalled=0; j.reason=""; resetMovement(j); var world=jobLevel(c.getSource().getServer(),j); if(world!=null && world.getEntity(UUID.fromString(j.worker)) instanceof Villager worker) setWorking(worker,j.status.equals("RUNNING")); if(!save()) return 0; c.getSource().sendSuccess(()->Component.literal("Job "+j.id+": "+j.status),false); return 1; })));
         e.getDispatcher().register(root);
         LOGGER.info("NPC Architects registered /architect commands");
@@ -177,13 +188,101 @@ public final class Architects {
     private static void validatePlan(Job j) {
         var plan=cells(j);
         if(j.imported==null) return;
-        if(j.rotation!=0||j.width<1||j.depth<1||j.height<1||j.width>64||j.depth>64||j.height>64||(long)j.width*j.depth*j.height>SchematicImport.MAX_VOLUME||plan.isEmpty()||plan.size()>(long)j.width*j.depth*j.height) throw new IllegalArgumentException("Invalid saved schematic dimensions");
+        if(j.rotation!=0||j.width<1||j.depth<1||j.height<1||(long)j.width*j.depth*j.height>Integer.MAX_VALUE-8L||plan.isEmpty()||plan.size()>(long)j.width*j.depth*j.height) throw new IllegalArgumentException("Invalid saved schematic dimensions");
         var seen=new HashSet<BlockPos>();
         int lastY=-1;
         for(var c:plan) {
             if(c.x()<0||c.x()>=j.width||c.z()<0||c.z()>=j.depth||c.y()<lastY||c.y()<0||c.y()>=j.height||!seen.add(new BlockPos(c.x(),c.y(),c.z()))||material(j,c.material()).isAir()) throw new IllegalArgumentException("Invalid saved schematic cell");
             lastY=c.y();
         }
+    }
+    private void persistPlan(Job j) throws java.io.IOException {
+        j.planFile=UUID.randomUUID()+".json";
+        var path=planDirectory.resolve(j.planFile);
+        var temp=path.resolveSibling(path.getFileName()+".tmp");
+        try(var out=Files.newBufferedWriter(temp)) { JSON.toJson(j.imported,out); }
+        try { Files.move(temp,path,StandardCopyOption.ATOMIC_MOVE); }
+        catch(AtomicMoveNotSupportedException ex) { Files.move(temp,path); }
+    }
+    private void loadPlan(Job j) throws java.io.IOException {
+        if(j.planFile==null) { if(j.schematic!=null) throw new java.io.IOException("Missing saved schematic plan"); return; }
+        if(!j.planFile.matches("[0-9a-f-]{36}\\.json")) throw new java.io.IOException("Invalid saved plan filename");
+        var path=planDirectory.resolve(j.planFile);
+        if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS)) throw new java.io.IOException("Missing saved plan "+j.planFile);
+        try(var reader=Files.newBufferedReader(path)) {
+            j.imported=JSON.fromJson(reader,new TypeToken<List<Blueprint.Cell>>(){}.getType());
+        }
+        if(j.imported==null) throw new java.io.IOException("Empty saved plan");
+    }
+    private static int physicalWidth(Job j) { return j.rotation%180==0?j.width:j.depth; }
+    private static int physicalDepth(Job j) { return j.rotation%180==0?j.depth:j.width; }
+    private static boolean overlaps(Job a,Job b) {
+        return a.dimension.equals(b.dimension)&&!b.status.equals("UNDONE")
+            &&(long)a.x<b.x+(long)physicalWidth(b)&&(long)b.x<a.x+(long)physicalWidth(a)
+            &&(long)a.y<b.y+(long)b.height&&(long)b.y<a.y+(long)a.height
+            &&(long)a.z<b.z+(long)physicalDepth(b)&&(long)b.z<a.z+(long)physicalDepth(a);
+    }
+    private int createSchematicJob(CommandSourceStack source,BlockPos origin,Job j,boolean preview) throws CommandSyntaxException {
+        var level=source.getLevel();
+        long endX=(long)j.x+j.width-1,endY=(long)j.y+j.height-1,endZ=(long)j.z+j.depth-1;
+        if(endX>Integer.MAX_VALUE||endY>Integer.MAX_VALUE||endZ>Integer.MAX_VALUE) return fail(source,"Schematic exceeds coordinate range");
+        var end=new BlockPos((int)endX,(int)endY,(int)endZ);
+        if(level.isOutsideBuildHeight(origin)||level.isOutsideBuildHeight(end)||!level.getWorldBorder().isWithinBounds(origin)||!level.getWorldBorder().isWithinBounds(end)) return fail(source,"Schematic exceeds world border or dimension build height");
+        for(Job other:jobs.values()) if(overlaps(j,other)) return fail(source,"Site overlaps job "+other.id);
+        if(preview) {
+            var plan=cells(j);
+            int samples=0;
+            for(int i=0;i<plan.size();i+=Math.max(1,(plan.size()+511L)/512>Integer.MAX_VALUE?Integer.MAX_VALUE:(int)((plan.size()+511L)/512))) {
+                var c=plan.get(i); var pos=origin.offset(c.x(),c.y(),c.z());
+                if(level.hasChunkAt(pos)) { level.sendParticles(ParticleTypes.END_ROD,pos.getX()+0.5,pos.getY()+0.5,pos.getZ()+0.5,1,0,0,0,0); samples++; }
+            }
+            final int count=samples;
+            source.sendSuccess(()->Component.literal("Schematic preview: "+j.width+" x "+j.height+" x "+j.depth+", "+plan.size()+" blocks; "+count+" particles in loaded chunks. Full protection survey runs before clearing. No blocks changed."),false); return 1;
+        }
+        if(file==null||storageFailed) return fail(source,"Storage unavailable");
+        j.surveying=true; j.clearing=true;
+        return spawnJob(source,j,origin,cells(j).size());
+    }
+    private static void ticket(ServerLevel level,Job j,BlockPos pos,boolean worker) {
+        var next=new ChunkPos(pos); var previous=worker?j.workerChunk:j.workChunk;
+        if(previous!=null&&!previous.equals(next)) {
+            var other=worker?j.workChunk:j.workerChunk;
+            if(!previous.equals(other)) level.getChunkSource().removeRegionTicket(WORK_TICKET,previous,2,j.id);
+        }
+        level.getChunkSource().addRegionTicket(WORK_TICKET,next,2,j.id);
+        if(worker) j.workerChunk=next; else j.workChunk=next;
+    }
+    private static void releaseTickets(ServerLevel level,Job j) {
+        if(j.workChunk!=null) level.getChunkSource().removeRegionTicket(WORK_TICKET,j.workChunk,2,j.id);
+        if(j.workerChunk!=null&&!j.workerChunk.equals(j.workChunk)) level.getChunkSource().removeRegionTicket(WORK_TICKET,j.workerChunk,2,j.id);
+        j.workChunk=null; j.workerChunk=null;
+    }
+    private static boolean loadTarget(ServerLevel level,Job j,BlockPos pos) {
+        if(j.imported==null) return level.hasChunkAt(pos);
+        ticket(level,j,pos,false);
+        // Let the ticket system load/generate asynchronously; never synchronously generate a map in a tick.
+        return level.hasChunkAt(pos);
+    }
+    private void surveyStep(ServerLevel level,Villager npc,Job j) {
+        int total=j.width*j.depth*j.height;
+        var desired=desiredStates(j);
+        ChunkPos chunk=null;
+        int start=j.surveyCursor;
+        while(j.surveyCursor<total&&j.surveyCursor-start<SURVEY_BATCH) {
+            var pos=clearPosition(j,j.surveyCursor);
+            var next=new ChunkPos(pos);
+            if(chunk!=null&&!chunk.equals(next)) break;
+            chunk=next;
+            if(!loadTarget(level,j,pos)) { waiting(j,"Loading survey chunk "+next); return; }
+            String problem=siteProblem(level,pos);
+            if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
+            var current=level.getBlockState(pos);
+            var wanted=desired.getOrDefault(pos,Blocks.AIR.defaultBlockState());
+            if(!current.isAir()&&!current.equals(wanted)&&!canClear(level,pos,current)) { blocked(j,npc,"Protected or unbreakable block at "+pos.toShortString()); return; }
+            j.surveyCursor++;
+        }
+        if(j.surveyCursor==total) { j.surveying=false; LOGGER.info("NPC Architects job {} completed map survey",j.id); }
+        j.reason=""; save();
     }
     private static int fail(CommandSourceStack source,String message) {
         source.sendFailure(Component.literal(message)); return 0;
@@ -226,6 +325,7 @@ public final class Architects {
         j.x=origin.getX(); j.y=origin.getY(); j.z=origin.getZ(); j.dimension=level.dimension().location().toString();
         int w=j.width,d=j.depth,h=j.height;
         var plan=cells(j);
+        if(j.imported!=null) return createSchematicJob(source,origin,j,preview);
         var desired=desiredStates(j);
         int removable=0, blocked=0;
         String firstProblem=null;
@@ -253,17 +353,23 @@ public final class Architects {
             final String message="Preview: "+plan.size()+" blueprint blocks, "+removable+" blocks to clear, "+blocked+" blocked positions. "+(firstProblem==null?"":"First issue: "+firstProblem+". ")+"No blocks changed.";
             source.sendSuccess(()->Component.literal(message),false); return 1;
         }
-        if(file==null || storageFailed || jobs.size()>=100) return fail(source,"Storage unavailable or job limit reached");
+        if(file==null || storageFailed) return fail(source,"Storage unavailable or job limit reached");
         if(blocked>0) return fail(source,firstProblem);
         j.clearing=true;
+        return spawnJob(source,j,origin,plan.size());
+    }
+    private int spawnJob(CommandSourceStack source,Job j,BlockPos origin,int blockCount) throws CommandSyntaxException {
+        var player=source.getPlayerOrException(); var level=source.getLevel();
         var npc=EntityType.VILLAGER.spawn(level,player.blockPosition(),MobSpawnType.COMMAND);
         if(npc==null) return fail(source,"Could not spawn builder");
         protect(npc);
         remember(j,npc);
-        j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.worker=npc.getUUID().toString(); jobs.put(j.id,j);
+        j.id=jobs.keySet().stream().mapToInt(i->i).max().orElse(0)+1; j.worker=npc.getUUID().toString();
+        try { if(j.imported!=null) persistPlan(j); } catch(Exception ex) { npc.discard(); LOGGER.error("Cannot persist schematic plan",ex); return fail(source,"Cannot persist schematic plan: "+ex.getMessage()); }
+        jobs.put(j.id,j);
         if(!save()) { jobs.remove(j.id); npc.discard(); return fail(source,"Failed to save job"); }
         LOGGER.info("NPC Architects created job {} at {}",j.id,origin);
-        source.sendSuccess(()->Component.literal("Created job "+j.id+" at "+origin.toShortString()+" ("+plan.size()+" blocks)"),false); return 1;
+        source.sendSuccess(()->Component.literal("Created job "+j.id+" at "+origin.toShortString()+" ("+blockCount+" blocks)"),false); return 1;
     }
     private int undo(CommandSourceStack source,int id) {
         Job j=jobs.get(id);
@@ -306,8 +412,20 @@ public final class Architects {
         return j.desiredCache;
     }
     private static BlockPos clearPosition(Job j,int i) {
-        int w=j.rotation%180==0?j.width:j.depth, d=j.rotation%180==0?j.depth:j.width;
-        return new BlockPos(j.x+(i/d)%w,j.y+j.height-1-i/(w*d),j.z+i%d);
+        int w=physicalWidth(j), d=physicalDepth(j);
+        if(j.imported==null) return new BlockPos(j.x+(i/d)%w,j.y+j.height-1-i/(w*d),j.z+i%d);
+        // Process a full vertical column of chunk-sized strips before moving across the map.
+        // The index is stable across restart and does not depend on chunk load order.
+        long stripSpan=16L*d*j.height;
+        int strip=(int)(i/stripSpan);
+        int sx=strip*16, sw=Math.min(16,w-sx);
+        int local=(int)(i-strip*stripSpan);
+        long rowSpan=16L*sw*j.height;
+        int row=(int)(local/rowSpan);
+        int sz=row*16, sd=Math.min(16,d-sz);
+        int within=(int)(local-row*rowSpan);
+        int layer=within/(sw*sd), cell=within%(sw*sd);
+        return new BlockPos(j.x+sx+cell/sd,j.y+j.height-1-layer,j.z+sz+cell%sd);
     }
     private static String siteProblem(ServerLevel level,BlockPos pos) {
         if(!level.hasChunkAt(pos)) return "Chunk unloaded";
@@ -369,6 +487,9 @@ public final class Architects {
         }
         if(j.workStand==null) return false;
         var delta=j.workStand.subtract(npc.position());
+        if(j.imported!=null && delta.lengthSqr()>32*32 && safeStand(level,npc,j.workStand,pos)) {
+            npc.teleportTo(j.workStand.x,j.workStand.y,j.workStand.z); remember(j,npc); ticket(level,j,npc.blockPosition(),true); return false;
+        }
         if(delta.lengthSqr()<0.01) { j.workStand=null; return false; }
         var movement=delta.normalize().scale(Math.min(0.65,delta.length()));
         var before=npc.position();
@@ -389,8 +510,10 @@ public final class Architects {
     private void clearStep(ServerLevel level,Villager npc,Job j) {
         int total=j.width*j.depth*j.height;
         var desired=desiredStates(j);
-        while(j.clearCursor<total) {
+        int start=j.clearCursor;
+        while(j.clearCursor<total && j.clearCursor-start<SURVEY_BATCH) {
             var pos=clearPosition(j,j.clearCursor);
+            if(!loadTarget(level,j,pos)) { if(j.imported!=null) { waiting(j,"Loading clearing chunk "+new ChunkPos(pos)); return; } blocked(j,npc,"Chunk unloaded at "+pos.toShortString()); return; }
             String problem=siteProblem(level,pos);
             if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
             var current=level.getBlockState(pos);
@@ -407,6 +530,7 @@ public final class Architects {
             if(++j.stalled>=60) blocked(j,npc,"Cannot reach or clear "+pos.toShortString());
             return;
         }
+        if(j.clearCursor<total) { save(); return; }
         j.clearing=false; j.stalled=0; save();
         LOGGER.info("NPC Architects job {} finished site clearing",j.id);
     }
@@ -483,7 +607,10 @@ public final class Architects {
             var level=jobLevel(e.getServer(),j);
             if(level==null) continue;
             if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager worker && worker.isAlive()) { protect(worker); setWorking(worker,j.status.equals("RUNNING")&&!storageFailed); }
-            if(j.status.equals("RUNNING")) step(e.getServer(),j);
+            if(j.status.equals("RUNNING")) {
+                if(j.imported!=null && j.workerX!=null) ticket(level,j,new BlockPos(j.workerX,j.workerY,j.workerZ),true);
+                step(e.getServer(),j);
+            } else releaseTickets(level,j);
         }
     }
     private void step(MinecraftServer server,Job j) {
@@ -493,7 +620,8 @@ public final class Architects {
         Villager npc;
         if(level.getEntity(UUID.fromString(j.worker)) instanceof Villager living && living.isAlive()) {
             npc=living; protect(npc); remember(j,npc);
-            if(j.workerDied || !j.reason.isEmpty()) { j.workerDied=false; j.reason=""; if(!save()) return; }
+            if(j.imported!=null) ticket(level,j,npc.blockPosition(),true);
+            if(j.workerDied || j.reason.startsWith("Builder")) { j.workerDied=false; j.reason=""; if(!save()) return; }
         } else {
             if(j.workerDied) {
                 var anchor=j.workerX==null?new BlockPos(j.x,j.y,j.z):new BlockPos(j.workerX,j.workerY,j.workerZ);
@@ -504,18 +632,20 @@ public final class Architects {
                 return;
             }
         }
+        if(j.surveying) { surveyStep(level,npc,j); return; }
         if(j.clearing) { clearStep(level,npc,j); return; }
         if(j.cursor>=cells.size()) { j.status="DONE"; j.reason=""; setWorking(npc,false); resetMovement(j); LOGGER.info("NPC Architects job {} completed",j.id); save(); return; }
         var c=cells.get(j.cursor); var pos=new BlockPos(j.x+c.x(),j.y+c.y(),j.z+c.z());
+        if(!loadTarget(level,j,pos)) { if(j.imported!=null) { waiting(j,"Loading construction chunk "+new ChunkPos(pos)); return; } blocked(j,npc,"Chunk unloaded at "+pos.toShortString()); return; }
         String problem=siteProblem(level,pos);
         if(problem!=null) { blocked(j,npc,problem+" at "+pos.toShortString()); return; }
         var wanted=material(j,c.material()); var current=level.getBlockState(pos);
-        if(current.equals(wanted)) { j.cursor++; j.stalled=0; save(); return; }
+        if(current.equals(wanted)) { j.cursor++; j.stalled=0; j.reason=""; save(); return; }
         if(!current.isAir() || !level.getWorldBorder().isWithinBounds(pos)) { blocked(j,npc,"New obstruction at "+pos.toShortString()); return; }
         if(approach(j,npc,level,pos) && level.getEntities(npc,new AABB(pos)).isEmpty()) {
             npc.swing(InteractionHand.MAIN_HAND);
             if(level.setBlock(pos,wanted,3)) {
-                j.placed.add(j.cursor); j.cursor++; j.stalled=0;
+                j.placed.add(j.cursor); j.cursor++; j.stalled=0; j.reason="";
                 if(j.cursor==cells.size() || cells.get(j.cursor).y()!=c.y()) LOGGER.info("NPC Architects job {} finished layer {} of {}",j.id,c.y()+1,j.height);
                 save(); return;
             }

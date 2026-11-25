@@ -14,7 +14,12 @@ import java.nio.file.Path;
 import java.util.*;
 
 final class SchematicImport {
-    static final int MAX_VOLUME=32768;
+    // The NBT format and Java array indexing impose representational limits, not a gameplay size cap.
+    static int volume(int w,int h,int d) throws IOException {
+        long size=(long)w*h*d;
+        if(w<=0||h<=0||d<=0||size>Integer.MAX_VALUE-8L) throw new IOException("Invalid dimensions or volume exceeds Java array indexing capacity");
+        return (int)size;
+    }
     record Plan(int width,int height,int depth,List<Blueprint.Cell> cells) {}
     private SchematicImport() {}
 
@@ -30,18 +35,19 @@ final class SchematicImport {
     }
 
     static Plan read(Path path,int degrees) throws IOException {
-        if(Files.size(path)>8L*1024*1024) throw new IOException("Compressed file exceeds 8 MiB");
-        CompoundTag root=NbtIo.readCompressed(path,NbtAccounter.create(16L*1024*1024));
+        long budget=Long.getLong("npcarchitects.nbtBudgetBytes",Math.max(16L*1024*1024,Runtime.getRuntime().maxMemory()/4));
+        if(budget<=0) throw new IOException("Invalid NBT memory budget");
+        CompoundTag root=NbtIo.readCompressed(path,NbtAccounter.create(budget));
         CompoundTag data=root.contains("Schematic",Tag.TAG_COMPOUND)?root.getCompound("Schematic"):root;
         int version=data.getInt("Version");
         if(version!=2&&version!=3) throw new IOException("Only Sponge schematic versions 2 and 3 are supported");
         int w=data.getShort("Width")&65535,h=data.getShort("Height")&65535,d=data.getShort("Length")&65535;
-        if(w<1||h<1||d<1||w>64||h>64||d>64||(long)w*h*d>MAX_VOLUME) throw new IOException("Maximum 64 per axis and "+MAX_VOLUME+" total volume");
+        int volume=volume(w,h,d);
         var blocks=version==3?data.getCompound("Blocks"):data;
         if(!blocks.contains("Palette",Tag.TAG_COMPOUND)||!blocks.contains(version==3?"Data":"BlockData",Tag.TAG_BYTE_ARRAY)) throw new IOException("Missing block palette or data");
         if(!blocks.getList("BlockEntities",Tag.TAG_COMPOUND).isEmpty()||!data.getList("Entities",Tag.TAG_COMPOUND).isEmpty()) throw new IOException("Schematics containing block entities or entities are not supported");
         var palette=blocks.getCompound("Palette");
-        if(palette.isEmpty()||palette.size()>4096) throw new IOException("Invalid palette size");
+        if(palette.isEmpty()) throw new IOException("Invalid palette size");
         Rotation rotation=switch(degrees) {case 0->Rotation.NONE;case 90->Rotation.CLOCKWISE_90;case 180->Rotation.CLOCKWISE_180;case 270->Rotation.COUNTERCLOCKWISE_90;default->throw new IOException("Invalid rotation");};
         Map<Integer,String> states=new HashMap<>();
         Set<Integer> air=new HashSet<>();
@@ -53,7 +59,7 @@ final class SchematicImport {
             states.put(id,BlockStateParser.serialize(state));
             if(state.isAir()) air.add(id);
         }
-        int[] ids=SchematicLayout.decode(blocks.getByteArray(version==3?"Data":"BlockData"),w*h*d);
+        int[] ids=SchematicLayout.decode(blocks.getByteArray(version==3?"Data":"BlockData"),volume);
         var cells=new ArrayList<Blueprint.Cell>();
         for(int i=0;i<ids.length;i++) {
             int id=ids[i];
