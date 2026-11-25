@@ -4,6 +4,9 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.world.entity.Display;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.MinecraftServer;
@@ -38,7 +41,7 @@ public final class Holograms {
     private static final String SOURCE="ksp_hologram_scroll_source";
     private static final String WIDTH="ksp_hologram_scroll_width";
     private static final String SPEED="ksp_hologram_scroll_speed";
-    private final Map<UUID,Display.TextDisplay> active=new LinkedHashMap<>();
+    private final Map<UUID,Display> active=new LinkedHashMap<>();
     private final Map<UUID,Long> phases=new HashMap<>();
     private long ticks;
     public Holograms(){
@@ -46,31 +49,31 @@ public final class Holograms {
         bus.addListener(this::register);bus.addListener(this::join);bus.addListener(this::tick);bus.addListener(this::stop);
     }
     private void join(EntityJoinLevelEvent e){
-        if(e.getLevel() instanceof ServerLevel && e.getEntity() instanceof Display.TextDisplay d && d.getTags().contains("ksp_hologram") && animated(d)){
+        if(e.getLevel() instanceof ServerLevel && e.getEntity() instanceof Display d && d.getTags().contains("ksp_hologram") && animated(d)){
             active.put(d.getUUID(),d);phases.put(d.getUUID(),ticks);
         }
     }
-    private static boolean animated(Display.TextDisplay d){
+    private static boolean animated(Display d){
         return d.getPersistentData().getBoolean(SCROLL)||!d.getPersistentData().getString(FX).isEmpty();
     }
-    private static Set<String> effects(Display.TextDisplay d){
+    private static Set<String> effects(Display d){
         Set<String> result=new LinkedHashSet<>(Arrays.asList(d.getPersistentData().getString(FX).split(",")));
         result.retainAll(EFFECTS);return result;
     }
-    private static boolean nearby(Display.TextDisplay d){
+    private static boolean nearby(Display d){
         for(var p:((ServerLevel)d.level()).players())if(p.distanceToSqr(d)<=64*64)return true;
         return false;
     }
-    private void activate(Display.TextDisplay d){
+    private void activate(Display d){
         active.put(d.getUUID(),d);phases.put(d.getUUID(),ticks);
     }
-    private static CompoundTag snapshot(Display.TextDisplay d){
+    private static CompoundTag snapshot(Display d){
         CompoundTag tag=new CompoundTag();d.saveWithoutId(tag);return tag;
     }
-    private static void mergeVisual(Display.TextDisplay d,CompoundTag patch){
+    private static void mergeVisual(Display d,CompoundTag patch){
         CompoundTag tag=snapshot(d);tag.merge(patch);d.load(tag);
     }
-    private void capture(Display.TextDisplay d){
+    private void capture(Display d){
         var data=d.getPersistentData();
         if(!data.contains(BASE)){
             CompoundTag snap=snapshot(d),base=new CompoundTag();
@@ -78,26 +81,32 @@ public final class Holograms {
                 if(snap.contains(key))base.put(key,snap.get(key).copy());
             data.put(BASE,base);
         }
-        if(!data.contains(SOURCE)){
-            Component existing=d.getText();
-            setSource(d,existing.getString().indexOf('\u00a7')>=0?decode(existing.getString().replace("&","&&")):existing.copy());
+        if(d instanceof Display.TextDisplay text&&!data.contains(SOURCE)){
+            Component existing=text.getText();
+            setSource(text,existing.getString().indexOf('\u00a7')>=0?decode(existing.getString().replace("&","&&")):existing.copy());
         }
     }
-    private void restoreVisual(Display.TextDisplay d){
+    private void restoreVisual(Display d){
         var data=d.getPersistentData();
         if(data.contains(BASE))mergeVisual(d,data.getCompound(BASE).copy());
     }
-    private void resetEffects(Display.TextDisplay d){
+    private void resetEffects(Display d){
         restoreVisual(d);
         var data=d.getPersistentData();
         data.remove(FX);data.remove(BASE);data.remove(PAUSED);data.remove(PERIOD);data.remove(MESSAGES);
         if(!data.getBoolean(SCROLL)){
-            d.setText(source(d));data.remove(SOURCE);active.remove(d.getUUID());phases.remove(d.getUUID());
+            if(d instanceof Display.TextDisplay text)text.setText(source(text));data.remove(SOURCE);active.remove(d.getUUID());phases.remove(d.getUUID());
         }else activate(d);
     }
     private int effect(CommandSourceStack s,String id,String action,String value,int number){
-        if(!valid(s,id))return 0;var d=find(s,id);if(d==null)return 0;
+        if(!valid(s,id))return 0;var displays=findAll(s,id);if(displays.isEmpty())return 0;
+        int changed=0;for(var d:displays)changed+=effectOne(s,d,action,value,number);return changed;
+    }
+    private static final Set<String> OBJECT_EFFECTS=Set.of("pulse","floating","rotation","swing","orbit","shake","rise","slide","sparkles","arcane","fire","soul","spiral","healing","frost");
+    private int effectOne(CommandSourceStack s,Display d,String action,String value,int number){
         var data=d.getPersistentData();var set=effects(d);
+        boolean text=d instanceof Display.TextDisplay;
+        if(!text&&(action.equals("messages")||(action.equals("add")&&!OBJECT_EFFECTS.contains(value)))){s.sendFailure(Component.literal("Text-only effect skipped for item/block display."));return 0;}
         switch(action){
             case "list" -> {s.sendSuccess(()->Component.literal("Effects: "+set+" | available: "+String.join(", ",new TreeSet<>(EFFECTS))),false);return 1;}
             case "clear" -> {resetEffects(d);return 1;}
@@ -105,7 +114,7 @@ public final class Holograms {
             case "resume" -> {data.remove(PAUSED);activate(d);return 1;}
             case "speed" -> {data.putInt(PERIOD,number);return 1;}
             case "messages" -> {if(!length(s,value))return 0;capture(d);data.putString(MESSAGES,value);set.add("messages");}
-            case "preset" -> {if(!PRESETS.containsKey(value)){s.sendFailure(Component.literal("Unknown preset."));return 0;}capture(d);set.addAll(Arrays.asList(PRESETS.get(value).split(",")));}
+            case "preset" -> {if(!PRESETS.containsKey(value)){s.sendFailure(Component.literal("Unknown preset."));return 0;}capture(d);set.addAll(Arrays.asList(PRESETS.get(value).split(",")));if(!text)set.retainAll(OBJECT_EFFECTS);}
             case "add" -> {if(!EFFECTS.contains(value)){s.sendFailure(Component.literal("Unknown effect."));return 0;}capture(d);set.add(value);}
             case "remove" -> {set.remove(value);restoreVisual(d);}
             default -> {return 0;}
@@ -156,11 +165,11 @@ public final class Holograms {
         }
         return out;
     }
-    private void visualFrame(Display.TextDisplay d,Set<String> fx,long elapsed){
+    private void visualFrame(Display d,Set<String> fx,long elapsed){
         var data=d.getPersistentData();int period=data.contains(PERIOD)?Math.max(10,data.getInt(PERIOD)):80;
         double p=2*Math.PI*(elapsed%period)/period;
         boolean motion=!Collections.disjoint(fx,Set.of("pulse","floating","rotation","swing","orbit","shake","rise","slide"));
-        boolean opacity=!Collections.disjoint(fx,Set.of("fade","blink","rise"));
+        boolean opacity=d instanceof Display.TextDisplay&&!Collections.disjoint(fx,Set.of("fade","blink","rise"));
         if(motion||opacity){
             CompoundTag base=data.getCompound(BASE),patch=new CompoundTag();
             if(motion){
@@ -201,6 +210,16 @@ public final class Holograms {
         var list=new net.minecraft.nbt.ListTag();for(double n:values)list.add(net.minecraft.nbt.FloatTag.valueOf((float)n));return list;
     }
     private void stop(ServerStoppingEvent e){active.clear();phases.clear();ticks=0;}
+    private static List<Display> findAll(CommandSourceStack s,String id){
+        List<Display> matches=new ArrayList<>();
+        var bounds=new net.minecraft.world.phys.AABB(s.getPosition(),s.getPosition()).inflate(128);
+        for(Entity e:s.getLevel().getEntities((Entity)null,bounds,e->e instanceof Display&&e.getTags().contains("ksp_hologram")&&e.getTags().contains(PREFIX+id))){
+            if(e.position().distanceToSqr(s.getPosition())<=128*128)matches.add((Display)e);
+        }
+        matches.sort(Comparator.comparingDouble(d->d.position().distanceToSqr(s.getPosition())));
+        if(matches.isEmpty())s.sendFailure(Component.literal("No loaded hologram with that ID within 128 blocks."));
+        return matches;
+    }
     private static Display.TextDisplay find(CommandSourceStack s,String id){
         Display.TextDisplay best=null;double dist=128*128;
         for(Entity entity:s.getLevel().getEntities(net.minecraft.world.entity.EntityType.TEXT_DISPLAY,new net.minecraft.world.phys.AABB(s.getPosition(),s.getPosition()).inflate(128),d->true)){
@@ -306,12 +325,12 @@ public final class Holograms {
             var fx=effects(d);
             if(!fx.isEmpty()){
                 if(elapsed%4==0)visualFrame(d,fx,elapsed);
-                if(elapsed%(d.getPersistentData().getBoolean(SCROLL)?speed:4)==0)d.setText(textFrame(d,fx,elapsed));
+                if(d instanceof Display.TextDisplay text&&elapsed%(d.getPersistentData().getBoolean(SCROLL)?speed:4)==0)text.setText(textFrame(text,fx,elapsed));
                 continue;
             }
             if(elapsed%speed!=0)continue;
             int width=Math.max(4,Math.min(80,d.getPersistentData().getInt(WIDTH)));
-            d.setText(frame(source(d),width,elapsed/speed));
+            if(d instanceof Display.TextDisplay text)text.setText(frame(source(text),width,elapsed/speed));
         }
     }
     private static String id(com.mojang.brigadier.context.CommandContext<CommandSourceStack> c){
@@ -322,6 +341,41 @@ public final class Holograms {
         s.sendFailure(Component.literal("Hologram ID must contain 1–32 letters, digits, underscores or hyphens."));return false;
     }
     private static String selector(String id){return "@e[type=minecraft:text_display,tag=ksp_hologram,tag="+PREFIX+id+",distance=..128,sort=nearest,limit=1]";}
+    private static String tags(String id){return "Tags:[\"ksp_hologram\",\""+PREFIX+id+"\"]";}
+    private static int object(CommandSourceStack s,String id,String raw,boolean item)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        if(!valid(s,id))return 0;s.getPlayerOrException();
+        ResourceLocation key=ResourceLocation.tryParse(raw);
+        if(key==null||(item?!BuiltInRegistries.ITEM.containsKey(key):!BuiltInRegistries.BLOCK.containsKey(key))||key.toString().equals("minecraft:air")){
+            s.sendFailure(Component.literal("Unknown or empty "+(item?"item":"block")+": "+raw));return 0;
+        }
+        String type=item?"item_display":"block_display";
+        String contents=item?"item:{id:\""+key+"\",count:1},item_display:\"fixed\"":"block_state:{Name:\""+key+"\"},transformation:{translation:[-0.5f,-0.5f,-0.5f],scale:[1f,1f,1f],left_rotation:[0f,0f,0f,1f],right_rotation:[0f,0f,0f,1f]}";
+        String existing="@e[type=minecraft:"+type+",tag=ksp_hologram,tag="+PREFIX+id+",distance=..128,limit=1]";
+        return run(s,"execute unless entity "+existing+" run summon minecraft:"+type+" ~ ~1.2 ~ {"+tags(id)+","+contents+",billboard:\"fixed\",view_range:1.0f}");
+    }
+    private int moveGroup(CommandSourceStack s,String id)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        if(!valid(s,id))return 0;s.getPlayerOrException();var group=findAll(s,id);if(group.isEmpty())return 0;
+        Vec3 anchor=group.getFirst().position();Vec3 target=s.getPosition().add(0,2.2,0);
+        for(var d:group){Vec3 p=target.add(d.position().subtract(anchor));d.teleportTo(p.x,p.y,p.z);}
+        return group.size();
+    }
+    private int scaleGroup(CommandSourceStack s,String id,float f){
+        if(!valid(s,id))return 0;var group=findAll(s,id);
+        for(var d:group){
+            var data=d.getPersistentData();
+            CompoundTag base=data.contains(BASE)?data.getCompound(BASE).copy():snapshot(d);
+            CompoundTag transform=base.getCompound("transformation").copy();
+            transform.put("scale",floats(f,f,f));
+            if(d instanceof Display.BlockDisplay)transform.put("translation",floats(-f/2,-f/2,-f/2));
+            CompoundTag patch=new CompoundTag();patch.put("transformation",transform);
+            mergeVisual(d,patch);
+            if(data.contains(BASE)){var current=d.getPersistentData().getCompound(BASE);current.put("transformation",transform.copy());}
+        }
+        return group.size();
+    }
+    private static int deleteGroup(CommandSourceStack s,String id){
+        if(!valid(s,id))return 0;var group=findAll(s,id);for(var d:group)d.discard();return group.size();
+    }
     private static String payload(CommandSourceStack s,String text){
         // JSON component encoded as an SNBT string, never raw command syntax.
         return StringTag.valueOf(Component.Serializer.toJson(decode(text.replace("{newline}","\n")),s.getServer().registryAccess())).toString();
@@ -342,6 +396,14 @@ public final class Holograms {
         event.getDispatcher().register(Commands.literal("hologram").requires(s->s.hasPermission(2))
             .then(Commands.literal("create").then(Commands.argument("id",StringArgumentType.word())
                 .then(Commands.argument("text",StringArgumentType.greedyString()).executes(c->create(c.getSource(),id(c),StringArgumentType.getString(c,"text"))))))
+            .then(Commands.literal("item").then(Commands.argument("id",StringArgumentType.word())
+                .then(Commands.argument("item",net.minecraft.commands.arguments.ResourceLocationArgument.id())
+                    .suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggestResource(BuiltInRegistries.ITEM.keySet(),b))
+                    .executes(c->object(c.getSource(),id(c),net.minecraft.commands.arguments.ResourceLocationArgument.getId(c,"item").toString(),true)))))
+            .then(Commands.literal("block").then(Commands.argument("id",StringArgumentType.word())
+                .then(Commands.argument("block",net.minecraft.commands.arguments.ResourceLocationArgument.id())
+                    .suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggestResource(BuiltInRegistries.BLOCK.keySet(),b))
+                    .executes(c->object(c.getSource(),id(c),net.minecraft.commands.arguments.ResourceLocationArgument.getId(c,"block").toString(),false)))))
             .then(Commands.literal("text").then(Commands.argument("id",StringArgumentType.word())
                 .then(Commands.argument("text",StringArgumentType.greedyString()).executes(c->{
                     String id=id(c),text=StringArgumentType.getString(c,"text");
@@ -381,17 +443,16 @@ public final class Holograms {
                     .suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggest(PRESETS.keySet(),b))
                     .executes(c->effect(c.getSource(),id(c),"preset",StringArgumentType.getString(c,"preset"),0)))))
             .then(Commands.literal("move").then(Commands.argument("id",StringArgumentType.word()).executes(c->{
-                c.getSource().getPlayerOrException();String id=id(c);
-                return valid(c.getSource(),id)?run(c.getSource(),"tp "+selector(id)+" ~ ~2.2 ~"):0;
+                return moveGroup(c.getSource(),id(c));
             })))
             .then(Commands.literal("scale").then(Commands.argument("id",StringArgumentType.word())
                 .then(Commands.argument("scale",FloatArgumentType.floatArg(.25f,5f)).executes(c->{
                     String id=id(c);float f=FloatArgumentType.getFloat(c,"scale");
-                    return valid(c.getSource(),id)?run(c.getSource(),"data merge entity "+selector(id)+" {transformation:{translation:[0f,0f,0f],left_rotation:[0f,0f,0f,1f],right_rotation:[0f,0f,0f,1f],scale:["+f+"f,"+f+"f,"+f+"f]}}"):0;
+                    return scaleGroup(c.getSource(),id,f);
                 }))))
             .then(Commands.literal("delete").then(Commands.argument("id",StringArgumentType.word()).executes(c->{
-                String id=id(c);return valid(c.getSource(),id)?run(c.getSource(),"kill "+selector(id)):0;
+                return deleteGroup(c.getSource(),id(c));
             })))
-            .then(Commands.literal("list").executes(c->run(c.getSource(),"execute as @e[type=minecraft:text_display,tag=ksp_hologram,distance=..128] run data get entity @s Tags"))));
+            .then(Commands.literal("list").executes(c->run(c.getSource(),"execute as @e[tag=ksp_hologram,distance=..128] run data get entity @s Tags"))));
     }
 }
