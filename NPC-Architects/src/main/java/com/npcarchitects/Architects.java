@@ -1068,7 +1068,7 @@ public final class Architects {
             for(int z=0;z<count;z++){
                 if((pass==0)!=(z==preferred))continue;
                 var queue=j.zoneQueues.get(z);
-                while(!queue.isEmpty()&&(queue.first()<j.cursor||j.teamDone.contains(queue.peek())))queue.pollFirst();
+                while(!queue.isEmpty()&&(queue.first()<j.cursor||j.teamDone.contains(queue.first())))queue.pollFirst();
                 int examined=0;
                 for(int index:queue){
                     if(index<j.cursor||j.teamDone.contains(index)||reserved.contains(index))continue;
