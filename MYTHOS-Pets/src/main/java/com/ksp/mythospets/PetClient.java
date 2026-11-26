@@ -39,17 +39,21 @@ public final class PetClient {
             float age=entity.tickCount+partialTick;
             // Broken, overlapping flame tongues rather than concentric smooth tubes.
             // Each tongue advects downstream and fades independently.
-            for(int k=0;k<36;k++){
+            double distance=net.minecraft.client.Minecraft.getInstance().gameRenderer.getMainCamera().getPosition().distanceToSqr(entity.position());
+            int tongues=distance<=49?16:distance<=196?10:6;
+            int longitudinal=distance<=49?8:5;
+            int radial=distance<=49?5:4;
+            for(int k=0;k<tongues;k++){
                 float seed=k*2.399963F;
                 float phase=(age*(0.045F+0.009F*(k%5))+k*0.618034F)%1F;
                 double begin=phase*0.86;
                 double extent=Math.min(1-begin,0.16+0.18*(0.5+0.5*Math.sin(seed)));
                 if(extent<0.015)continue;
-                for(int i=0;i<12;i++)for(int j=0;j<6;j++){
-                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,i/12.0,j/6.0,k%3);
-                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,(i+1)/12.0,j/6.0,k%3);
-                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,(i+1)/12.0,(j+1)/6.0,k%3);
-                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,i/12.0,(j+1)/6.0,k%3);
+                for(int i=0;i<longitudinal;i++)for(int j=0;j<radial;j++){
+                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,i/(double)longitudinal,j/(double)radial,k%3);
+                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,(i+1)/(double)longitudinal,j/(double)radial,k%3);
+                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,(i+1)/(double)longitudinal,(j+1)/(double)radial,k%3);
+                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,i/(double)longitudinal,(j+1)/(double)radial,k%3);
                 }
             }
             // Tight, irregular ignition root; the rest is a fragmented plume.
