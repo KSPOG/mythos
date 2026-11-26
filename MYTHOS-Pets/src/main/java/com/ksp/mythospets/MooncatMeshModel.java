@@ -29,7 +29,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
     private static final int FUR = 0, MANE = 1, GOLD = 2, EAR = 3, EYE = 4, TIP = 5;
     // Coordinates sample the existing embedded Mooncat palette.
     private static final int[][] PALETTE = {{8,8},{8,24},{24,35},{5,35},{40,9},{25,52}};
-    private float swing, amount, age, yaw, pitch, breath, blink, stretch, sit, groom, earFlick;
+    private float swing, amount, age, yaw, pitch, breath, blink, stretch, sit, groom, earFlick, pounce, bless, gather, swipe;
     private static float smooth(float t){t=Mth.clamp(t,0,1);return t*t*t*(t*(6*t-15)+10);}
     private static float envelope(float t,float length,float rise,float fall){return smooth(t/rise)*smooth((length-t)/fall);}
 
@@ -52,6 +52,10 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         stretch=entity.idleAction()==MooncatEntity.STRETCH?envelope(t,100,26,32)*still:0;
         sit=entity.idleAction()==MooncatEntity.GROOM?envelope(t,140,25,30)*still:0;
         groom=sit*envelope(t-25,80,15,15);
+        pounce=entity.idleAction()==MooncatEntity.POUNCE?envelope(t-4,16,4,8):0;
+        gather=entity.idleAction()==MooncatEntity.POUNCE?envelope(t,9,4,3):0;
+        swipe=entity.idleAction()==MooncatEntity.POUNCE?envelope(t-4,12,4,6):0;
+        bless=entity.idleAction()==MooncatEntity.BLESS?envelope(t,24,9,10):0;
     }
 
     @Override
@@ -59,7 +63,8 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         Painter p = new Painter(stack, vertices, light, overlay, color, lod);
         stack.pushPose();
         stack.translate(0, (breath*0.035F+Mth.cos(swing*1.6F)*amount*0.12F)/16F, 0);
-        p.translate(0,stretch*0.65F+sit*0.55F,0);
+        p.translate(0,stretch*0.65F+sit*0.55F+gather*0.7F-pounce*1.8F,-pounce*1.2F);
+        p.translate(0,16,3);stack.mulPose(Axis.XP.rotation(pounce*0.22F-gather*0.12F));p.translate(0,-16,-3);
         // Continuous anatomical torso with distinct rib cage, waist and pelvis.
         stack.pushPose();
         p.translate(0,16,0);
@@ -73,7 +78,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         stack.pushPose();
         p.translate(0, 13.25F+stretch*1.6F,-4.65F-stretch*1.15F);
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
-        stack.mulPose(Axis.XP.rotationDegrees(pitch+stretch*16+groom*(18+12*Mth.sin(age*0.32F))));
+        stack.mulPose(Axis.XP.rotationDegrees(pitch+stretch*16+groom*(18+12*Mth.sin(age*0.32F))-bless*18+pounce*9));
         // Domestic feline: broad rounded cranium, short flat muzzle, large
         // forward-facing almond eyes and upright triangular pinnae.
         p.shape(BODY,0,-0.65F,-0.25F,2.85F,2.55F,2.18F,FUR);
@@ -134,12 +139,13 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
             float stride = Mth.cos(swing*0.8F+phase)*0.55F*amount;
             float lift=Math.max(0,Mth.sin(swing*0.8F+phase))*amount;
             float grooming=i==0?groom:0;
+            float attack=i==0?swipe:i==1?swipe*0.65F:-pounce*0.5F;
             stack.pushPose();
             p.translate(x, 16.8F+sit*(i>=2?1.2F:0.15F), z);
-            stack.mulPose(Axis.XP.rotation(stride+stretch*(i<2?-0.68F:0.12F)+sit*(i>=2?-0.50F:0)+grooming*0.85F));
+            stack.mulPose(Axis.XP.rotation(stride+stretch*(i<2?-0.68F:0.12F)+sit*(i>=2?-0.50F:0)+grooming*0.85F-attack*0.85F+gather*0.2F));
             p.shape(DETAIL,0,1.1F,0,i<2?0.78F:1.18F,2.35F,i<2?0.80F:1.35F,FUR);
             p.translate(0, 3.1F, 0);
-            stack.mulPose(Axis.XP.rotation(Math.max(0, -stride)*0.7F-lift*0.48F+stretch*(i<2?0.42F:0)+sit*(i>=2?0.95F:0)-grooming*1.35F));
+            stack.mulPose(Axis.XP.rotation(Math.max(0, -stride)*0.7F-lift*0.48F+stretch*(i<2?0.42F:0)+sit*(i>=2?0.95F:0)-grooming*1.35F+attack*0.45F+gather*0.45F));
             p.shape(DETAIL, 0, 1.3F, 0, 0.67F, 1.8F, 0.72F, FUR);
             p.shape(DETAIL, 0, 2.85F, -0.55F, 0.82F, 0.65F, 0.94F, TIP);
             if(lod<=1)for(int toe=0;toe<3;toe++)
@@ -148,7 +154,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         }
 
         // A continuous tapered tail, with a traveling wave and curled seated pose.
-        p.tail(age,amount,sit);
+        p.tail(age,amount+pounce*0.6F,sit);
         stack.popPose();
     }
 
