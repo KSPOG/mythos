@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="mythoscharacters"
-version="0.1.1"
+version="0.1.2"
 displayName="MYTHOS Characters"
 description='''Client-side cinematic player mesh foundation, retaining vanilla skin and equipment animation.'''
 displayTest="IGNORE_ALL_VERSION"

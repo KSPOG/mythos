@@ -1,7 +1,7 @@
-# MYTHOS Characters 0.1.1
+# MYTHOS Characters 0.1.2
 
-Experimental client-side player renderer for Minecraft 1.21.1 / Forge 52.1.5 / Java 21.
+Experimental client-side anatomical player renderer for Minecraft 1.21.1, Forge 52.1.5+, Java 21.
 
-Install on the client. Uses the original player renderer, skin atlas, standard/slim models, model pivots, animation state and render layers. No server-side collision, movement or combat changes. Disable with JVM argument -Dmythoscharacters.disable=true or remove the mod.
+The body uses anatomical ring lofts with smooth normals, a smaller sculpted skull with facial relief, ears and neck, tapered torso, anatomical arms and legs, separated fingers, thumb and shaped feet. Standard and slim skins remain supported. Four cached LODs use the vanilla six attachment pivots and animation state. No gameplay, hitbox or network changes. Disable via -Dmythoscharacters.disable=true.
 
-This is a rounded, tapered humanoid mesh foundation, not a fully sculpted realistic human. Character creation, independent gender/body profiles, custom faces/hands/hair, high-resolution authored skin, custom skeleton/animation, first-person mesh, and armor refitting are future milestones. Existing armor/held item alignment and third-person skin UVs must be checked in game. Compatibility with other player-renderer mods is not guaranteed.
+This is a procedural anatomical foundation, not a photorealistic scanned human. Vanilla 64x64 skins limit facial detail; HD authored textures, gender customization, independent joint rig, custom animation, first-person hands and armor refits are not implemented. Check third-person appearance, held item grip, head/neck transitions and armor alignment in game. Existing helmets are sized for the old head and may look oversized. 

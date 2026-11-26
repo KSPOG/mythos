@@ -15,7 +15,8 @@ public final class CharacterMeshCheck {
                         if(Math.abs(n.x()*n.x()+n.y()*n.y()+n.z()*n.z()-1)>.001)throw new AssertionError("Invalid normal");
                     }
                 }
-                if(count>=previous||count>100000)throw new AssertionError("LOD budget");
+                if(lod==0&&count<80000)throw new AssertionError("Cinematic mesh undersampled");
+                if(count>=previous||count>150000)throw new AssertionError("LOD budget");
                 previous=count;System.out.println("slim="+slim+" LOD="+lod+" triangles="+count);
             }
         }

@@ -15,7 +15,7 @@ final class CinematicPlayerModel extends PlayerModel<AbstractClientPlayer> {
         super.setupAnim(entity,swing,amount,age,yaw,pitch);
         var mc=Minecraft.getInstance();
         double distance=mc.gameRenderer.getMainCamera().getPosition().distanceToSqr(entity.position());
-        lod=distance<=9?0:distance<=64?1:distance<=256?2:3;
+        lod=distance<=9?0:distance<=64?1:distance<=400?2:3;
     }
     @Override public void renderToBuffer(PoseStack stack,VertexConsumer consumer,int light,int overlay,int color){
         ModelPart[] bones={head,body,rightArm,leftArm,rightLeg,leftLeg};
