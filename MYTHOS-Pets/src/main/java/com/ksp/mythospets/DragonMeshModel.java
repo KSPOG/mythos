@@ -23,6 +23,9 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
     private int lod;
     private static final ResourceLocation ANATOMY = ResourceLocation.fromNamespaceAndPath("mythospets", "meshes/ember_dragon.anatomy");
     private Anatomy anatomy;
+    private static final int[] SCALE_ROWS={96,48,24,0};
+    private static final int[] SCALE_COLUMNS={64,40,20,0};
+    private static final int[] MEMBRANE_STEPS={32,20,10,3};
     private static final int EMBER = 4;
     private static final int FULL_LIGHT = 0xF000F0;
 
@@ -36,7 +39,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                           float ageInTicks, float netHeadYaw, float headPitch) {
         double distance = Minecraft.getInstance().gameRenderer.getMainCamera()
             .getPosition().distanceToSqr(entity.position());
-        lod = distance <= 25 ? 0 : distance <= 225 ? 1 : distance <= 900 ? 2 : 3;
+        lod = distance <= 25 ? 0 : distance <= 100 ? 1 : distance <= 400 ? 2 : 3;
         swing = limbSwing;
         amount = Mth.clamp(limbSwingAmount, 0, 1);
         age = ageInTicks;
@@ -52,12 +55,14 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.translate(0, Mth.sin(age * 0.12F) * 0.008F, 0);
         // Long reptilian torso, plated belly and curved neck.
         p.hull(anatomy.torso,FUR);
+        p.scales(anatomy.torso,96,64);
         p.hull(anatomy.belly,MANE);
         for(int plate=0;plate<6;plate++) {
             p.plate(0,18.25F,-4+plate*1.15F,1.7F,0.35F,0.45F,MANE);
             p.plate(0,18.42F,-3.5F+plate*1.15F,1.35F,0.12F,0.13F,EMBER);
         }
         p.hull(anatomy.neck,FUR);
+        p.scales(anatomy.neck,64,48);
         for(int i=0;i<4;i++){
             p.plate(0,9.3F+i*1.2F,-9+i*1.15F,0.8F+i*0.12F,0.25F,0.64F,MANE);
         }
@@ -67,6 +72,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.mulPose(Axis.XP.rotationDegrees(pitch));
         // Connected angular skull, wedge muzzle, raised cheek and crown ridges.
         p.hull(anatomy.skull,FUR);
+        p.scales(anatomy.skull,40,32);
         p.plate(0,-1.2F,-1.1F,0.64F,0.44F,1.75F,MANE);
         for(int side:SIDES)
             p.plate(side*1.47F,0.22F,0.1F,0.46F,0.73F,1.6F,FUR);
@@ -74,6 +80,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         p.translate(0,0.85F,-0.6F);
         stack.mulPose(Axis.XP.rotation(-0.025F+Mth.sin(age*0.08F)*0.012F));
         p.hull(anatomy.jaw,FUR);
+        p.scales(anatomy.jaw,24,24);
         p.plate(0,0.03F,-2.6F,0.42F,0.05F,0.9F,MANE);
         stack.popPose();
         for(int side:SIDES){
@@ -221,6 +228,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         private final PoseStack stack;
         private final VertexConsumer vertices;
         private final int light, overlay, color, lod;
+        private static final java.util.Map<float[][],float[][][]> SCALE_CACHE = new java.util.WeakHashMap<>();
 
         Painter(PoseStack stack, VertexConsumer vertices, int light, int overlay, int color, int lod) {
             this.stack=stack; this.vertices=vertices; this.light=light; this.overlay=overlay; this.color=color; this.lod=lod;
@@ -273,6 +281,60 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 face(first,points[0][k],points[0][j],points[0][j],material);
                 face(last,points[count-1][j],points[count-1][k],points[count-1][k],material);
             }
+        }
+
+        // Surface-conforming raised scales. Each scale is a six-sided dome with
+        // a second ring and central ridge, 18 nondegenerate triangles.
+        // Static geometry is cached per anatomy section and LOD.
+        void scales(float[][] rings,int fullRows,int fullCols) {
+            if(lod==3)return;
+            float[][][] levels=SCALE_CACHE.computeIfAbsent(rings,key->new float[3][][]);
+            float[][] mesh=levels[lod];
+            if(mesh==null){
+                int rows=fullRows*SCALE_ROWS[lod]/96;
+                int cols=fullCols*SCALE_COLUMNS[lod]/64;
+                mesh=new float[rows*cols*13][];
+                int index=0;
+                for(int row=0;row<rows;row++)for(int col=0;col<cols;col++){
+                    float u=(col+0.5F*(row%2)+0.5F)/cols;
+                    float v=(row+0.5F)/rows;
+                    float height=0.075F+0.045F*Mth.sin(row*1.7F+col*2.3F);
+                    float[][] outer=new float[6][],inner=new float[6][];
+                    for(int k=0;k<6;k++){
+                        float angle=k*Mth.TWO_PI/6;
+                        float du=Mth.cos(angle)*0.47F/cols,dv=Mth.sin(angle)*0.47F/rows;
+                        outer[k]=scalePoint(rings,u+du,v+dv,0.012F);
+                        inner[k]=scalePoint(rings,u+du*0.52F,v+dv*0.52F,height*0.7F);
+                    }
+                    float[] top=scalePoint(rings,u,v,height);
+                    // Six outer, six inner and one apex positions.
+                    for(float[] point:outer)mesh[index++]=point;
+                    for(float[] point:inner)mesh[index++]=point;
+                    mesh[index++]=top;
+                }
+                levels[lod]=mesh;
+            }
+            for(int i=0;i<mesh.length;i+=13){
+                for(int k=0;k<6;k++){
+                    int n=(k+1)%6;
+                    face(mesh[i+k],mesh[i+n],mesh[i+6+n],mesh[i+6+k],FUR);
+                    face(mesh[i+6+k],mesh[i+6+n],mesh[i+12],mesh[i+12],FUR);
+                }
+            }
+        }
+
+        private static float[] scalePoint(float[][] rings,float u,float v,float rise){
+            float t=Mth.clamp(v,0,1)*(rings.length-1);
+            int a=Math.min((int)t,rings.length-2);
+            float f=t-a;
+            float z=Mth.lerp(f,rings[a][0],rings[a+1][0]);
+            float cy=Mth.lerp(f,rings[a][1],rings[a+1][1]);
+            float rx=Mth.lerp(f,rings[a][2],rings[a+1][2]);
+            float ry=Mth.lerp(f,rings[a][3],rings[a+1][3]);
+            float angle=-Mth.HALF_PI+u*Mth.TWO_PI;
+            float x=Mth.cos(angle),y=Mth.sin(angle);
+            return new float[]{Math.copySign((float)Math.pow(Math.abs(x),0.76F),x)*(rx+rise),
+                cy+Math.copySign((float)Math.pow(Math.abs(y),0.76F),y)*(ry+rise),z};
         }
 
         void horn(int side) {
@@ -332,7 +394,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
 
         // Curved membrane patch: boundaries remain fixed to the animated bones.
         void membrane(float[] a,float[] b,float[] c) {
-            int steps=lod==0?12:lod==1?8:lod==2?4:2;
+            int steps=MEMBRANE_STEPS[lod];
             float ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2];
             float vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
             float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
@@ -345,7 +407,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 for(int j=0;j<=steps-i;j++){
                     float u=i/(float)steps,v=j/(float)steps,w=1-u-v;
                     points[i][j]=new float[]{w*a[0]+u*b[0]+v*c[0],
-                        w*a[1]+u*b[1]+v*c[1]+27*u*v*w*bend,
+                        w*a[1]+u*b[1]+v*c[1]+27*u*v*w*bend*(1+0.15F*Mth.sin(18*u+12*v)),
                         w*a[2]+u*b[2]+v*c[2]};
                 }
             }
@@ -355,9 +417,20 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             }
         }
 
+        void membraneFace(float[] a,float[] b,float[] c) {
+            float ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2];
+            float vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
+            float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+            float len=(float)Math.sqrt(nx*nx+ny*ny+nz*nz);
+            if(len<0.00001F)return;
+            for(float[] q:new float[][]{a,b,c,c})
+                emitUv(q[0],q[1],q[2],nx/len,ny/len,nz/len,7,
+                    Mth.clamp(Math.abs(q[0])/24,0,1),Mth.clamp((q[2]+4)/24,0,1));
+        }
+
         void membraneTriangle(float[] a,float[] b,float[] c){
-            face(a,b,c,c,7);
-            face(a,c,b,b,7);
+            membraneFace(a,b,c);
+            membraneFace(a,c,b);
         }
 
     }
