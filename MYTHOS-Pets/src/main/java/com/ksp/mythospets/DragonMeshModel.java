@@ -141,6 +141,21 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 foreFollow=-roarPose*(0.48F+0.16F*Mth.sin(t*0.21F-0.6F));
                 wristFollow=roarPose*0.35F*Mth.sin(t*0.21F-1.1F);
             }
+            case DragonEntity.BREATH -> {
+                float charge=envelope(t,30,10,9);
+                roarPose=envelope(t-5,22,6,8);
+                rearLook=track(t,0,0,8,-18,12,8,20,4,30,0);
+                crouch=charge*0.42F;wingOpen=charge*0.64F;
+                wingDrive=track(t,0,0,8,-0.42F,13,0.55F,30,0);
+                wingLag=wingDrive*0.6F;wingWrist=wingDrive*0.3F;
+                foreGesture=charge*0.15F;rearTail=charge*0.35F;
+            }
+            case DragonEntity.GUARD -> {
+                float guard=envelope(t,24,9,10);
+                rearPose=guard*0.25F;roarPose=guard*0.5F;
+                wingOpen=guard;wingDrive=guard*0.2F;
+                wingRecovery=guard*0.4F;rearLook=-guard*12;
+            }
             default -> {}
         }
     }
