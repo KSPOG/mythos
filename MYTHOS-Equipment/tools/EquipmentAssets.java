@@ -134,13 +134,14 @@ public final class EquipmentAssets {
                 if(caster){m.box(6.8,6,7.25,9.2,12,8.75,7);m.box(7.2,11.5,7.1,8.8,16,8.9,0);m.gem(15.4,1.55);}
             }
             case BOW -> {
-                // Bow lies in the XY plane; grip at (8,8,8), limbs extend vertically.
+                // Bow lies in the XY plane; grip at (8,8,8), string behind grip on +X.
+                // Pull moves the string farther behind the grip, never through the riser.
                 m.grip(6.2,9.8,.9);
                 for(int side:new int[]{-1,1}){
                     for(int i=0;i<30;i++){
                         double t=i/30.0,u=(i+1)/30.0;
-                        double x=8-3.1*Math.sin(t*Math.PI/2)+1.2*Math.pow(t,6);
-                        double X=8-3.1*Math.sin(u*Math.PI/2)+1.2*Math.pow(u,6);
+                        double x=8+3.1*Math.sin(t*Math.PI/2)-1.2*Math.pow(t,6);
+                        double X=8+3.1*Math.sin(u*Math.PI/2)-1.2*Math.pow(u,6);
                         double y=8+side*(1.5+7.8*t),Y=8+side*(1.5+7.8*u);
                         double w=.56-.32*t;
                         m.box(Math.min(x,X)-w/2,Math.min(y,Y),7.5+t*.2,Math.max(x,X)+w/2,Math.max(y,Y)+.035,8.5-t*.2,6);
@@ -148,7 +149,7 @@ public final class EquipmentAssets {
                     }
                     for(int i=0;i<32;i++){
                         double t=i/32.0,u=(i+1)/32.0;
-                        double x=6.1+(active?4.1:0)*t,X=6.1+(active?4.1:0)*u;
+                        double x=9.9+(active?2.4:0)*t,X=9.9+(active?2.4:0)*u;
                         double y=8+side*9.3*(1-t),Y=8+side*9.3*(1-u);
                         m.box(Math.min(x,X)-.055,Math.min(y,Y)-.02,7.94,Math.max(x,X)+.055,Math.max(y,Y)+.02,8.06,1);
                     }
