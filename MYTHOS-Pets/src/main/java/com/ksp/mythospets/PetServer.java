@@ -1,0 +1,678 @@
+package com.ksp.mythospets;
+
+import com.google.gson.*;
+import com.ksp.mythospets.PetProgression.Role;
+import com.ksp.mythoseconomy.EconomyApi;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import net.minecraft.commands.*;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.*;
+import net.minecraft.world.entity.*;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.EntityMountEvent;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
+import java.nio.file.*;
+import java.util.*;
+
+final class PetServer {
+    private static final String TAG="mythos_pet";
+    private static final Gson JSON=new GsonBuilder().setPrettyPrinting().create();
+    private static final org.slf4j.Logger LOG=com.mojang.logging.LogUtils.getLogger();
+    private enum Source { SHOP, QUEST, DUNGEON, RAID, WORLD_BOSS, ACHIEVEMENT, CLAN, EVENT, PREMIUM }
+    private enum Ability { STRIKE, VENOM, SLOW, WEAKEN, HEAL, SHIELD, HASTE, LUCK, BURN, SCOUT }
+    private record Definition(String id,String name,String mob,Source source,int price,Ability ability,int cooldown,float power,boolean locked,Role role){}
+    private static final List<Definition> CATALOG=List.of(
+        new Definition("ember_dragon","Ember Dragon","blaze",Source.PREMIUM,0,Ability.BURN,120,3,false,Role.DPS),
+        new Definition("premium_mooncat","Celestial Mooncat","cat",Source.PREMIUM,0,Ability.HASTE,240,0,false,Role.HEALER),
+        new Definition("premium_sunbird","Sunbird","parrot",Source.PREMIUM,0,Ability.HASTE,240,0,false,Role.SUPPORT),
+        new Definition("wolf","Dire Wolf","wolf",Source.QUEST,0,Ability.STRIKE,60,4,false,Role.DPS),
+        new Definition("swift_fox","Swift Fox","fox",Source.SHOP,20000,Ability.STRIKE,80,6,false,Role.DPS),
+        new Definition("jungle_stalker","Jungle Stalker","ocelot",Source.SHOP,22000,Ability.STRIKE,80,5,false,Role.DPS),
+        new Definition("bumblebee","Royal Bumblebee","bee",Source.SHOP,45000,Ability.VENOM,120,2,false,Role.CONTROL),
+        new Definition("twilight_bat","Twilight Bat","bat",Source.SHOP,35000,Ability.SCOUT,200,0,true,Role.SUPPORT),
+        new Definition("tropical_roc","Tropical Companion","parrot",Source.SHOP,50000,Ability.HASTE,240,0,false,Role.SUPPORT),
+        new Definition("celestial_sprite","Celestial Sprite","allay",Source.ACHIEVEMENT,0,Ability.HEAL,200,4,false,Role.HEALER),
+        new Definition("wraith","Spectral Wraith","vex",Source.QUEST,0,Ability.STRIKE,100,6,true,Role.DPS),
+        new Definition("burrower","Burrower","silverfish",Source.DUNGEON,0,Ability.WEAKEN,120,2,false,Role.CONTROL),
+        new Definition("armored_roller","Armored Roller","armadillo",Source.SHOP,15000,Ability.SHIELD,240,0,false,Role.GUARDIAN),
+        new Definition("marsh_hopper","Marsh Hopper","frog",Source.QUEST,0,Ability.SLOW,120,2,false,Role.CONTROL),
+        new Definition("giant_hare","Swift Hare","rabbit",Source.SHOP,12000,Ability.HASTE,240,0,false,Role.SUPPORT),
+        new Definition("coral_dragon","Coral Companion","axolotl",Source.QUEST,0,Ability.HEAL,200,3,false,Role.HEALER),
+        new Definition("arctic_golem","Arctic Golem","snow_golem",Source.EVENT,0,Ability.SLOW,100,3,true,Role.CONTROL),
+        new Definition("slime","Slime Companion","slime",Source.EVENT,0,Ability.SHIELD,240,0,false,Role.GUARDIAN),
+        new Definition("magma_cube","Magma Companion","magma_cube",Source.DUNGEON,0,Ability.BURN,120,3,false,Role.DPS),
+        new Definition("royal_fowl","Royal Fowl","chicken",Source.SHOP,10000,Ability.LUCK,240,0,false,Role.SUPPORT),
+        new Definition("sheep","Woolly Companion","sheep",Source.SHOP,3500,Ability.SHIELD,240,0,false,Role.GUARDIAN),
+        new Definition("cat","Mooncat","cat",Source.SHOP,18000,Ability.HASTE,240,0,false,Role.SUPPORT),
+        new Definition("blaze","Ember Familiar","blaze",Source.DUNGEON,0,Ability.BURN,100,3,false,Role.DPS),
+        new Definition("breeze","Storm Familiar","breeze",Source.DUNGEON,0,Ability.SLOW,100,3,false,Role.CONTROL)
+    );
+    private static String description(Definition d){
+        return "["+d.role+"] "+switch(d.id){
+            case "ember_dragon" -> "Flame Breath (3 x 2 raw damage, 7-block cone, 6s cooldown) | Ember Guard (5s Resistance I + Fire Resistance at <=70% health, 12s cooldown)";
+            case "premium_mooncat" -> "Lunar Pounce (4 damage, Slowness I, 5s cooldown) | Moon Blessing (heal 4 + 5s Speed I at <=70% health, 12s cooldown)";
+            default -> d.ability.name()+" | cooldown "+d.cooldown+" ticks";
+        };
+    }
+    private static Definition def(String id){return CATALOG.stream().filter(d->d.id.equals(id)).findFirst().orElse(null);}
+    private static class Account { long gold; Map<String,String> owned=new LinkedHashMap<>(); Map<String,String> names=new HashMap<>(); Map<String,Long> xp=new HashMap<>(); }
+    private static class Store { Map<String,Account> accounts=new HashMap<>(); }
+    private static final class Active {
+        final UUID owner; final Definition definition; final Mob entity;
+        UUID target; long targetUntil,nextAbility,nextAdvanced; 
+        UUID castTarget; int cast; long impactAt,finishAt,nextSupport; boolean impacted;
+        int landingTicks; Vec3 flightVelocity=Vec3.ZERO;
+        Active(UUID owner,Definition definition,Mob entity){this.owner=owner;this.definition=definition;this.entity=entity;}
+    }
+    private Store store=new Store();
+    private final Map<UUID,Long> combatLock=new HashMap<>(),advancedLock=new HashMap<>();
+    private static final int BREATH=1, GUARD=2, POUNCE=3, BLESS=4;
+    private Path file; private boolean failed=true; private long tick;
+    private final Map<UUID,Active> active=new HashMap<>();
+    PetServer(){
+        EconomyApi.registerCreatures("pet",new EconomyApi.CreatureProvider(){
+            public boolean available(){return !failed;}
+            public boolean legacyOwns(UUID player,String key){
+                var a=store.accounts.get(player.toString());
+                return key.startsWith("pet:")&&a!=null&&a.owned.containsKey(key.substring(4));
+            }
+            public List<EconomyApi.Creature> catalog(){
+                return CATALOG.stream().filter(d->!d.locked).map(d->new EconomyApi.Creature("pet:"+d.id,d.name,description(d),d.source==Source.SHOP)).toList();
+            }
+        });
+        var b=MinecraftForge.EVENT_BUS;
+        b.addListener(this::start);b.addListener(this::stop);b.addListener(this::commands);
+        b.addListener(this::join);b.addListener(this::mount);b.addListener(this::attack);
+        b.addListener(this::death);b.addListener(this::logout);b.addListener(this::dimension);b.addListener(this::tick);
+    }
+    private void start(ServerStartedEvent e){
+        file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("mythos-pets.json");
+        active.clear();combatLock.clear();advancedLock.clear();failed=true;tick=0;
+        try{
+            store=Files.exists(file)?JSON.fromJson(Files.readString(file),Store.class):new Store();
+            if(store==null||store.accounts==null)throw new IllegalStateException("Invalid store");
+            var ids=new HashSet<String>();
+            for(var entry:store.accounts.entrySet()){
+                UUID.fromString(entry.getKey());var a=entry.getValue();
+                if(a==null||a.gold<0||a.owned==null)throw new IllegalStateException("Invalid account");
+                if(a.names==null)a.names=new HashMap<>();
+                if(a.xp==null)a.xp=new HashMap<>();
+                for(var progress:a.xp.entrySet())if(def(progress.getKey())==null||progress.getValue()==null||progress.getValue()<0||progress.getValue()>PetProgression.MAX_XP)throw new IllegalStateException("Invalid pet progression");
+                for(var name:a.names.entrySet())if(def(name.getKey())==null||!validName(name.getValue()))throw new IllegalStateException("Invalid pet name");
+                for(var pet:a.owned.entrySet())if(def(pet.getKey())==null||!ids.add(UUID.fromString(pet.getValue()).toString()))throw new IllegalStateException("Invalid ownership");
+            }
+            failed=false;
+        }catch(Exception ex){LOG.error("Pet storage locked",ex);}
+    }
+    private boolean save(){
+        if(failed)return false;
+        try{
+            var temp=file.resolveSibling(file.getFileName()+".tmp");
+            Files.writeString(temp,JSON.toJson(store));Files.move(temp,file,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);return true;
+        }catch(Exception ex){failed=true;LOG.error("Pet storage locked",ex);return false;}
+    }
+    private Account account(UUID id){return store.accounts.computeIfAbsent(id.toString(),k->new Account());}
+    private boolean owns(UUID id,String pet){var a=store.accounts.get(id.toString());return !failed&&(a!=null&&a.owned.containsKey(pet)||EconomyApi.ownsCreature(id,"pet:"+pet));}
+    private void dismiss(UUID id){var a=active.remove(id);if(a!=null)a.entity.discard();}
+    private void stop(ServerStoppingEvent e){for(var id:List.copyOf(active.keySet()))dismiss(id);}
+    private void logout(PlayerEvent.PlayerLoggedOutEvent e){dismiss(e.getEntity().getUUID());}
+    private void dimension(PlayerEvent.PlayerChangedDimensionEvent e){dismiss(e.getEntity().getUUID());}
+    private long xp(UUID owner,String id){return account(owner).xp.getOrDefault(id,0L);}
+    private PetProgression.Stats stats(Active a){return PetProgression.stats(xp(a.owner,a.definition.id),a.definition.role);}
+    private String label(UUID owner,Definition d){return petName(owner,d)+" [Lv. "+PetProgression.level(xp(owner,d.id))+" | "+d.role+"]";}
+    private boolean award(ServerPlayer p,String id,int amount){
+        if(!owns(p.getUUID(),id))return false;
+        var a=account(p.getUUID());long before=xp(p.getUUID(),id),after=PetProgression.add(before,amount);
+        if(after==before)return true;
+        a.xp.put(id,after);
+        if(!save()){if(before==0)a.xp.remove(id);else a.xp.put(id,before);return false;}
+        int oldLevel=PetProgression.level(before),newLevel=PetProgression.level(after);
+        if(newLevel>oldLevel){
+            var live=active.get(p.getUUID());
+            if(live!=null&&live.definition.id.equals(id)){
+                live.entity.setCustomName(Component.literal(label(p.getUUID(),live.definition)));
+                p.serverLevel().sendParticles(ParticleTypes.END_ROD,live.entity.getX(),live.entity.getY()+0.5,live.entity.getZ(),24,0.4,0.5,0.4,0.05);
+            }
+            p.sendSystemMessage(Component.literal(def(id).name+" reached level "+newLevel+"!"));
+            for(int unlock:new int[]{10,25,40})if(oldLevel<unlock&&newLevel>=unlock)p.sendSystemMessage(Component.literal("New move unlocked: "+moveName(def(id),unlock)));
+            p.serverLevel().playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.PLAYER_LEVELUP,SoundSource.PLAYERS,0.6F,1.2F);
+        }
+        return true;
+    }
+    private void death(LivingDeathEvent e){
+        if(e.getEntity() instanceof ServerPlayer p){dismiss(p.getUUID());return;}
+        if(e.isCanceled()||!(e.getEntity() instanceof Monster dead)||dead.level().isClientSide()||dead.getTags().contains(TAG)||dead.getTags().contains("mythos_mount"))return;
+        var source=e.getSource().getEntity();
+        for(var a:active.values()){
+            if(!(dead.level() instanceof ServerLevel level))continue;
+            var p=level.getServer().getPlayerList().getPlayer(a.owner);
+            if(p==null||!p.isAlive()||p.level()!=dead.level()||!a.entity.isAlive()||a.entity.level()!=dead.level()||p.isAlliedTo(dead)||dead.isAlliedTo(p))continue;
+            if(source!=p&&source!=a.entity)continue;
+            if(a.entity.distanceToSqr(dead)>1024||p.distanceToSqr(dead)>4096)continue;
+            if(source==p&&(!dead.getUUID().equals(a.target)||tick>a.targetUntil))continue;
+            award(p,a.definition.id,25);break;
+        }
+    }
+    private void join(EntityJoinLevelEvent e){
+        if(!e.getLevel().isClientSide()&&(e.getEntity().getTags().contains(TAG)||e.getEntity() instanceof MooncatEntity||e.getEntity() instanceof DragonEntity)&&active.values().stream().noneMatch(a->a.entity==e.getEntity()&&owns(a.owner,a.definition.id)))e.setCanceled(true);
+    }
+    private void mount(EntityMountEvent e){if(!e.getLevel().isClientSide()&&e.isMounting()&&e.getEntityBeingMounted().getTags().contains(TAG))e.setCanceled(true);}
+    private static boolean eligible(ServerPlayer owner,LivingEntity target){
+        return target instanceof Monster&&target.isAlive()&&target.level()==owner.level()&&!target.getTags().contains(TAG)&&!target.getTags().contains("mythos_mount")&&!target.isAlliedTo(owner)&&!owner.isAlliedTo(target);
+    }
+    private void attack(LivingAttackEvent e){
+        if(e.getEntity().level().isClientSide())return;
+        // Pet controller never accepts arbitrary PvP targets. Only owner attacks or hostile attacks against owner.
+        if(e.getSource().getEntity() instanceof ServerPlayer p&&eligible(p,e.getEntity())){
+            var a=active.get(p.getUUID());if(a!=null){a.target=e.getEntity().getUUID();a.targetUntil=tick+200;}
+        }else if(e.getEntity() instanceof ServerPlayer p&&e.getSource().getEntity() instanceof LivingEntity target&&eligible(p,target)){
+            var a=active.get(p.getUUID());if(a!=null){a.target=target.getUUID();a.targetUntil=tick+200;}
+        }
+    }
+    private static boolean safe(ServerLevel level,Mob mob,Vec3 feet){
+        var box=mob.getBoundingBox().move(feet.subtract(mob.position()));
+        if(!level.getWorldBorder().isWithinBounds(box)||level.isOutsideBuildHeight(BlockPos.containing(box.minX,box.minY,box.minZ))||level.isOutsideBuildHeight(BlockPos.containing(box.maxX,box.maxY,box.maxZ)))return false;
+        for(int x=((int)Math.floor(box.minX))>>4;x<=((int)Math.floor(box.maxX))>>4;x++)for(int z=((int)Math.floor(box.minZ))>>4;z<=((int)Math.floor(box.maxZ))>>4;z++)if(!level.hasChunkAt(new BlockPos(x<<4,(int)feet.y,z<<4)))return false;
+        return level.noCollision(mob,box)&&level.getEntities(mob,box).isEmpty();
+    }
+    private static Vec3 nearby(ServerPlayer p,Mob mob){
+        for(int dy:new int[]{0,1,-1,2})for(int r=1;r<=4;r++)for(int x=-r;x<=r;x++)for(int z=-r;z<=r;z++){
+            if(Math.max(Math.abs(x),Math.abs(z))!=r)continue;
+            var pos=p.blockPosition().offset(x,dy,z);
+            var feet=Vec3.atBottomCenterOf(pos);
+            if(safe(p.serverLevel(),mob,feet)&&p.serverLevel().getFluidState(pos).isEmpty())return feet;
+        }
+        return null;
+    }
+    /** Minecraft yaw: +Z = 0, -X = +90, -Z = 180, +X = -90. */
+    private static void face(Mob mob,Vec3 direction){
+        if(direction.x*direction.x+direction.z*direction.z<1.0e-8)return;
+        float yaw=(float)Math.toDegrees(Math.atan2(-direction.x,direction.z));
+        mob.setYRot(yaw);
+        mob.setYBodyRot(yaw);
+        mob.setYHeadRot(yaw);
+        mob.setXRot(0);
+    }
+
+    private void tick(TickEvent.ServerTickEvent.Post e){
+        tick++;
+        for(var id:List.copyOf(active.keySet())){
+            var a=active.get(id);var p=e.getServer().getPlayerList().getPlayer(id);
+            if(p==null||!p.isAlive()||p.isSpectator()||!a.entity.isAlive()||a.entity.level()!=p.level()||!owns(id,a.definition.id)){dismiss(id);continue;}
+            var mob=a.entity;mob.setDeltaMovement(Vec3.ZERO);
+            boolean custom=mob instanceof DragonEntity||mob instanceof MooncatEntity;
+            if(advanced(p,a))continue;
+            if(custom&&combat(p,a))continue;
+            if(mob instanceof DragonEntity dragon&&dragon.flight()>0&&land(p,a,dragon))continue;
+            if(mob.distanceToSqr(p)>9){
+                var delta=p.position().subtract(mob.position());
+                // Preserve the old nominal speed (0.65 blocks per five ticks),
+                // but distribute movement over individual ticks.
+                var step=delta.normalize().scale(Math.min(.13*stats(a).agility(),Math.max(0,delta.length()-3)));
+                if(delta.lengthSqr()>144||!safe(p.serverLevel(),mob,mob.position().add(step))){
+                    // Keep catch-up teleports on the original five-tick cadence.
+                    if(tick%5==0){
+                        var feet=nearby(p,mob);
+                        if(feet!=null){
+                            mob.teleportTo(feet.x,feet.y,feet.z);
+                            face(mob,p.position().subtract(mob.position()));
+                        }
+                    }
+                }else{
+                    var before=mob.position();
+                    face(mob,step);
+                    mob.move(MoverType.SELF,step);
+                    // Collision resolution can change the real movement vector.
+                    face(mob,mob.position().subtract(before));
+                }
+            }
+            if(!custom&&tick>=a.nextAbility)ability(p,a);
+        }
+    }
+    private LivingEntity engagedTarget(ServerPlayer p,Active a,UUID id){
+        if(id==null||tick>a.targetUntil)return null;
+        var found=p.serverLevel().getEntity(id);
+        return found instanceof LivingEntity l&&eligible(p,l)?l:null;
+    }
+    private LivingEntity combatTarget(ServerPlayer p,Active a,UUID id,double range){
+        LivingEntity target=engagedTarget(p,a,id);
+        return target!=null&&target.distanceToSqr(a.entity)<=range*range
+            &&a.entity.hasLineOfSight(target)?target:null;
+    }
+    private void finishCast(Active a){
+        a.cast=0;a.castTarget=null;a.impacted=false;
+        if(a.entity instanceof DragonEntity d)d.endCombat();
+        if(a.entity instanceof MooncatEntity m)m.endCombat();
+    }
+    private void startCast(Active a,LivingEntity target,int action,int windup,int duration){
+        a.cast=action;a.castTarget=target.getUUID();a.impactAt=tick+windup;a.finishAt=tick+duration;a.impacted=false;
+        combatLock.merge(a.owner,Math.max(a.nextAbility,a.nextSupport),Math::max);
+        face(a.entity,target.position().subtract(a.entity.position()));
+        if(a.entity instanceof DragonEntity d)d.beginCombat(action==BREATH?DragonEntity.BREATH:DragonEntity.GUARD);
+        if(a.entity instanceof MooncatEntity m)m.beginCombat(action==POUNCE?MooncatEntity.POUNCE:MooncatEntity.BLESS);
+    }
+    private boolean fly(ServerPlayer p,Active a,DragonEntity dragon,LivingEntity target,boolean casting){
+        var level=p.serverLevel();
+        double phase=tick*0.035+(dragon.getId()%31)*0.2;
+        Vec3 offset=new Vec3(Math.cos(phase)*3.4,0,Math.sin(phase)*3.4);
+        Vec3 desired=target.position().add(offset).add(0,3.0+0.12*Math.sin(tick*0.15),0);
+        // Low ceilings: choose a lower collision-free hover point, not a wall teleport.
+        while(desired.y>target.getY()+0.7&&!safe(level,dragon,desired))desired=desired.add(0,-0.5,0);
+        Vec3 delta=desired.subtract(dragon.position());
+        double speed=(casting?0.085:0.23)*stats(a).agility();
+        Vec3 requested=delta.length()<0.06?Vec3.ZERO:delta.normalize().scale(Math.min(speed,delta.length()));
+        a.flightVelocity=a.flightVelocity.scale(0.72).add(requested.scale(0.28));
+        Vec3 step=a.flightVelocity;
+        Vec3 dest=dragon.position().add(step);
+        if(safe(level,dragon,dest))dragon.move(MoverType.SELF,step);
+        else{
+            Vec3 vertical=new Vec3(0,Math.max(0,step.y),0);
+            if(vertical.lengthSqr()>0.00001&&safe(level,dragon,dragon.position().add(vertical)))dragon.move(MoverType.SELF,vertical);
+            a.flightVelocity=Vec3.ZERO;
+        }
+        dragon.flight(Math.min(20,dragon.flight()+1));a.landingTicks=0;
+        face(dragon,target.position().subtract(dragon.position()));
+        return dragon.getY()>=target.getY()+1.2;
+    }
+    private boolean land(ServerPlayer p,Active a,DragonEntity dragon){
+        var level=p.serverLevel();
+        if(!level.noCollision(dragon,dragon.getBoundingBox().move(0,-0.12,0))){
+            dragon.flight(0);a.flightVelocity=Vec3.ZERO;a.landingTicks=0;return false;
+        }
+        // Descend locally without snapping to the owner. If the floor is absent,
+        // return to normal catch-up logic after a bounded descent.
+        if(++a.landingTicks>100||dragon.getY()<level.getMinBuildHeight()+2){
+            dragon.flight(0);a.flightVelocity=Vec3.ZERO;a.landingTicks=0;return false;
+        }
+        double drop=Math.min(0.15,0.035+a.landingTicks*0.008);
+        Vec3 step=new Vec3(0,-drop,0);
+        if(safe(level,dragon,dragon.position().add(step)))dragon.move(MoverType.SELF,step);
+        else{
+            dragon.move(MoverType.SELF,new Vec3(0,-0.025,0));
+            if(!level.noCollision(dragon,dragon.getBoundingBox().move(0,-0.12,0))){
+                dragon.flight(0);a.flightVelocity=Vec3.ZERO;a.landingTicks=0;return false;
+            }
+        }
+        dragon.flight(Math.max(4,dragon.flight()-1));return true;
+    }
+    private void breathTick(ServerPlayer p,Active a,DragonEntity dragon,LivingEntity target){
+        var level=p.serverLevel();
+        Vec3 origin=dragon.mouth(),aim=target.getBoundingBox().getCenter().subtract(origin).normalize();
+        if(aim.lengthSqr()<0.0001){dragon.stream(Vec3.ZERO,0);return;}
+        Vec3 end=origin.add(aim.scale(7));
+        var hit=level.clip(new ClipContext(origin,end,ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,dragon));
+        double length=hit.getType()==HitResult.Type.MISS?7:origin.distanceTo(hit.getLocation());
+        dragon.stream(aim,(float)length);
+        long elapsed=tick-a.impactAt;
+        if(elapsed==0)level.playSound(null,dragon.getX(),dragon.getY(),dragon.getZ(),SoundEvents.BLAZE_SHOOT,SoundSource.NEUTRAL,1.0F,0.65F);
+        if(elapsed%3==0){
+            Vec3 q=origin.add(aim.scale(length*0.8));
+            level.sendParticles(ParticleTypes.SMALL_FLAME,q.x,q.y,q.z,9,0.36,0.36,0.36,0.045);
+            level.sendParticles(ParticleTypes.SMOKE,q.x,q.y,q.z,5,0.32,0.32,0.32,0.035);
+            level.sendParticles(ParticleTypes.LAVA,q.x,q.y,q.z,2,0.20,0.20,0.20,0.02);
+        }
+        // Three pulses separated by eleven ticks respect vanilla hit immunity.
+        if(elapsed!=0&&elapsed!=11&&elapsed!=22)return;
+        AABB search=new AABB(origin,end).inflate(2.2);
+        for(LivingEntity enemy:level.getEntitiesOfClass(LivingEntity.class,search,e->eligible(p,e)
+            &&(e==target||e instanceof Mob mob&&mob.getTarget()==p))){
+            Vec3 point=enemy.getBoundingBox().getCenter(),v=point.subtract(origin);
+            double along=v.dot(aim),radius=0.20+Math.max(0,along)*0.24;
+            if(along<0||along>length||v.subtract(aim.scale(along)).lengthSqr()>radius*radius)continue;
+            if(level.clip(new ClipContext(origin,point,ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,dragon)).getType()!=HitResult.Type.MISS)continue;
+            if(enemy.hurt(level.damageSources().mobAttack(dragon),2*stats(a).attack()))enemy.igniteForSeconds(3);
+        }
+    }
+    /** Exclusive cast lifecycle: validate hostile target, range and line of sight. */
+    private boolean combat(ServerPlayer p,Active a){
+        boolean dragon=a.entity instanceof DragonEntity;
+        if(a.cast!=0){
+            boolean support=a.cast==GUARD||a.cast==BLESS;
+            LivingEntity target=combatTarget(p,a,a.castTarget,support?8:dragon?7:2.6);
+            if(tick>=a.finishAt){finishCast(a);return false;}
+            if((!a.impacted||a.cast==BREATH)&&target==null){finishCast(a);return false;}
+            if(target!=null){
+                if(a.entity instanceof DragonEntity d)fly(p,a,d,target,true);
+                else face(a.entity,(a.cast==BLESS?p.position():target.position()).subtract(a.entity.position()));
+            }
+            if(a.cast==BREATH&&a.entity instanceof DragonEntity d){
+                if(tick>=a.impactAt&&tick<=a.impactAt+23&&target!=null){
+                    a.impacted=true;breathTick(p,a,d,target);
+                }else d.stream(Vec3.ZERO,0);
+                return true;
+            }
+            if(a.cast==POUNCE&&target!=null&&!a.impacted){
+                long elapsed=tick-(a.impactAt-MooncatEntity.POUNCE_IMPACT);
+                if(elapsed>=8&&elapsed<=MooncatEntity.POUNCE_IMPACT){
+                    Vec3 delta=target.position().subtract(a.entity.position());
+                    Vec3 flat=new Vec3(delta.x,0,delta.z);
+                    Vec3 step=flat.normalize().scale(Math.min(0.28*stats(a).agility(),Math.max(0,flat.length()-0.85)));
+                    if(safe(p.serverLevel(),a.entity,a.entity.position().add(step)))a.entity.move(MoverType.SELF,step);
+                }
+            }
+            if(a.cast==BLESS&&a.entity instanceof MooncatEntity m&&tick%4==0){
+                var level=p.serverLevel();double angle=tick*0.28;
+                for(int i=0;i<4;i++){double q=angle+i*Math.PI/2;level.sendParticles(ParticleTypes.END_ROD,m.getX()+Math.cos(q)*0.65,m.getY()+0.25+(tick%20)*0.035,m.getZ()+Math.sin(q)*0.65,1,0,0,0,0);}
+                level.sendParticles(ParticleTypes.END_ROD,p.getX()+Math.cos(angle)*0.8,p.getY()+0.4+(tick%20)*0.06,p.getZ()+Math.sin(angle)*0.8,1,0,0,0,0);
+            }
+            if(!a.impacted&&tick>=a.impactAt){
+                a.impacted=true;if(target!=null)impact(p,a,target);
+            }
+            return true;
+        }
+        LivingEntity target=engagedTarget(p,a,a.target);
+        if(target==null)return false;
+        face(a.entity,target.position().subtract(a.entity.position()));
+        if(a.entity instanceof DragonEntity d){
+            boolean airborne=fly(p,a,d,target,false);
+            if(!airborne)return true;
+        }
+        if(tick>=a.nextSupport&&p.getHealth()<=p.getMaxHealth()*0.70F
+            &&combatTarget(p,a,a.target,8)!=null){
+            a.nextSupport=tick+PetProgression.cooldown(240,stats(a));
+            startCast(a,target,dragon?GUARD:BLESS,dragon?10:MooncatEntity.BLESS_IMPACT,dragon?24:MooncatEntity.BLESS_DURATION);
+            if(a.entity instanceof MooncatEntity m){m.blessingRecipient(p.getId());face(m,p.position().subtract(m.position()));}
+            return true;
+        }
+        double range=dragon?7:2.6;
+        if(a.entity.distanceToSqr(target)>range*range){
+            if(!dragon){
+                var delta=target.position().subtract(a.entity.position());
+                var step=delta.normalize().scale(Math.min(0.16*stats(a).agility(),Math.max(0,delta.length()-range+0.15)));
+                if(safe(p.serverLevel(),a.entity,a.entity.position().add(step))){
+                    var before=a.entity.position();a.entity.move(MoverType.SELF,step);
+                    face(a.entity,a.entity.position().subtract(before));
+                }
+            }
+            return true;
+        }
+        if(tick<a.nextAbility||!a.entity.hasLineOfSight(target))return true;
+        a.nextAbility=tick+PetProgression.cooldown(dragon?120:100,stats(a));
+        startCast(a,target,dragon?BREATH:POUNCE,dragon?10:MooncatEntity.POUNCE_IMPACT,dragon?44:MooncatEntity.POUNCE_DURATION);
+        return true;
+    }
+    private void impact(ServerPlayer p,Active a,LivingEntity target){
+        var level=p.serverLevel();
+        switch(a.cast){
+            case POUNCE -> {
+                if(target.hurt(level.damageSources().mobAttack(a.entity),4*stats(a).attack()))
+                    target.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,PetProgression.duration(60,stats(a)),0));
+                level.sendParticles(ParticleTypes.SWEEP_ATTACK,target.getX(),target.getY()+0.65,target.getZ(),1,0,0,0,0);
+                level.sendParticles(ParticleTypes.CRIT,target.getX(),target.getY()+0.7,target.getZ(),5,0.18,0.18,0.18,0.06);
+                level.playSound(null,a.entity.getX(),a.entity.getY(),a.entity.getZ(),SoundEvents.CAT_HISS,SoundSource.NEUTRAL,0.6F,1.1F);
+            }
+            case GUARD -> {
+                p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(100,stats(a)),0));
+                p.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE,PetProgression.duration(100,stats(a)),0));
+                level.sendParticles(ParticleTypes.FLAME,p.getX(),p.getY()+1,p.getZ(),24,0.45,0.6,0.45,0.01);
+            }
+            case BLESS -> {
+                p.heal(4*stats(a).healing());
+                if(a.entity instanceof MooncatEntity m)m.blessingImpact();
+                level.sendParticles(ParticleTypes.HEART,p.getX(),p.getY()+1.8,p.getZ(),5,0.35,0.25,0.35,0.02);
+                level.playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.AMETHYST_BLOCK_CHIME,SoundSource.NEUTRAL,0.9F,1.25F);
+                p.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED,PetProgression.duration(100,stats(a)),0));
+                level.sendParticles(ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),24,0.45,0.6,0.45,0.025);
+                level.playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.CAT_PURR,SoundSource.NEUTRAL,0.7F,1.1F);
+            }
+            default -> {}
+        }
+    }
+    private void ability(ServerPlayer p,Active a){
+        var d=a.definition;var level=p.serverLevel();
+        var entity=a.target==null||tick>a.targetUntil?null:level.getEntity(a.target);
+        LivingEntity target=entity instanceof LivingEntity l&&eligible(p,l)&&l.distanceToSqr(a.entity)<=64&&a.entity.hasLineOfSight(l)?l:null;
+        // Pet-attributed damage; no direct player damage.
+        boolean used=false;
+        switch(d.ability){
+            case HEAL -> {if(p.getHealth()<p.getMaxHealth()){p.heal(d.power*stats(a).healing());used=true;}}
+            case SHIELD -> {if(target!=null){p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(80,stats(a)),0));used=true;}}
+            case HASTE -> {if(target!=null){p.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED,PetProgression.duration(100,stats(a)),0));used=true;}}
+            case LUCK -> {if(target!=null){p.addEffect(new MobEffectInstance(MobEffects.LUCK,PetProgression.duration(100,stats(a)),0));used=true;}}
+            case SCOUT -> {}
+            default -> {
+                if(target!=null){
+                    // Pet damage does not renew the owner's engagement window.
+                    used=target.hurt(level.damageSources().mobAttack(a.entity),d.power*stats(a).attack());
+                    if(used)switch(d.ability){
+                        case VENOM -> target.addEffect(new MobEffectInstance(MobEffects.POISON,PetProgression.duration(60,stats(a)),0));
+                        case SLOW -> target.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,PetProgression.duration(60,stats(a)),0));
+                        case WEAKEN -> target.addEffect(new MobEffectInstance(MobEffects.WEAKNESS,PetProgression.duration(60,stats(a)),0));
+                        case BURN -> target.igniteForSeconds(3);
+                        default -> {}
+                    }
+                }
+            }
+        }
+        if(used)a.nextAbility=tick+PetProgression.cooldown(d.cooldown,stats(a));else a.nextAbility=tick+10;
+    }
+    private static String moveName(Definition d,int level){
+        if(d.id.equals("ember_dragon"))return switch(level){case 10->"Cinder Shock";case 25->"Inferno Brand";default->"Dragon Ward";};
+        if(d.id.equals("premium_mooncat"))return switch(level){case 10->"Lunar Rend";case 25->"Astral Aegis";default->"Moon Renewal";};
+        return switch(d.role){
+            case DPS -> switch(level){case 10->"Power Strike";case 25->"Execution";default->"Ravage";};
+            case HEALER -> switch(level){case 10->"Mending Light";case 25->"Restoration";default->"Vital Surge";};
+            case GUARDIAN -> switch(level){case 10->"Protective Bond";case 25->"Fortify";default->"Bulwark";};
+            case SUPPORT -> switch(level){case 10->"Quickening";case 25->"Battle Hymn";default->"Inspiration";};
+            case CONTROL -> switch(level){case 10->"Crippling Strike";case 25->"Suppression";default->"Binding Tempest";};
+        };
+    }
+    // One additional ability per cooldown; healer and guardian tiers are
+    // reserved for meaningful defensive conditions instead of wasted on full HP.
+    private boolean advanced(ServerPlayer p,Active a){
+        var stat=stats(a);if(stat.level()<10||tick<a.nextAdvanced||a.cast!=0)return false;
+        LivingEntity enemy=combatTarget(p,a,a.target,8);if(enemy==null)return false;
+        var level=p.serverLevel();Role role=a.definition.role;
+        boolean dragon=a.definition.id.equals("ember_dragon"),cat=a.definition.id.equals("premium_mooncat");
+        float health=p.getHealth()/p.getMaxHealth();
+        int move=stat.level()>=40?40:stat.level()>=25?25:10;
+        if(role==Role.HEALER){
+            if(health>0.85F)return false;
+            if(move==40&&health>0.65F)move=25;
+        }else if(role==Role.GUARDIAN){
+            if(health>0.90F&&p.hasEffect(MobEffects.DAMAGE_RESISTANCE))return false;
+        }else if(dragon){
+            if(move==40&&health>0.65F)move=25;
+        }
+        // Premium signature moves preserve the established names and identity.
+        if(dragon){
+            if(move==40){
+                p.heal(6*stat.healing());
+                buff(p,MobEffects.DAMAGE_RESISTANCE,160,1,stat);
+                buff(p,MobEffects.ABSORPTION,200,1,stat);
+                buff(p,MobEffects.FIRE_RESISTANCE,240,0,stat);
+            }else if(enemy.hurt(level.damageSources().mobAttack(a.entity),(move==25?8:4)*stat.attack())){
+                enemy.igniteForSeconds(move==25?7:2);
+                buff(enemy,MobEffects.WEAKNESS,move==25?120:60,0,stat);
+            }
+        }else if(cat){
+            if(move==40){
+                p.heal(8*stat.healing());
+                buff(p,MobEffects.DAMAGE_RESISTANCE,160,1,stat);
+                buff(p,MobEffects.ABSORPTION,200,1,stat);
+                buff(p,MobEffects.REGENERATION,120,1,stat);
+            }else if(move==25){
+                p.heal(4*stat.healing());
+                buff(p,MobEffects.ABSORPTION,160,1,stat);
+                buff(p,MobEffects.DAMAGE_RESISTANCE,120,0,stat);
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),5*stat.attack()))buff(enemy,MobEffects.WEAKNESS,100,0,stat);
+            }else{
+                p.heal(2*stat.healing());
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),3*stat.attack())){
+                    buff(enemy,MobEffects.WEAKNESS,60,0,stat);buff(enemy,MobEffects.MOVEMENT_SLOWDOWN,80,0,stat);
+                }
+            }
+        }else switch(role){
+            case DPS -> {
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),(move==40?10:move==25?7:4)*stat.attack()))
+                    buff(enemy,MobEffects.WEAKNESS,move==40?120:80,move==40?1:0,stat);
+            }
+            case HEALER -> {
+                p.heal((move==40?8:move==25?5:3)*stat.healing());
+                if(move>=25)buff(p,MobEffects.REGENERATION,move==40?120:80,move==40?1:0,stat);
+                if(move==40)buff(p,MobEffects.ABSORPTION,160,1,stat);
+            }
+            case GUARDIAN -> {
+                buff(p,MobEffects.DAMAGE_RESISTANCE,move==40?180:move==25?140:100,move==40?1:0,stat);
+                buff(p,MobEffects.ABSORPTION,move==40?200:move==25?160:100,move>=25?1:0,stat);
+                if(move==40)buff(p,MobEffects.FIRE_RESISTANCE,200,0,stat);
+            }
+            case SUPPORT -> {
+                buff(p,MobEffects.MOVEMENT_SPEED,move==40?180:move==25?140:100,move==40?1:0,stat);
+                if(move>=25)buff(p,MobEffects.DAMAGE_BOOST,move==40?160:100,move==40?1:0,stat);
+                if(move==40)buff(p,MobEffects.DIG_SPEED,160,1,stat);
+            }
+            case CONTROL -> {
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),(move==40?6:move==25?4:2)*stat.attack())){
+                    buff(enemy,MobEffects.MOVEMENT_SLOWDOWN,move==40?160:move==25?120:80,move>=25?1:0,stat);
+                    buff(enemy,MobEffects.WEAKNESS,move==40?160:move==25?120:80,move==40?1:0,stat);
+                }
+            }
+        }
+        boolean defensive=role==Role.HEALER||role==Role.GUARDIAN||role==Role.SUPPORT||dragon&&move==40;
+        LivingEntity visual=defensive?p:enemy;
+        level.sendParticles(dragon?ParticleTypes.FLAME:role==Role.DPS?ParticleTypes.CRIT:ParticleTypes.END_ROD,visual.getX(),visual.getY()+0.8,visual.getZ(),18,0.35,0.45,0.35,0.04);
+        if(role==Role.HEALER||dragon&&move==40)level.sendParticles(ParticleTypes.HEART,p.getX(),p.getY()+1.5,p.getZ(),5,0.3,0.4,0.3,0.03);
+        level.playSound(null,visual.getX(),visual.getY(),visual.getZ(),SoundEvents.AMETHYST_BLOCK_CHIME,SoundSource.NEUTRAL,0.65F,1.0F);
+        a.nextAdvanced=tick+PetProgression.cooldown(move==40?400:move==25?260:300,stat);
+        advancedLock.merge(a.owner,a.nextAdvanced,Math::max);
+        p.displayClientMessage(Component.literal(petName(a.owner,a.definition)+" used "+moveName(a.definition,move)),true);
+        return true;
+    }
+    private static void buff(LivingEntity target,net.minecraft.core.Holder<MobEffect> effect,int ticks,int amplifier,PetProgression.Stats stat){
+        target.addEffect(new MobEffectInstance(effect,PetProgression.duration(ticks,stat),amplifier));
+    }
+    private static String moveDetails(Definition d,int l){
+        if(d.id.equals("ember_dragon"))return switch(l){case 10->"4 damage + Weakness I + 2s burn";case 25->"8 damage + Weakness I + 7s burn";default->"6 healing + Resistance II + Absorption II + Fire Resistance";};
+        if(d.id.equals("premium_mooncat"))return switch(l){case 10->"2 healing + 3 damage + Weakness I + Slowness I";case 25->"4 healing + 5 damage + Weakness I + Absorption II + Resistance I";default->"8 healing + Resistance II + Absorption II + Regeneration II";};
+        return switch(d.role){
+            case DPS -> switch(l){case 10->"4 damage + Weakness I";case 25->"7 damage + Weakness I";default->"10 damage + Weakness II";};
+            case HEALER -> switch(l){case 10->"3 healing";case 25->"5 healing + Regeneration I";default->"8 healing + Regeneration II + Absorption II";};
+            case GUARDIAN -> switch(l){case 10->"Resistance I + Absorption I";case 25->"Resistance I + Absorption II";default->"Resistance II + Absorption II + Fire Resistance";};
+            case SUPPORT -> switch(l){case 10->"Speed I";case 25->"Speed I + Strength I";default->"Speed II + Strength II + Haste II";};
+            case CONTROL -> switch(l){case 10->"2 damage + Slowness I + Weakness I";case 25->"4 damage + Slowness II + Weakness I";default->"6 damage + Slowness II + Weakness II";};
+        };
+    }
+    private int progress(CommandSourceStack s,String id,boolean moves)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        var p=s.getPlayerOrException();
+        if(id==null){var a=active.get(p.getUUID());if(a==null)return fail(s,"Summon a pet or specify its ID.");id=a.definition.id;}
+        if(!owns(p.getUUID(),id))return fail(s,"Pet not owned.");
+        var d=def(id);long xp=xp(p.getUUID(),id);var stat=PetProgression.stats(xp,d.role);
+        if(moves){
+            ok(s,d.name+" | Class: "+d.role+" | Base: "+description(d));
+            for(int l:new int[]{10,25,40})ok(s,"Level "+l+" | "+moveName(d,l)+" | "+moveDetails(d,l)+" | "+(stat.level()>=l?"Unlocked":"Locked"));
+            return 1;
+        }
+        ok(s,label(p.getUUID(),d)+" | XP: "+xp+(stat.level()==PetProgression.MAX_LEVEL?" (MAX)":" / "+PetProgression.threshold(stat.level()+1)));
+        return ok(s,String.format(java.util.Locale.ROOT,"Attack x%.3f | Healing x%.3f | Agility x%.3f | Haste x%.3f | Buff duration x%.3f",stat.attack(),stat.healing(),stat.agility(),stat.haste(),stat.duration()));
+    }
+    private int fail(CommandSourceStack s,String m){s.sendFailure(Component.literal(m));return 0;}
+    private int ok(CommandSourceStack s,String m){s.sendSuccess(()->Component.literal(m),false);return 1;}
+    private int acquire(CommandSourceStack s,ServerPlayer p,String id,String source){
+        var d=def(id);if(failed||d==null||d.locked||d.source==Source.SHOP||d.source==Source.PREMIUM||!d.source.name().equalsIgnoreCase(source))return fail(s,"Pet unavailable from this source.");
+        var a=account(p.getUUID());if(owns(p.getUUID(),id))return fail(s,"Already owned.");
+        a.owned.put(id,UUID.randomUUID().toString());
+        if(!save()){a.owned.remove(id);return fail(s,"Acquisition failed.");}
+        return ok(s,"Unlocked "+d.name);
+    }
+    private static boolean validName(String name){
+        return name!=null&&name.equals(name.strip())&&!name.isEmpty()&&name.codePointCount(0,name.length())<=24&&name.codePoints().allMatch(c->Character.isLetterOrDigit(c)||c==' '||c=='-'||c=='_'||c=='\'');
+    }
+    private String petName(UUID owner,Definition d){
+        return account(owner).names.getOrDefault(d.id,d.name);
+    }
+    private int rename(CommandSourceStack s,String id,String requested)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        var p=s.getPlayerOrException();var d=def(id);
+        if(d==null||!owns(p.getUUID(),id))return fail(s,"Pet not owned.");
+        if(requested!=null&&!validName(requested))return fail(s,"Use 1–24 letters, digits, spaces, apostrophes, underscores or hyphens.");
+        var a=account(p.getUUID());String old=a.names.get(id);
+        if(requested==null)a.names.remove(id);else a.names.put(id,requested);
+        if(!save()){if(old==null)a.names.remove(id);else a.names.put(id,old);return fail(s,"Name change failed.");}
+        var live=active.get(p.getUUID());
+        String name=petName(p.getUUID(),d);
+        if(live!=null&&live.definition.id.equals(id))live.entity.setCustomName(Component.literal(label(p.getUUID(),d)));
+        return ok(s,"Pet "+id+" named "+name+".");
+    }
+    private int summon(CommandSourceStack s,String id)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        var p=s.getPlayerOrException();var d=def(id);
+        if(d==null||d.locked||!owns(p.getUUID(),id)||!p.isAlive()||p.isSpectator())return fail(s,"Pet not available or owned.");
+        var type=d.id.equals("ember_dragon") ? PetEntities.DRAGON.get() : d.id.equals("premium_mooncat") ? PetEntities.MOONCAT.get() : BuiltInRegistries.ENTITY_TYPE.get(ResourceLocation.withDefaultNamespace(d.mob));
+        if(!(type.create(p.serverLevel()) instanceof Mob mob))return fail(s,"Invalid pet entity.");
+        var feet=nearby(p,mob);if(feet==null)return fail(s,"No safe pet spawn nearby.");
+        dismiss(p.getUUID());
+        mob.moveTo(feet.x,feet.y,feet.z,p.getYRot(),0);face(mob,p.position().subtract(mob.position()));mob.setNoAi(true);mob.setNoGravity(true);mob.setInvulnerable(true);mob.setSilent(true);mob.setPersistenceRequired();
+        mob.addTag(TAG);mob.setCustomName(Component.literal(label(p.getUUID(),d)));mob.setCustomNameVisible(true);
+        var a=new Active(p.getUUID(),d,mob);a.nextAbility=Math.max(tick+d.cooldown,combatLock.getOrDefault(p.getUUID(),0L));a.nextSupport=Math.max(tick+240,combatLock.getOrDefault(p.getUUID(),0L));a.nextAdvanced=Math.max(tick+300,advancedLock.getOrDefault(p.getUUID(),0L));active.put(p.getUUID(),a);
+        if(!p.serverLevel().addFreshEntity(mob)){dismiss(p.getUUID());return fail(s,"Summon failed.");}
+        return ok(s,"Summoned "+label(p.getUUID(),d));
+    }
+    private int list(CommandSourceStack s,boolean shop,boolean catalog)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        var p=s.getPlayerOrException();if(failed)return fail(s,"Storage locked.");var a=account(p.getUUID());
+        s.sendSuccess(()->Component.literal("MYTHOS Pets | Visit a Pet Merchant for current prices"),false);
+        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:owns(p.getUUID(),d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+(owns(p.getUUID(),d.id)?label(p.getUUID(),d):d.name)+" | "+description(d)+" | "+d.source+(d.locked?" LOCKED":"")),false);
+        return 1;
+    }
+    private int premium(CommandSourceStack s,ServerPlayer p,String id,boolean grant){
+        var d=def(id);if(failed||d==null||d.source!=Source.PREMIUM||d.locked)return fail(s,"Not an available premium pet");
+        var a=account(p.getUUID());String old=a.owned.get(id);
+        if(grant){if(old!=null)return fail(s,"Already owned");a.owned.put(id,UUID.randomUUID().toString());}
+        else{if(old==null)return fail(s,"Not owned");a.owned.remove(id);}
+        String oldName=grant?null:a.names.remove(id);
+        if(!save()){if(old==null)a.owned.remove(id);else a.owned.put(id,old);if(oldName!=null)a.names.put(id,oldName);return fail(s,"Storage failed");}
+        var live=active.get(p.getUUID());if(!grant&&live!=null&&live.definition.id.equals(id))dismiss(p.getUUID());
+        LOG.info("Premium pet {} actor={} player={} id={}",grant?"grant":"revoke",s.getTextName(),p.getUUID(),id);
+        return ok(s,(grant?"Granted ":"Revoked ")+d.name);
+    }
+    private void commands(RegisterCommandsEvent e){
+        var root=Commands.literal("pet").executes(c->list(c.getSource(),false,false));
+        root.then(Commands.literal("list").executes(c->list(c.getSource(),false,false)));
+        for(String command:List.of("stats","moves")){
+            boolean moves=command.equals("moves");
+            root.then(Commands.literal(command).executes(c->progress(c.getSource(),null,moves)).then(Commands.argument("id",StringArgumentType.word()).executes(c->progress(c.getSource(),StringArgumentType.getString(c,"id"),moves))));
+        }
+        root.then(Commands.literal("xp").requires(source->source.hasPermission(4)).then(Commands.literal("grant").then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("amount",IntegerArgumentType.integer(1,122500)).executes(c->{
+            var p=EntityArgument.getPlayer(c,"player");String id=StringArgumentType.getString(c,"id");
+            if(def(id)==null||!award(p,id,IntegerArgumentType.getInteger(c,"amount")))return fail(c.getSource(),"XP grant failed or pet not owned.");
+            return ok(c.getSource(),"Granted pet XP.");
+        }))))));
+        root.then(Commands.literal("shop").executes(c->list(c.getSource(),true,false)));
+        root.then(Commands.literal("catalog").executes(c->list(c.getSource(),false,true)));
+        root.then(Commands.literal("summon").then(Commands.argument("id",StringArgumentType.word()).executes(c->summon(c.getSource(),StringArgumentType.getString(c,"id")))));
+        root.then(Commands.literal("rename").then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->rename(c.getSource(),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"name"))))));
+        root.then(Commands.literal("resetname").then(Commands.argument("id",StringArgumentType.word()).executes(c->rename(c.getSource(),StringArgumentType.getString(c,"id"),null))));
+        root.then(Commands.literal("dismiss").executes(c->{dismiss(c.getSource().getPlayerOrException().getUUID());return ok(c.getSource(),"Pet dismissed.");}));
+        root.then(Commands.literal("reward").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("source",StringArgumentType.word()).executes(c->{String source=StringArgumentType.getString(c,"source");if(source.equalsIgnoreCase("SHOP"))return fail(c.getSource(),"Shop-exclusive pet.");return acquire(c.getSource(),EntityArgument.getPlayer(c,"player"),StringArgumentType.getString(c,"id"),source);})))));
+        var premiumRoot=Commands.literal("premium").requires(source->source.hasPermission(4));
+        for(String action:List.of("grant","revoke")){
+            var idArg=Commands.argument("id",StringArgumentType.word()).executes(c->premium(c.getSource(),EntityArgument.getPlayer(c,"player"),StringArgumentType.getString(c,"id"),action.equals("grant")));
+            premiumRoot.then(Commands.literal(action).then(Commands.argument("player",EntityArgument.player()).then(idArg)));
+        }
+        premiumRoot.then(Commands.literal("catalog").executes(c->ok(c.getSource(),String.join(", ",CATALOG.stream().filter(d->d.source==Source.PREMIUM).map(d->d.id).toList()))));
+        premiumRoot.then(Commands.literal("list").then(Commands.argument("player",EntityArgument.player()).executes(c->{var target=EntityArgument.getPlayer(c,"player");return ok(c.getSource(),String.join(", ",CATALOG.stream().filter(d->d.source==Source.PREMIUM&&owns(target.getUUID(),d.id)).map(d->d.id).toList()));})));
+        root.then(premiumRoot);
+        e.getDispatcher().register(root);
+    }
+}
