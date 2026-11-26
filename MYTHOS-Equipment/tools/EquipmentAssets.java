@@ -40,7 +40,7 @@ public final class EquipmentAssets {
     private static Color shade(Color c,double t){return t<0?mix(c,Color.BLACK,-t):mix(c,Color.WHITE,t);}
     private static Color accent(Definition d){return shade(new Color(d.owner().color),((d.level()-1)%20)/100.0);}
     private static Color metal(ClassSet c,Tier t){return switch(c){case CLERIC->new Color(205,195,167);case ROGUE,NECROMANCER,HEXSLINGER->new Color(83,94,110);case RANGER->new Color(119,137,118);default->new Color(147,163,181);};}
-    private static Color trim(ClassSet c,Tier t){return t==Tier.DRAGON?new Color(201,155,74):t==Tier.VETERAN?new Color(168,145,105):new Color(115,125,136);}
+    private static Color trim(ClassSet c,Tier t){return t==Tier.ASCENDANT?new Color(235,215,151):t==Tier.DRAGON?new Color(201,155,74):t==Tier.CHAMPION?new Color(184,159,113):t==Tier.VETERAN?new Color(168,145,105):new Color(115,125,136);}
     // 256px material atlas: polished steel, edge, trim, leather, cloth, crystal, wood, dark metal.
     private static BufferedImage atlas(Definition d){
         BufferedImage image=new BufferedImage(256,256,BufferedImage.TYPE_INT_ARGB);
@@ -165,7 +165,7 @@ public final class EquipmentAssets {
         String third=shield?"[0,90,0]":"[0,-90,35]";
         String first=shield?(active?"[0,45,10]":"[0,90,0]"):"[0,-90,25]";
         double scale=d.kind().twoHanded?.74:.85;
-        String display=String.format(Locale.ROOT,"\"display\":{\"gui\":{\"rotation\":[25,-35,35],\"translation\":[0,-1,0],\"scale\":[0.68,0.68,0.68]},\"thirdperson_righthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"thirdperson_lefthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_righthand\":{\"rotation\":%s,\"translation\":[1,2,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_lefthand\":{\"rotation\":%s,\"translation\":[1,2,1],\"scale\":[%.2f,%.2f,%.2f]},\"ground\":{\"translation\":[0,3,0],\"scale\":[0.35,0.35,0.35]},\"fixed\":{\"scale\":[0.65,0.65,0.65]}}",third,scale,scale,scale,third,scale,scale,scale,first,scale,scale,scale,first,scale,scale,scale);
+        String display=String.format(Locale.ROOT,"\"display\":{\"gui\":{\"rotation\":[25,-35,35],\"translation\":[0,-1,0],\"scale\":[0.90,0.90,0.90]},\"thirdperson_righthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"thirdperson_lefthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_righthand\":{\"rotation\":%s,\"translation\":[1,2,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_lefthand\":{\"rotation\":%s,\"translation\":[1,2,1],\"scale\":[%.2f,%.2f,%.2f]},\"ground\":{\"translation\":[0,3,0],\"scale\":[0.35,0.35,0.35]},\"fixed\":{\"scale\":[0.65,0.65,0.65]}}",third,scale,scale,scale,third,scale,scale,scale,first,scale,scale,scale,first,scale,scale,scale);
         return "{\"ambientocclusion\":false,\"textures\":{\"all\":\""+texture+"\",\"particle\":\""+texture+"\"},\"elements\":["+String.join(",",m.parts)+"],"+display+overrides+"}";
     }
     private static BufferedImage icon(Definition d){
