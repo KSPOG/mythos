@@ -1,6 +1,7 @@
 package com.ksp.mythosmounts;
 
 import com.google.gson.*;
+import com.ksp.mythoseconomy.EconomyApi;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.CommandSourceStack;
@@ -38,9 +39,11 @@ public final class Mounts {
     private static final String TAG="mythos_mount";
     private static final Gson JSON=new GsonBuilder().setPrettyPrinting().create();
     private static final org.slf4j.Logger LOG=com.mojang.logging.LogUtils.getLogger();
-    private enum Source { SHOP, QUEST, DUNGEON, RAID, WORLD_BOSS, ACHIEVEMENT, CLAN, EVENT }
+    private enum Source { SHOP, QUEST, DUNGEON, RAID, WORLD_BOSS, ACHIEVEMENT, CLAN, EVENT, PREMIUM }
     private record Definition(String id,String name,String entity,Source source,long price,double speed,boolean nativeControl){}
     private static final List<Definition> CATALOG=List.of(
+        new Definition("premium_celestial_steed","Celestial Steed","horse",Source.PREMIUM,0,.22,true),
+        new Definition("premium_royal_camel","Royal Camel","camel",Source.PREMIUM,0,.18,true),
         new Definition("traveller","Traveller's Horse","horse",Source.SHOP,2500,.22,true),
         new Definition("pack_donkey","Pack Donkey","donkey",Source.SHOP,5000,.20,true),
         new Definition("highland_mule","Highland Mule","mule",Source.SHOP,12000,.24,true),
@@ -100,6 +103,7 @@ public final class Mounts {
     }
     private static Definition definition(String id){return CATALOG.stream().filter(d->d.id.equals(id)).findFirst().orElse(null);}
     private static class Account {
+        // Legacy test wallet retained in the file for backup/reconciliation; never spendable.
         long gold;
         Map<String,String> owned=new LinkedHashMap<>();
     }
@@ -110,6 +114,16 @@ public final class Mounts {
     private boolean failed=true;
     private final Map<UUID,Active> active=new HashMap<>();
     public Mounts(){
+        EconomyApi.registerCreatures("mount",new EconomyApi.CreatureProvider(){
+            public boolean available(){return !failed;}
+            public boolean legacyOwns(UUID player,String key){
+                var a=store.players.get(player.toString());
+                return key.startsWith("mount:")&&a!=null&&a.owned.containsKey(key.substring(6));
+            }
+            public List<EconomyApi.Creature> catalog(){
+                return CATALOG.stream().filter(d->movement(d)!=Movement.LOCKED).map(d->new EconomyApi.Creature("mount:"+d.id,d.name,movement(d).name()+" | speed "+d.speed,d.source==Source.SHOP)).toList();
+            }
+        });
         var bus=MinecraftForge.EVENT_BUS;
         bus.addListener(this::start);bus.addListener(this::stop);bus.addListener(this::commands);
         bus.addListener(this::mount);bus.addListener(this::interact);bus.addListener(this::join);
@@ -142,7 +156,7 @@ public final class Mounts {
         }catch(Exception ex){failed=true;LOG.error("MYTHOS Mounts save failed; transactions locked",ex);return false;}
     }
     private Account account(UUID id){return store.players.computeIfAbsent(id.toString(),k->new Account());}
-    private boolean owns(UUID owner,String id){var a=store.players.get(owner.toString());return !failed&&a!=null&&a.owned.containsKey(id);}
+    private boolean owns(UUID owner,String id){var a=store.players.get(owner.toString());return !failed&&(a!=null&&a.owned.containsKey(id)||EconomyApi.ownsCreature(owner,"mount:"+id));}
     private Active registered(Entity entity){
         for(var a:active.values())if(a.entity==entity&&owns(a.owner,a.id))return a;
         return null;
@@ -211,27 +225,12 @@ public final class Mounts {
     }
     private int fail(CommandSourceStack s,String message){s.sendFailure(Component.literal(message));return 0;}
     private int ok(CommandSourceStack s,String message){s.sendSuccess(()->Component.literal(message),false);return 1;}
-    private int buy(CommandSourceStack s,String id)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
-        var p=s.getPlayerOrException();var d=definition(id);
-        if(failed||d==null||d.source!=Source.SHOP||movement(d)==Movement.LOCKED)return fail(s,"Not available for purchase.");
-        var a=account(p.getUUID());if(a.owned.containsKey(id))return fail(s,"Already owned.");
-        if(a.gold<d.price)return fail(s,"Insufficient mount gold: "+d.price);
-        a.gold-=d.price;a.owned.put(id,UUID.randomUUID().toString());
-        if(!save()){a.gold+=d.price;a.owned.remove(id);return fail(s,"Purchase failed; storage locked.");}
-        return ok(s,"Purchased "+d.name+" for "+d.price+" mount gold.");
-    }
     private int reward(CommandSourceStack s,ServerPlayer p,String id,String source){
         var d=definition(id);
-        if(failed||d==null||movement(d)==Movement.LOCKED||d.source==Source.SHOP||!d.source.name().equalsIgnoreCase(source))return fail(s,"Acquisition source does not match mount definition.");
-        var a=account(p.getUUID());if(a.owned.containsKey(id))return fail(s,"Already owned.");
+        if(failed||d==null||movement(d)==Movement.LOCKED||(d.source==Source.SHOP||d.source==Source.PREMIUM)||!d.source.name().equalsIgnoreCase(source))return fail(s,"Acquisition source does not match mount definition.");
+        var a=account(p.getUUID());if(owns(p.getUUID(),id))return fail(s,"Already owned.");
         a.owned.put(id,UUID.randomUUID().toString());
         if(!save()){a.owned.remove(id);return fail(s,"Reward failed.");}return ok(s,"Granted "+d.name+" to "+p.getScoreboardName());
-    }
-    private int credit(CommandSourceStack s,ServerPlayer p,int amount){
-        if(failed)return fail(s,"Storage locked.");
-        var a=account(p.getUUID());long old=a.gold;
-        try{a.gold=Math.addExact(old,amount);}catch(ArithmeticException ex){return fail(s,"Balance overflow.");}
-        if(!save()){a.gold=old;return fail(s,"Credit failed.");}return ok(s,"Mount gold: "+a.gold);
     }
     private int summon(CommandSourceStack s,String id)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();var d=definition(id);
@@ -280,22 +279,38 @@ public final class Mounts {
     }
     private int list(CommandSourceStack s,boolean shop)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();if(failed)return fail(s,"Storage locked.");var a=account(p.getUUID());
-        s.sendSuccess(()->Component.literal("MYTHOS Mounts | mount gold "+a.gold),false);
-        for(var d:CATALOG)if(shop?d.source==Source.SHOP&&movement(d)!=Movement.LOCKED:a.owned.containsKey(d.id))
-            s.sendSuccess(()->Component.literal(d.id+" — "+d.name+(shop?" | "+d.price+" gold":" | "+d.source)),false);
+        s.sendSuccess(()->Component.literal("MYTHOS Mounts | Visit a Stable Master for prices"),false);
+        for(var d:CATALOG)if(shop?d.source==Source.SHOP&&movement(d)!=Movement.LOCKED:owns(p.getUUID(),d.id))
+            s.sendSuccess(()->Component.literal(d.id+" — "+d.name+(" | "+d.source)),false);
         return 1;
+    }
+    private int premium(CommandSourceStack s,ServerPlayer p,String id,boolean grant){
+        var d=definition(id);if(failed||d==null||d.source!=Source.PREMIUM||movement(d)==Movement.LOCKED)return fail(s,"Not an available premium mount");
+        var a=account(p.getUUID());String old=a.owned.get(id);
+        if(grant){if(old!=null)return fail(s,"Already owned");a.owned.put(id,UUID.randomUUID().toString());}
+        else{if(old==null)return fail(s,"Not owned");a.owned.remove(id);}
+        if(!save()){if(old==null)a.owned.remove(id);else a.owned.put(id,old);return fail(s,"Storage failed");}
+        var live=active.get(p.getUUID());if(!grant&&live!=null&&live.id.equals(id))dismiss(p.getUUID());
+        LOG.info("Premium mount {} actor={} player={} id={}",grant?"grant":"revoke",s.getTextName(),p.getUUID(),id);
+        return ok(s,(grant?"Granted ":"Revoked ")+d.name);
     }
     private void commands(RegisterCommandsEvent e){
         var root=Commands.literal("mount").executes(c->list(c.getSource(),false));
         root.then(Commands.literal("list").executes(c->list(c.getSource(),false)));
         root.then(Commands.literal("shop").executes(c->list(c.getSource(),true)));
-        root.then(Commands.literal("buy").then(Commands.argument("id",StringArgumentType.word()).executes(c->buy(c.getSource(),StringArgumentType.getString(c,"id")))));
         root.then(Commands.literal("summon").then(Commands.argument("id",StringArgumentType.word()).executes(c->summon(c.getSource(),StringArgumentType.getString(c,"id")))));
         root.then(Commands.literal("dismiss").executes(c->{dismiss(c.getSource().getPlayerOrException().getUUID());return ok(c.getSource(),"Mount dismissed.");}));
         root.then(Commands.literal("travel").executes(c->travel(c.getSource())));
         root.then(Commands.literal("catalog").executes(c->{for(var d:CATALOG)c.getSource().sendSuccess(()->Component.literal(d.id+" | "+d.name+" | "+d.source+" | "+movement(d).name()),false);return 1;}));
-        root.then(Commands.literal("credit").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("amount",com.mojang.brigadier.arguments.IntegerArgumentType.integer(1)).executes(c->credit(c.getSource(),EntityArgument.getPlayer(c,"player"),com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(c,"amount"))))));
         root.then(Commands.literal("reward").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("source",StringArgumentType.word()).executes(c->reward(c.getSource(),EntityArgument.getPlayer(c,"player"),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"source")))))));
+        var premiumRoot=Commands.literal("premium").requires(source->source.hasPermission(4));
+        for(String action:List.of("grant","revoke")){
+            var idArg=Commands.argument("id",StringArgumentType.word()).executes(c->premium(c.getSource(),EntityArgument.getPlayer(c,"player"),StringArgumentType.getString(c,"id"),action.equals("grant")));
+            premiumRoot.then(Commands.literal(action).then(Commands.argument("player",EntityArgument.player()).then(idArg)));
+        }
+        premiumRoot.then(Commands.literal("catalog").executes(c->ok(c.getSource(),String.join(", ",CATALOG.stream().filter(d->d.source==Source.PREMIUM).map(d->d.id).toList()))));
+        premiumRoot.then(Commands.literal("list").then(Commands.argument("player",EntityArgument.player()).executes(c->{var target=EntityArgument.getPlayer(c,"player");return ok(c.getSource(),String.join(", ",CATALOG.stream().filter(d->d.source==Source.PREMIUM&&owns(target.getUUID(),d.id)).map(d->d.id).toList()));})));
+        root.then(premiumRoot);
         e.getDispatcher().register(root);
     }
 }
