@@ -87,7 +87,7 @@ final class PetServer {
         Active(UUID owner,Definition definition,Mob entity){this.owner=owner;this.definition=definition;this.entity=entity;}
     }
     private Store store=new Store();
-    private final Map<UUID,Long> combatLock=new HashMap<>();
+    private final Map<UUID,Long> combatLock=new HashMap<>(),advancedLock=new HashMap<>();
     private static final int BREATH=1, GUARD=2, POUNCE=3, BLESS=4;
     private Path file; private boolean failed=true; private long tick;
     private final Map<UUID,Active> active=new HashMap<>();
@@ -109,7 +109,7 @@ final class PetServer {
     }
     private void start(ServerStartedEvent e){
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("mythos-pets.json");
-        active.clear();combatLock.clear();failed=true;tick=0;
+        active.clear();combatLock.clear();advancedLock.clear();failed=true;tick=0;
         try{
             store=Files.exists(file)?JSON.fromJson(Files.readString(file),Store.class):new Store();
             if(store==null||store.accounts==null)throw new IllegalStateException("Invalid store");
@@ -163,7 +163,7 @@ final class PetServer {
     }
     private void death(LivingDeathEvent e){
         if(e.getEntity() instanceof ServerPlayer p){dismiss(p.getUUID());return;}
-        if(!(e.getEntity() instanceof Monster dead)||dead.level().isClientSide()||dead.getTags().contains(TAG)||dead.getTags().contains("mythos_mount"))return;
+        if(e.isCanceled()||!(e.getEntity() instanceof Monster dead)||dead.level().isClientSide()||dead.getTags().contains(TAG)||dead.getTags().contains("mythos_mount"))return;
         var source=e.getSource().getEntity();
         for(var a:active.values()){
             if(!(dead.level() instanceof ServerLevel level))continue;
@@ -223,7 +223,7 @@ final class PetServer {
             if(p==null||!p.isAlive()||p.isSpectator()||!a.entity.isAlive()||a.entity.level()!=p.level()||!owns(id,a.definition.id)){dismiss(id);continue;}
             var mob=a.entity;mob.setDeltaMovement(Vec3.ZERO);
             boolean custom=mob instanceof DragonEntity||mob instanceof MooncatEntity;
-            advanced(p,a);
+            if(advanced(p,a))continue;
             if(custom&&combat(p,a))continue;
             if(mob instanceof DragonEntity dragon&&dragon.flight()>0&&land(p,a,dragon))continue;
             if(mob.distanceToSqr(p)>9){
@@ -475,29 +475,51 @@ final class PetServer {
     }
     // A separate, bounded automatic move rotation. Existing base attacks remain
     // available at every level. Only one extra move is selected per cooldown.
-    private void advanced(ServerPlayer p,Active a){
-        var stat=stats(a);if(stat.level()<10||tick<a.nextAdvanced||a.cast!=0)return;
-        LivingEntity enemy=combatTarget(p,a,a.target,8);if(enemy==null)return;
+    private boolean advanced(ServerPlayer p,Active a){
+        var stat=stats(a);if(stat.level()<10||tick<a.nextAdvanced||a.cast!=0)return false;
+        LivingEntity enemy=combatTarget(p,a,a.target,8);if(enemy==null)return false;
         var level=p.serverLevel();int move=10;
         if(stat.level()>=40&&p.getHealth()<=p.getMaxHealth()*0.65F)move=40;
         else if(stat.level()>=25&&a.advancedUsed)move=25;
+        boolean dragon=a.definition.id.equals("ember_dragon"),cat=a.definition.id.equals("premium_mooncat");
         if(move==40){
-            p.heal(3*stat.healing());p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(80,stat),0));
+            p.heal((dragon?2:cat?4:3)*stat.healing());
+            p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(80,stat),0));
+            if(dragon)p.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE,PetProgression.duration(160,stat),0));
+            if(cat)p.addEffect(new MobEffectInstance(MobEffects.REGENERATION,PetProgression.duration(80,stat),0));
             level.sendParticles(ParticleTypes.HEART,p.getX(),p.getY()+1.5,p.getZ(),5,0.3,0.4,0.3,0.03);
+            level.sendParticles(dragon?ParticleTypes.FLAME:ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),18,0.45,0.6,0.45,0.03);
+            level.playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.AMETHYST_BLOCK_CHIME,SoundSource.NEUTRAL,0.75F,1.0F);
         }else if(move==25){
-            if(a.definition.id.equals("ember_dragon")){
+            if(dragon){
                 if(enemy.hurt(level.damageSources().mobAttack(a.entity),3*stat.attack()))enemy.igniteForSeconds(5);
-            }else p.addEffect(new MobEffectInstance(MobEffects.ABSORPTION,PetProgression.duration(100,stat),0));
-            level.sendParticles(ParticleTypes.END_ROD,enemy.getX(),enemy.getY()+0.8,enemy.getZ(),12,0.3,0.3,0.3,0.04);
+                level.sendParticles(ParticleTypes.FLAME,enemy.getX(),enemy.getY()+0.8,enemy.getZ(),22,0.35,0.45,0.35,0.06);
+            }else{
+                p.addEffect(new MobEffectInstance(MobEffects.ABSORPTION,PetProgression.duration(100,stat),0));
+                if(cat)p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(80,stat),0));
+                level.sendParticles(ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),18,0.45,0.6,0.45,0.04);
+            }
         }else{
-            if(enemy.hurt(level.damageSources().mobAttack(a.entity),2*stat.attack()))
+            if(enemy.hurt(level.damageSources().mobAttack(a.entity),2*stat.attack())){
                 enemy.addEffect(new MobEffectInstance(MobEffects.WEAKNESS,PetProgression.duration(60,stat),0));
-            level.sendParticles(ParticleTypes.CRIT,enemy.getX(),enemy.getY()+0.8,enemy.getZ(),8,0.25,0.25,0.25,0.05);
+                if(dragon)enemy.igniteForSeconds(2);
+                if(cat)enemy.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,PetProgression.duration(80,stat),0));
+            }
+            level.sendParticles(dragon?ParticleTypes.FLAME:cat?ParticleTypes.SWEEP_ATTACK:ParticleTypes.CRIT,enemy.getX(),enemy.getY()+0.8,enemy.getZ(),cat?1:8,0.25,0.25,0.25,0.05);
         }
-        a.advancedUsed=!a.advancedUsed;
+        if(move!=40)a.advancedUsed=!a.advancedUsed;
         a.nextAdvanced=tick+PetProgression.cooldown(300,stat);
-        combatLock.merge(a.owner,a.nextAdvanced,Math::max);
+        advancedLock.merge(a.owner,a.nextAdvanced,Math::max);
         p.displayClientMessage(Component.literal(petName(a.owner,a.definition)+" used "+moveName(a.definition,move)),true);
+        return true;
+    }
+    private static String moveDetails(Definition d,int l){
+        boolean dragon=d.id.equals("ember_dragon"),cat=d.id.equals("premium_mooncat");
+        return switch(l){
+            case 10 -> "2 base damage + Weakness I"+(dragon?" + 2s burn":cat?" + Slowness I":"");
+            case 25 -> dragon?"3 base damage + 5s burn":cat?"Absorption I + Resistance I":"Absorption I";
+            default -> dragon?"2 base healing + Resistance I + Fire Resistance":cat?"4 base healing + Resistance I + Regeneration I":"3 base healing + Resistance I";
+        };
     }
     private int progress(CommandSourceStack s,String id,boolean moves)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();
@@ -506,7 +528,7 @@ final class PetServer {
         var d=def(id);long xp=xp(p.getUUID(),id);var stat=PetProgression.stats(xp);
         if(moves){
             ok(s,d.name+" | Base: "+description(d));
-            for(int l:new int[]{10,25,40})ok(s,"Level "+l+" | "+moveName(d,l)+" | "+(stat.level()>=l?"Unlocked":"Locked"));
+            for(int l:new int[]{10,25,40})ok(s,"Level "+l+" | "+moveName(d,l)+" | "+moveDetails(d,l)+" | "+(stat.level()>=l?"Unlocked":"Locked"));
             return 1;
         }
         ok(s,label(p.getUUID(),d)+" | XP: "+xp+(stat.level()==PetProgression.MAX_LEVEL?" (MAX)":" / "+PetProgression.threshold(stat.level()+1)));
@@ -548,14 +570,14 @@ final class PetServer {
         dismiss(p.getUUID());
         mob.moveTo(feet.x,feet.y,feet.z,p.getYRot(),0);face(mob,p.position().subtract(mob.position()));mob.setNoAi(true);mob.setNoGravity(true);mob.setInvulnerable(true);mob.setSilent(true);mob.setPersistenceRequired();
         mob.addTag(TAG);mob.setCustomName(Component.literal(label(p.getUUID(),d)));mob.setCustomNameVisible(true);
-        var a=new Active(p.getUUID(),d,mob);a.nextAbility=Math.max(tick+d.cooldown,combatLock.getOrDefault(p.getUUID(),0L));a.nextSupport=Math.max(tick+240,combatLock.getOrDefault(p.getUUID(),0L));a.nextAdvanced=Math.max(tick+300,combatLock.getOrDefault(p.getUUID(),0L));active.put(p.getUUID(),a);
+        var a=new Active(p.getUUID(),d,mob);a.nextAbility=Math.max(tick+d.cooldown,combatLock.getOrDefault(p.getUUID(),0L));a.nextSupport=Math.max(tick+240,combatLock.getOrDefault(p.getUUID(),0L));a.nextAdvanced=Math.max(tick+300,advancedLock.getOrDefault(p.getUUID(),0L));active.put(p.getUUID(),a);
         if(!p.serverLevel().addFreshEntity(mob)){dismiss(p.getUUID());return fail(s,"Summon failed.");}
-        return ok(s,"Summoned "+petName(p.getUUID(),d));
+        return ok(s,"Summoned "+label(p.getUUID(),d));
     }
     private int list(CommandSourceStack s,boolean shop,boolean catalog)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();if(failed)return fail(s,"Storage locked.");var a=account(p.getUUID());
         s.sendSuccess(()->Component.literal("MYTHOS Pets | Visit a Pet Merchant for current prices"),false);
-        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:owns(p.getUUID(),d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+(owns(p.getUUID(),d.id)?petName(p.getUUID(),d):d.name)+" | "+description(d)+" | "+d.source+(d.locked?" LOCKED":"")),false);
+        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:owns(p.getUUID(),d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+(owns(p.getUUID(),d.id)?label(p.getUUID(),d):d.name)+" | "+description(d)+" | "+d.source+(d.locked?" LOCKED":"")),false);
         return 1;
     }
     private int premium(CommandSourceStack s,ServerPlayer p,String id,boolean grant){
