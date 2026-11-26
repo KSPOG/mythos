@@ -22,7 +22,8 @@ final class ClassRules {
         ROGUE("Rogue",12,6,9,20,6,7),
         CLERIC("Cleric",5,9,12,6,10,18),
         NECROMANCER("Necromancer",5,7,10,6,18,14),
-        HEXSLINGER("Hexslinger",6,6,9,17,16,6);
+        HEXSLINGER("Hexslinger",6,6,9,17,16,6),
+        SUMMONER("Summoner",4,7,10,7,16,16);
         final String label; private final int[] base;
         Role(String label,int... base){this.label=label;this.base=base;}
         int base(Stat stat){return base[stat.ordinal()];}
