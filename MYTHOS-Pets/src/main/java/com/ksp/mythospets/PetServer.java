@@ -1,6 +1,7 @@
 package com.ksp.mythospets;
 
 import com.google.gson.*;
+import com.ksp.mythospets.PetProgression.Role;
 import com.ksp.mythoseconomy.EconomyApi;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -42,35 +43,35 @@ final class PetServer {
     private static final org.slf4j.Logger LOG=com.mojang.logging.LogUtils.getLogger();
     private enum Source { SHOP, QUEST, DUNGEON, RAID, WORLD_BOSS, ACHIEVEMENT, CLAN, EVENT, PREMIUM }
     private enum Ability { STRIKE, VENOM, SLOW, WEAKEN, HEAL, SHIELD, HASTE, LUCK, BURN, SCOUT }
-    private record Definition(String id,String name,String mob,Source source,int price,Ability ability,int cooldown,float power,boolean locked){}
+    private record Definition(String id,String name,String mob,Source source,int price,Ability ability,int cooldown,float power,boolean locked,Role role){}
     private static final List<Definition> CATALOG=List.of(
-        new Definition("ember_dragon","Ember Dragon","blaze",Source.PREMIUM,0,Ability.BURN,120,3,false),
-        new Definition("premium_mooncat","Celestial Mooncat","cat",Source.PREMIUM,0,Ability.HASTE,240,0,false),
-        new Definition("premium_sunbird","Sunbird","parrot",Source.PREMIUM,0,Ability.HASTE,240,0,false),
-        new Definition("wolf","Dire Wolf","wolf",Source.QUEST,0,Ability.STRIKE,60,4,false),
-        new Definition("swift_fox","Swift Fox","fox",Source.SHOP,20000,Ability.STRIKE,80,6,false),
-        new Definition("jungle_stalker","Jungle Stalker","ocelot",Source.SHOP,22000,Ability.STRIKE,80,5,false),
-        new Definition("bumblebee","Royal Bumblebee","bee",Source.SHOP,45000,Ability.VENOM,120,2,false),
-        new Definition("twilight_bat","Twilight Bat","bat",Source.SHOP,35000,Ability.SCOUT,200,0,true),
-        new Definition("tropical_roc","Tropical Companion","parrot",Source.SHOP,50000,Ability.HASTE,240,0,false),
-        new Definition("celestial_sprite","Celestial Sprite","allay",Source.ACHIEVEMENT,0,Ability.HEAL,200,4,false),
-        new Definition("wraith","Spectral Wraith","vex",Source.QUEST,0,Ability.STRIKE,100,6,true),
-        new Definition("burrower","Burrower","silverfish",Source.DUNGEON,0,Ability.WEAKEN,120,2,false),
-        new Definition("armored_roller","Armored Roller","armadillo",Source.SHOP,15000,Ability.SHIELD,240,0,false),
-        new Definition("marsh_hopper","Marsh Hopper","frog",Source.QUEST,0,Ability.SLOW,120,2,false),
-        new Definition("giant_hare","Swift Hare","rabbit",Source.SHOP,12000,Ability.HASTE,240,0,false),
-        new Definition("coral_dragon","Coral Companion","axolotl",Source.QUEST,0,Ability.HEAL,200,3,false),
-        new Definition("arctic_golem","Arctic Golem","snow_golem",Source.EVENT,0,Ability.SLOW,100,3,true),
-        new Definition("slime","Slime Companion","slime",Source.EVENT,0,Ability.SHIELD,240,0,false),
-        new Definition("magma_cube","Magma Companion","magma_cube",Source.DUNGEON,0,Ability.BURN,120,3,false),
-        new Definition("royal_fowl","Royal Fowl","chicken",Source.SHOP,10000,Ability.LUCK,240,0,false),
-        new Definition("sheep","Woolly Companion","sheep",Source.SHOP,3500,Ability.SHIELD,240,0,false),
-        new Definition("cat","Mooncat","cat",Source.SHOP,18000,Ability.HASTE,240,0,false),
-        new Definition("blaze","Ember Familiar","blaze",Source.DUNGEON,0,Ability.BURN,100,3,false),
-        new Definition("breeze","Storm Familiar","breeze",Source.DUNGEON,0,Ability.SLOW,100,3,false)
+        new Definition("ember_dragon","Ember Dragon","blaze",Source.PREMIUM,0,Ability.BURN,120,3,false,Role.DPS),
+        new Definition("premium_mooncat","Celestial Mooncat","cat",Source.PREMIUM,0,Ability.HASTE,240,0,false,Role.HEALER),
+        new Definition("premium_sunbird","Sunbird","parrot",Source.PREMIUM,0,Ability.HASTE,240,0,false,Role.SUPPORT),
+        new Definition("wolf","Dire Wolf","wolf",Source.QUEST,0,Ability.STRIKE,60,4,false,Role.DPS),
+        new Definition("swift_fox","Swift Fox","fox",Source.SHOP,20000,Ability.STRIKE,80,6,false,Role.DPS),
+        new Definition("jungle_stalker","Jungle Stalker","ocelot",Source.SHOP,22000,Ability.STRIKE,80,5,false,Role.DPS),
+        new Definition("bumblebee","Royal Bumblebee","bee",Source.SHOP,45000,Ability.VENOM,120,2,false,Role.CONTROL),
+        new Definition("twilight_bat","Twilight Bat","bat",Source.SHOP,35000,Ability.SCOUT,200,0,true,Role.SUPPORT),
+        new Definition("tropical_roc","Tropical Companion","parrot",Source.SHOP,50000,Ability.HASTE,240,0,false,Role.SUPPORT),
+        new Definition("celestial_sprite","Celestial Sprite","allay",Source.ACHIEVEMENT,0,Ability.HEAL,200,4,false,Role.HEALER),
+        new Definition("wraith","Spectral Wraith","vex",Source.QUEST,0,Ability.STRIKE,100,6,true,Role.DPS),
+        new Definition("burrower","Burrower","silverfish",Source.DUNGEON,0,Ability.WEAKEN,120,2,false,Role.CONTROL),
+        new Definition("armored_roller","Armored Roller","armadillo",Source.SHOP,15000,Ability.SHIELD,240,0,false,Role.GUARDIAN),
+        new Definition("marsh_hopper","Marsh Hopper","frog",Source.QUEST,0,Ability.SLOW,120,2,false,Role.CONTROL),
+        new Definition("giant_hare","Swift Hare","rabbit",Source.SHOP,12000,Ability.HASTE,240,0,false,Role.SUPPORT),
+        new Definition("coral_dragon","Coral Companion","axolotl",Source.QUEST,0,Ability.HEAL,200,3,false,Role.HEALER),
+        new Definition("arctic_golem","Arctic Golem","snow_golem",Source.EVENT,0,Ability.SLOW,100,3,true,Role.CONTROL),
+        new Definition("slime","Slime Companion","slime",Source.EVENT,0,Ability.SHIELD,240,0,false,Role.GUARDIAN),
+        new Definition("magma_cube","Magma Companion","magma_cube",Source.DUNGEON,0,Ability.BURN,120,3,false,Role.DPS),
+        new Definition("royal_fowl","Royal Fowl","chicken",Source.SHOP,10000,Ability.LUCK,240,0,false,Role.SUPPORT),
+        new Definition("sheep","Woolly Companion","sheep",Source.SHOP,3500,Ability.SHIELD,240,0,false,Role.GUARDIAN),
+        new Definition("cat","Mooncat","cat",Source.SHOP,18000,Ability.HASTE,240,0,false,Role.SUPPORT),
+        new Definition("blaze","Ember Familiar","blaze",Source.DUNGEON,0,Ability.BURN,100,3,false,Role.DPS),
+        new Definition("breeze","Storm Familiar","breeze",Source.DUNGEON,0,Ability.SLOW,100,3,false,Role.CONTROL)
     );
     private static String description(Definition d){
-        return switch(d.id){
+        return "["+d.role+"] "+switch(d.id){
             case "ember_dragon" -> "Flame Breath (3 x 2 raw damage, 7-block cone, 6s cooldown) | Ember Guard (5s Resistance I + Fire Resistance at <=70% health, 12s cooldown)";
             case "premium_mooncat" -> "Lunar Pounce (4 damage, Slowness I, 5s cooldown) | Moon Blessing (heal 4 + 5s Speed I at <=70% health, 12s cooldown)";
             default -> d.ability.name()+" | cooldown "+d.cooldown+" ticks";
@@ -140,8 +141,8 @@ final class PetServer {
     private void logout(PlayerEvent.PlayerLoggedOutEvent e){dismiss(e.getEntity().getUUID());}
     private void dimension(PlayerEvent.PlayerChangedDimensionEvent e){dismiss(e.getEntity().getUUID());}
     private long xp(UUID owner,String id){return account(owner).xp.getOrDefault(id,0L);}
-    private PetProgression.Stats stats(Active a){return PetProgression.stats(xp(a.owner,a.definition.id));}
-    private String label(UUID owner,Definition d){return petName(owner,d)+" [Lv. "+PetProgression.level(xp(owner,d.id))+"]";}
+    private PetProgression.Stats stats(Active a){return PetProgression.stats(xp(a.owner,a.definition.id),a.definition.role);}
+    private String label(UUID owner,Definition d){return petName(owner,d)+" [Lv. "+PetProgression.level(xp(owner,d.id))+" | "+d.role+"]";}
     private boolean award(ServerPlayer p,String id,int amount){
         if(!owns(p.getUUID(),id))return false;
         var a=account(p.getUUID());long before=xp(p.getUUID(),id),after=PetProgression.add(before,amount);
@@ -471,64 +472,117 @@ final class PetServer {
     private static String moveName(Definition d,int level){
         if(d.id.equals("ember_dragon"))return switch(level){case 10->"Cinder Shock";case 25->"Inferno Brand";default->"Dragon Ward";};
         if(d.id.equals("premium_mooncat"))return switch(level){case 10->"Lunar Rend";case 25->"Astral Aegis";default->"Moon Renewal";};
-        return switch(level){case 10->"Companion Strike";case 25->"Guardian Bond";default->"Vital Spark";};
+        return switch(d.role){
+            case DPS -> switch(level){case 10->"Power Strike";case 25->"Execution";default->"Ravage";};
+            case HEALER -> switch(level){case 10->"Mending Light";case 25->"Restoration";default->"Vital Surge";};
+            case GUARDIAN -> switch(level){case 10->"Protective Bond";case 25->"Fortify";default->"Bulwark";};
+            case SUPPORT -> switch(level){case 10->"Quickening";case 25->"Battle Hymn";default->"Inspiration";};
+            case CONTROL -> switch(level){case 10->"Crippling Strike";case 25->"Suppression";default->"Binding Tempest";};
+        };
     }
-    // Highest unlocked offensive tier, with emergency defensive priority. Existing base attacks remain
-    // available at every level. Only one extra move is selected per cooldown.
+    // One additional ability per cooldown; healer and guardian tiers are
+    // reserved for meaningful defensive conditions instead of wasted on full HP.
     private boolean advanced(ServerPlayer p,Active a){
         var stat=stats(a);if(stat.level()<10||tick<a.nextAdvanced||a.cast!=0)return false;
         LivingEntity enemy=combatTarget(p,a,a.target,8);if(enemy==null)return false;
-        var level=p.serverLevel();int move=10;
-        if(stat.level()>=40&&p.getHealth()<=p.getMaxHealth()*0.65F)move=40;
-        else if(stat.level()>=25)move=25;
+        var level=p.serverLevel();Role role=a.definition.role;
         boolean dragon=a.definition.id.equals("ember_dragon"),cat=a.definition.id.equals("premium_mooncat");
-        if(move==40){
-            p.heal((dragon?6:cat?8:6)*stat.healing());
-            p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(160,stat),1));
-            p.addEffect(new MobEffectInstance(MobEffects.ABSORPTION,PetProgression.duration(200,stat),1));
-            if(dragon)p.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE,PetProgression.duration(240,stat),0));
-            if(cat)p.addEffect(new MobEffectInstance(MobEffects.REGENERATION,PetProgression.duration(120,stat),1));
-            level.sendParticles(ParticleTypes.HEART,p.getX(),p.getY()+1.5,p.getZ(),5,0.3,0.4,0.3,0.03);
-            level.sendParticles(dragon?ParticleTypes.FLAME:ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),18,0.45,0.6,0.45,0.03);
-            level.playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.AMETHYST_BLOCK_CHIME,SoundSource.NEUTRAL,0.75F,1.0F);
-        }else if(move==25){
-            if(dragon){
-                if(enemy.hurt(level.damageSources().mobAttack(a.entity),8*stat.attack())){enemy.igniteForSeconds(7);enemy.addEffect(new MobEffectInstance(MobEffects.WEAKNESS,PetProgression.duration(120,stat),0));}
-                level.sendParticles(ParticleTypes.FLAME,enemy.getX(),enemy.getY()+0.8,enemy.getZ(),22,0.35,0.45,0.35,0.06);
-            }else{
-                p.addEffect(new MobEffectInstance(MobEffects.ABSORPTION,PetProgression.duration(160,stat),1));
-                p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(120,stat),0));
-                if(enemy.hurt(level.damageSources().mobAttack(a.entity),(cat?5:4)*stat.attack()))enemy.addEffect(new MobEffectInstance(MobEffects.WEAKNESS,PetProgression.duration(100,stat),0));
-                level.sendParticles(ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),18,0.45,0.6,0.45,0.04);
-            }
-        }else{
-            if(enemy.hurt(level.damageSources().mobAttack(a.entity),(dragon?4:cat?3:3)*stat.attack())){
-                enemy.addEffect(new MobEffectInstance(MobEffects.WEAKNESS,PetProgression.duration(60,stat),0));
-                if(dragon)enemy.igniteForSeconds(2);
-                if(cat)enemy.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,PetProgression.duration(80,stat),0));
-            }
-            level.sendParticles(dragon?ParticleTypes.FLAME:cat?ParticleTypes.SWEEP_ATTACK:ParticleTypes.CRIT,enemy.getX(),enemy.getY()+0.8,enemy.getZ(),cat?1:8,0.25,0.25,0.25,0.05);
+        float health=p.getHealth()/p.getMaxHealth();
+        int move=stat.level()>=40?40:stat.level()>=25?25:10;
+        if(role==Role.HEALER){
+            if(health>0.85F)return false;
+            if(move==40&&health>0.65F)move=25;
+        }else if(role==Role.GUARDIAN){
+            if(health>0.90F&&p.hasEffect(MobEffects.DAMAGE_RESISTANCE))return false;
+        }else if(dragon){
+            if(move==40&&health>0.65F)move=25;
         }
+        // Premium signature moves preserve the established names and identity.
+        if(dragon){
+            if(move==40){
+                p.heal(6*stat.healing());
+                buff(p,MobEffects.DAMAGE_RESISTANCE,160,1,stat);
+                buff(p,MobEffects.ABSORPTION,200,1,stat);
+                buff(p,MobEffects.FIRE_RESISTANCE,240,0,stat);
+            }else if(enemy.hurt(level.damageSources().mobAttack(a.entity),(move==25?8:4)*stat.attack())){
+                enemy.igniteForSeconds(move==25?7:2);
+                buff(enemy,MobEffects.WEAKNESS,move==25?120:60,0,stat);
+            }
+        }else if(cat){
+            if(move==40){
+                p.heal(8*stat.healing());
+                buff(p,MobEffects.DAMAGE_RESISTANCE,160,1,stat);
+                buff(p,MobEffects.ABSORPTION,200,1,stat);
+                buff(p,MobEffects.REGENERATION,120,1,stat);
+            }else if(move==25){
+                p.heal(4*stat.healing());
+                buff(p,MobEffects.ABSORPTION,160,1,stat);
+                buff(p,MobEffects.DAMAGE_RESISTANCE,120,0,stat);
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),5*stat.attack()))buff(enemy,MobEffects.WEAKNESS,100,0,stat);
+            }else{
+                p.heal(2*stat.healing());
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),3*stat.attack())){
+                    buff(enemy,MobEffects.WEAKNESS,60,0,stat);buff(enemy,MobEffects.MOVEMENT_SLOWDOWN,80,0,stat);
+                }
+            }
+        }else switch(role){
+            case DPS -> {
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),(move==40?10:move==25?7:4)*stat.attack()))
+                    buff(enemy,MobEffects.WEAKNESS,move==40?120:80,move==40?1:0,stat);
+            }
+            case HEALER -> {
+                p.heal((move==40?8:move==25?5:3)*stat.healing());
+                if(move>=25)buff(p,MobEffects.REGENERATION,move==40?120:80,move==40?1:0,stat);
+                if(move==40)buff(p,MobEffects.ABSORPTION,160,1,stat);
+            }
+            case GUARDIAN -> {
+                buff(p,MobEffects.DAMAGE_RESISTANCE,move==40?180:move==25?140:100,move==40?1:0,stat);
+                buff(p,MobEffects.ABSORPTION,move==40?200:move==25?160:100,move>=25?1:0,stat);
+                if(move==40)buff(p,MobEffects.FIRE_RESISTANCE,200,0,stat);
+            }
+            case SUPPORT -> {
+                buff(p,MobEffects.MOVEMENT_SPEED,move==40?180:move==25?140:100,move==40?1:0,stat);
+                if(move>=25)buff(p,MobEffects.DAMAGE_BOOST,move==40?160:100,move==40?1:0,stat);
+                if(move==40)buff(p,MobEffects.DIG_SPEED,160,1,stat);
+            }
+            case CONTROL -> {
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),(move==40?6:move==25?4:2)*stat.attack())){
+                    buff(enemy,MobEffects.MOVEMENT_SLOWDOWN,move==40?160:move==25?120:80,move>=25?1:0,stat);
+                    buff(enemy,MobEffects.WEAKNESS,move==40?160:move==25?120:80,move==40?1:0,stat);
+                }
+            }
+        }
+        boolean defensive=role==Role.HEALER||role==Role.GUARDIAN||role==Role.SUPPORT||dragon&&move==40;
+        LivingEntity visual=defensive?p:enemy;
+        level.sendParticles(dragon?ParticleTypes.FLAME:role==Role.DPS?ParticleTypes.CRIT:ParticleTypes.END_ROD,visual.getX(),visual.getY()+0.8,visual.getZ(),18,0.35,0.45,0.35,0.04);
+        if(role==Role.HEALER||dragon&&move==40)level.sendParticles(ParticleTypes.HEART,p.getX(),p.getY()+1.5,p.getZ(),5,0.3,0.4,0.3,0.03);
+        level.playSound(null,visual.getX(),visual.getY(),visual.getZ(),SoundEvents.AMETHYST_BLOCK_CHIME,SoundSource.NEUTRAL,0.65F,1.0F);
         a.nextAdvanced=tick+PetProgression.cooldown(move==40?400:move==25?260:300,stat);
         advancedLock.merge(a.owner,a.nextAdvanced,Math::max);
         p.displayClientMessage(Component.literal(petName(a.owner,a.definition)+" used "+moveName(a.definition,move)),true);
         return true;
     }
+    private static void buff(LivingEntity target,net.minecraft.core.Holder<MobEffect> effect,int ticks,int amplifier,PetProgression.Stats stat){
+        target.addEffect(new MobEffectInstance(effect,PetProgression.duration(ticks,stat),amplifier));
+    }
     private static String moveDetails(Definition d,int l){
-        boolean dragon=d.id.equals("ember_dragon"),cat=d.id.equals("premium_mooncat");
-        return switch(l){
-            case 10 -> (dragon?"4":"3")+" base damage + Weakness I"+(dragon?" + 2s burn":cat?" + Slowness I":"");
-            case 25 -> dragon?"8 base damage + 7s burn + Weakness I":cat?"5 base damage + Weakness I + Absorption II + Resistance I":"4 base damage + Weakness I + Absorption II + Resistance I";
-            default -> dragon?"6 base healing + Resistance II + Absorption II + Fire Resistance":cat?"8 base healing + Resistance II + Absorption II + Regeneration II":"6 base healing + Resistance II + Absorption II";
+        if(d.id.equals("ember_dragon"))return switch(l){case 10->"4 damage + Weakness I + 2s burn";case 25->"8 damage + Weakness I + 7s burn";default->"6 healing + Resistance II + Absorption II + Fire Resistance";};
+        if(d.id.equals("premium_mooncat"))return switch(l){case 10->"2 healing + 3 damage + Weakness I + Slowness I";case 25->"4 healing + 5 damage + Weakness I + Absorption II + Resistance I";default->"8 healing + Resistance II + Absorption II + Regeneration II";};
+        return switch(d.role){
+            case DPS -> switch(l){case 10->"4 damage + Weakness I";case 25->"7 damage + Weakness I";default->"10 damage + Weakness II";};
+            case HEALER -> switch(l){case 10->"3 healing";case 25->"5 healing + Regeneration I";default->"8 healing + Regeneration II + Absorption II";};
+            case GUARDIAN -> switch(l){case 10->"Resistance I + Absorption I";case 25->"Resistance I + Absorption II";default->"Resistance II + Absorption II + Fire Resistance";};
+            case SUPPORT -> switch(l){case 10->"Speed I";case 25->"Speed I + Strength I";default->"Speed II + Strength II + Haste II";};
+            case CONTROL -> switch(l){case 10->"2 damage + Slowness I + Weakness I";case 25->"4 damage + Slowness II + Weakness I";default->"6 damage + Slowness II + Weakness II";};
         };
     }
     private int progress(CommandSourceStack s,String id,boolean moves)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();
         if(id==null){var a=active.get(p.getUUID());if(a==null)return fail(s,"Summon a pet or specify its ID.");id=a.definition.id;}
         if(!owns(p.getUUID(),id))return fail(s,"Pet not owned.");
-        var d=def(id);long xp=xp(p.getUUID(),id);var stat=PetProgression.stats(xp);
+        var d=def(id);long xp=xp(p.getUUID(),id);var stat=PetProgression.stats(xp,d.role);
         if(moves){
-            ok(s,d.name+" | Base: "+description(d));
+            ok(s,d.name+" | Class: "+d.role+" | Base: "+description(d));
             for(int l:new int[]{10,25,40})ok(s,"Level "+l+" | "+moveName(d,l)+" | "+moveDetails(d,l)+" | "+(stat.level()>=l?"Unlocked":"Locked"));
             return 1;
         }
