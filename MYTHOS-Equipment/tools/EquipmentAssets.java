@@ -128,7 +128,7 @@ public final class EquipmentAssets {
             case STAFF,WAND,CASTER -> {
                 boolean wand=d.kind()==WeaponKind.WAND,caster=d.kind()==WeaponKind.CASTER;double top=wand?13:caster?11:21;
                 m.grip(wand?4:0,wand?7:6,wand?.48:.72);
-                m.rod(wand?6.8:5.8,top,wand?.5:.85,6);m.bands(wand?7:7,top,wand?.63:1.0,wand?5:14);
+                m.rod(wand?6.8:5.8,top,wand?.5:.85,wand?.5:.85,6);m.bands(wand?7:7,top,wand?.63:1.0,wand?5:14);
                 double size=wand?1.45:2.8+tier*.35;m.gem(top-.35,size);
                 for(int i=0;i<14;i++){double a=top-1+i*.19;double w=.65+Math.sin(i*Math.PI/14)*(wand?1.0:1.8);m.box(8-w,a,7.6,8-w+.23,a+.25,8.4,2);m.box(8+w-.23,a,7.6,8+w,a+.25,8.4,2);if(!wand){m.box(7.65,a,8-w,8.35,a+.25,8-w+.22,2);m.box(7.65,a,8+w-.22,8.35,a+.25,8+w,2);}}
                 if(caster){m.box(6.8,6,7.25,9.2,12,8.75,7);m.box(7.2,11.5,7.1,8.8,16,8.9,0);m.gem(15.4,1.55);}
