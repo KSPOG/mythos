@@ -7,6 +7,9 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.commands.*;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -63,15 +66,25 @@ final class PetServer {
         new Definition("blaze","Ember Familiar","blaze",Source.DUNGEON,0,Ability.BURN,100,3,false),
         new Definition("breeze","Storm Familiar","breeze",Source.DUNGEON,0,Ability.SLOW,100,3,false)
     );
+    private static String description(Definition d){
+        return switch(d.id){
+            case "ember_dragon" -> "Flame Breath (6 damage, 6s cooldown) | Ember Guard (Resistance I, Fire Resistance, 12s cooldown)";
+            case "premium_mooncat" -> "Lunar Pounce (4 damage, Slowness I, 5s cooldown) | Moon Blessing (heal 4, Speed I, 12s cooldown)";
+            default -> d.ability.name()+" | cooldown "+d.cooldown+" ticks";
+        };
+    }
     private static Definition def(String id){return CATALOG.stream().filter(d->d.id.equals(id)).findFirst().orElse(null);}
     private static class Account { long gold; Map<String,String> owned=new LinkedHashMap<>(); Map<String,String> names=new HashMap<>(); }
     private static class Store { Map<String,Account> accounts=new HashMap<>(); }
     private static final class Active {
         final UUID owner; final Definition definition; final Mob entity;
         UUID target; long targetUntil,nextAbility;
+        UUID castTarget; int cast; long impactAt,finishAt,nextSupport; boolean impacted;
         Active(UUID owner,Definition definition,Mob entity){this.owner=owner;this.definition=definition;this.entity=entity;}
     }
     private Store store=new Store();
+    private final Map<UUID,Long> combatLock=new HashMap<>();
+    private static final int BREATH=1, GUARD=2, POUNCE=3, BLESS=4;
     private Path file; private boolean failed=true; private long tick;
     private final Map<UUID,Active> active=new HashMap<>();
     PetServer(){
@@ -82,7 +95,7 @@ final class PetServer {
                 return key.startsWith("pet:")&&a!=null&&a.owned.containsKey(key.substring(4));
             }
             public List<EconomyApi.Creature> catalog(){
-                return CATALOG.stream().filter(d->!d.locked).map(d->new EconomyApi.Creature("pet:"+d.id,d.name,d.ability.name()+" | cooldown "+d.cooldown+" ticks",d.source==Source.SHOP)).toList();
+                return CATALOG.stream().filter(d->!d.locked).map(d->new EconomyApi.Creature("pet:"+d.id,d.name,description(d),d.source==Source.SHOP)).toList();
             }
         });
         var b=MinecraftForge.EVENT_BUS;
@@ -92,7 +105,7 @@ final class PetServer {
     }
     private void start(ServerStartedEvent e){
         file=e.getServer().getWorldPath(LevelResource.ROOT).resolve("mythos-pets.json");
-        active.clear();failed=true;tick=0;
+        active.clear();combatLock.clear();failed=true;tick=0;
         try{
             store=Files.exists(file)?JSON.fromJson(Files.readString(file),Store.class):new Store();
             if(store==null||store.accounts==null)throw new IllegalStateException("Invalid store");
@@ -170,6 +183,8 @@ final class PetServer {
             var a=active.get(id);var p=e.getServer().getPlayerList().getPlayer(id);
             if(p==null||!p.isAlive()||p.isSpectator()||!a.entity.isAlive()||a.entity.level()!=p.level()||!owns(id,a.definition.id)){dismiss(id);continue;}
             var mob=a.entity;mob.setDeltaMovement(Vec3.ZERO);
+            boolean custom=mob instanceof DragonEntity||mob instanceof MooncatEntity;
+            if(custom&&combat(p,a))continue;
             if(mob.distanceToSqr(p)>9){
                 var delta=p.position().subtract(mob.position());
                 // Preserve the old nominal speed (0.65 blocks per five ticks),
@@ -192,7 +207,97 @@ final class PetServer {
                     face(mob,mob.position().subtract(before));
                 }
             }
-            if(tick>=a.nextAbility)ability(p,a);
+            if(!custom&&tick>=a.nextAbility)ability(p,a);
+        }
+    }
+    private LivingEntity combatTarget(ServerPlayer p,Active a,UUID id,double range){
+        if(id==null||tick>a.targetUntil)return null;
+        var found=p.serverLevel().getEntity(id);
+        return found instanceof LivingEntity l&&eligible(p,l)&&l.distanceToSqr(a.entity)<=range*range
+            &&a.entity.hasLineOfSight(l)?l:null;
+    }
+    private void finishCast(Active a){
+        a.cast=0;a.castTarget=null;a.impacted=false;
+        if(a.entity instanceof DragonEntity d)d.endCombat();
+        if(a.entity instanceof MooncatEntity m)m.endCombat();
+    }
+    private void startCast(Active a,LivingEntity target,int action,int windup,int duration){
+        a.cast=action;a.castTarget=target.getUUID();a.impactAt=tick+windup;a.finishAt=tick+duration;a.impacted=false;
+        combatLock.put(a.owner,tick+duration+100);
+        face(a.entity,target.position().subtract(a.entity.position()));
+        if(a.entity instanceof DragonEntity d)d.beginCombat(action==BREATH?DragonEntity.BREATH:DragonEntity.GUARD);
+        if(a.entity instanceof MooncatEntity m)m.beginCombat(action==POUNCE?MooncatEntity.POUNCE:MooncatEntity.BLESS);
+    }
+    /** Exclusive cast lifecycle: target validated at windup and again at impact. */
+    private boolean combat(ServerPlayer p,Active a){
+        boolean dragon=a.entity instanceof DragonEntity;
+        if(a.cast!=0){
+            boolean support=a.cast==GUARD||a.cast==BLESS;
+            LivingEntity target=combatTarget(p,a,a.castTarget,support?8:dragon?6:2.6);
+            if(a.entity.distanceToSqr(p)>36||(!a.impacted&&target==null)){
+                finishCast(a);return false;
+            }
+            if(tick>=a.finishAt){finishCast(a);return false;}
+            if(target!=null)face(a.entity,target.position().subtract(a.entity.position()));
+            if(!a.impacted&&tick>=a.impactAt){
+                a.impacted=true;
+                if(target!=null)impact(p,a,target);
+            }
+            return true;
+        }
+        LivingEntity target=combatTarget(p,a,a.target,8);
+        if(target==null||a.entity.distanceToSqr(p)>36)return false;
+        if(tick>=a.nextSupport&&p.getHealth()<=p.getMaxHealth()*0.70F){
+            a.nextSupport=tick+240;
+            startCast(a,target,dragon?GUARD:BLESS,10,24);return true;
+        }
+        if(tick<a.nextAbility)return false;
+        double range=dragon?6:2.6;
+        if(a.entity.distanceToSqr(target)>range*range){
+            // Close the distance only while the owner remains nearby.
+            var delta=target.position().subtract(a.entity.position());
+            var step=delta.normalize().scale(Math.min(0.16,Math.max(0,delta.length()-range+0.15)));
+            var dest=a.entity.position().add(step);
+            if(dest.distanceToSqr(p.position())<=36&&safe(p.serverLevel(),a.entity,dest)){
+                var before=a.entity.position();a.entity.move(MoverType.SELF,step);
+                face(a.entity,a.entity.position().subtract(before));return true;
+            }
+            return false;
+        }
+        a.nextAbility=tick+(dragon?120:100);
+        startCast(a,target,dragon?BREATH:POUNCE,dragon?12:8,dragon?30:20);
+        return true;
+    }
+    private void impact(ServerPlayer p,Active a,LivingEntity target){
+        var level=p.serverLevel();
+        switch(a.cast){
+            case BREATH -> {
+                if(target.hurt(level.damageSources().mobAttack(a.entity),6))target.igniteForSeconds(3);
+                Vec3 from=a.entity.getEyePosition(),to=target.getEyePosition();
+                for(int i=1;i<=12;i++){
+                    Vec3 q=from.lerp(to,i/12.0);
+                    level.sendParticles(ParticleTypes.FLAME,q.x,q.y,q.z,3,0.10,0.10,0.10,0.015);
+                }
+                level.playSound(null,a.entity.getX(),a.entity.getY(),a.entity.getZ(),SoundEvents.BLAZE_SHOOT,SoundSource.NEUTRAL,0.75F,0.8F);
+            }
+            case POUNCE -> {
+                if(target.hurt(level.damageSources().mobAttack(a.entity),4))
+                    target.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,60,0));
+                level.sendParticles(ParticleTypes.CRIT,target.getX(),target.getY()+0.7,target.getZ(),12,0.25,0.25,0.25,0.1);
+                level.playSound(null,a.entity.getX(),a.entity.getY(),a.entity.getZ(),SoundEvents.CAT_HISS,SoundSource.NEUTRAL,0.6F,1.1F);
+            }
+            case GUARD -> {
+                p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,100,0));
+                p.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE,100,0));
+                level.sendParticles(ParticleTypes.FLAME,p.getX(),p.getY()+1,p.getZ(),24,0.45,0.6,0.45,0.01);
+            }
+            case BLESS -> {
+                p.heal(4);
+                p.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED,100,0));
+                level.sendParticles(ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),24,0.45,0.6,0.45,0.025);
+                level.playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.CAT_PURR,SoundSource.NEUTRAL,0.7F,1.1F);
+            }
+            default -> {}
         }
     }
     private void ability(ServerPlayer p,Active a){
@@ -259,14 +364,14 @@ final class PetServer {
         dismiss(p.getUUID());
         mob.moveTo(feet.x,feet.y,feet.z,p.getYRot(),0);face(mob,p.position().subtract(mob.position()));mob.setNoAi(true);mob.setNoGravity(true);mob.setInvulnerable(true);mob.setSilent(true);mob.setPersistenceRequired();
         mob.addTag(TAG);mob.setCustomName(Component.literal(petName(p.getUUID(),d)));mob.setCustomNameVisible(true);
-        var a=new Active(p.getUUID(),d,mob);a.nextAbility=tick+d.cooldown;active.put(p.getUUID(),a);
+        var a=new Active(p.getUUID(),d,mob);a.nextAbility=Math.max(tick+d.cooldown,combatLock.getOrDefault(p.getUUID(),0L));a.nextSupport=Math.max(tick+240,combatLock.getOrDefault(p.getUUID(),0L));active.put(p.getUUID(),a);
         if(!p.serverLevel().addFreshEntity(mob)){dismiss(p.getUUID());return fail(s,"Summon failed.");}
         return ok(s,"Summoned "+petName(p.getUUID(),d));
     }
     private int list(CommandSourceStack s,boolean shop,boolean catalog)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();if(failed)return fail(s,"Storage locked.");var a=account(p.getUUID());
         s.sendSuccess(()->Component.literal("MYTHOS Pets | Visit a Pet Merchant for current prices"),false);
-        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:owns(p.getUUID(),d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+(owns(p.getUUID(),d.id)?petName(p.getUUID(),d):d.name)+" | "+d.ability+" | "+d.source+(d.locked?" LOCKED":"")),false);
+        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:owns(p.getUUID(),d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+(owns(p.getUUID(),d.id)?petName(p.getUUID(),d):d.name)+" | "+description(d)+" | "+d.source+(d.locked?" LOCKED":"")),false);
         return 1;
     }
     private int premium(CommandSourceStack s,ServerPlayer p,String id,boolean grant){
