@@ -1,7 +1,8 @@
 package com.ksp.mythosclasses;
 public final class ClassRulesCheck {
     public static void main(String[] args){
-        if(ClassRules.Role.values().length!=8)throw new AssertionError("eight classes");
+        if(ClassRules.Role.values().length!=9)throw new AssertionError("nine classes");
+        if(ClassRules.Role.parse("summoner")!=ClassRules.Role.SUMMONER)throw new AssertionError("summoner");
         for(var role:ClassRules.Role.values()){
             if(ClassRules.Role.parse(role.id())!=role)throw new AssertionError("role roundtrip");
         }
