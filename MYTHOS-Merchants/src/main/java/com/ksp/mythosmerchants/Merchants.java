@@ -170,7 +170,18 @@ public final class Merchants {
         root.executes(c->ok(c.getSource(),"Use /merchant types, create, info, add, remove, restock, clear, rename, delete. Edit nearest merchant within 8 blocks."));
         root.then(Commands.literal("types").executes(c->ok(c.getSource(),String.join(", ",SHOPS.stream().map(Shop::id).toList()))));
         root.then(Commands.literal("create").then(Commands.argument("type",StringArgumentType.word()).suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggest(SHOPS.stream().map(Shop::id),b)).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->create(c.getSource(),StringArgumentType.getString(c,"type"),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"name")))))));
-        root.then(Commands.literal("add").then(Commands.argument("payment",StringArgumentType.string()).then(Commands.argument("price",IntegerArgumentType.integer(1,64)).then(Commands.argument("item",StringArgumentType.string()).then(Commands.argument("amount",IntegerArgumentType.integer(1,64)).then(Commands.argument("stock",IntegerArgumentType.integer(1,MAX_STOCK)).executes(c->add(c.getSource(),StringArgumentType.getString(c,"payment"),IntegerArgumentType.getInteger(c,"price"),StringArgumentType.getString(c,"item"),IntegerArgumentType.getInteger(c,"amount"),IntegerArgumentType.getInteger(c,"stock"))))))));
+        var stockArg=Commands.argument("stock",IntegerArgumentType.integer(1,MAX_STOCK))
+            .executes(c->add(c.getSource(),
+                StringArgumentType.getString(c,"payment"),
+                IntegerArgumentType.getInteger(c,"price"),
+                StringArgumentType.getString(c,"item"),
+                IntegerArgumentType.getInteger(c,"amount"),
+                IntegerArgumentType.getInteger(c,"stock")));
+        var amountArg=Commands.argument("amount",IntegerArgumentType.integer(1,64)).then(stockArg);
+        var itemArg=Commands.argument("item",StringArgumentType.string()).then(amountArg);
+        var priceArg=Commands.argument("price",IntegerArgumentType.integer(1,64)).then(itemArg);
+        var paymentArg=Commands.argument("payment",StringArgumentType.string()).then(priceArg);
+        root.then(Commands.literal("add").then(paymentArg));
         for(String action:List.of("info","clear","restock","delete"))root.then(Commands.literal(action).executes(c->change(c.getSource(),action,0,"")));
         root.then(Commands.literal("remove").then(Commands.argument("index",IntegerArgumentType.integer(1,MAX_OFFERS)).executes(c->change(c.getSource(),"remove",IntegerArgumentType.getInteger(c,"index"),""))));
         root.then(Commands.literal("rename").then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->change(c.getSource(),"rename",0,StringArgumentType.getString(c,"name")))));
