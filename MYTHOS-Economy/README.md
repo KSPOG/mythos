@@ -6,3 +6,6 @@ API: com.ksp.mythoseconomy.EconomyApi.available(server), balance(server, UUID), 
 
 ## 0.2.0
 Durable merchant receipt IDs with immutable transaction semantics. Existing balances migrate automatically; receipts are retained indefinitely (growth not benchmarked). Merchant inventory delivery is not part of ledger atomicity. See merchant recovery instructions.
+
+## 0.3.0
+Currencies gold, mount_token, pet_token. /economy grant <player> <currency> <amount> <reason>, take likewise; legacy Gold commands unchanged. /economy currencies lists IDs. Token transfer/conversion unavailable. Creature offer currency, stock and ownership commit together with payment. Trusted server provider API requires a registered available creature provider. Existing Gold balances retained. Legacy creature wallet balances not automatically imported. Other mods require integration. Do not downgrade ledger after creating token balances or entitlements.
