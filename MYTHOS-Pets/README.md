@@ -58,3 +58,6 @@ Replaces the previous outer wing fan with articulated humerus, forearm, wrist an
 
 ## 0.4.8 — Smooth idle flight
 Idle flap now lasts 128 ticks (6.4 seconds at 20 TPS). A continuous harmonic stroke drives the shoulder, elbow, wrist and finger channels with phase delays. Quintic envelopes provide smooth opening and closing, a roughly half-block cosmetic lift, hover, descending flare, foot extension and landing compression. Membrane tension and flutter vary smoothly through reversals. Lift is a client-side model transform, not physical flight; hitbox and following logic stay unchanged. Movement interruption may cut the performance short. Geometry and texture budgets are unchanged. Runtime visual validation, including ground contact and animation cancellation, is still required.
+
+## 0.4.9 — Celestial Mooncat redesign
+Replaces overlapping torso ellipsoids with a continuous spline profile, tapered ears, a continuous animated tail, slimmer feline proportions, a luminous crescent and eyes, and a generated 4096-square fur atlas. Adds breathing, blinking, ear flicks, staggered walking and synchronized idle stretch/groom performances. Existing pet identity, movement controller, abilities and dragon model are unchanged. Procedural geometry and animations require in-game review for clipping, silhouette and performance.
