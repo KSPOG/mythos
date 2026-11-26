@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="mythospets"
-version="0.1.0"
+version="0.2.0"
 displayName="MYTHOS Pets"
 displayTest="IGNORE_ALL_VERSION"
 description='''Server-authoritative combat companions.'''
@@ -19,3 +19,10 @@ mandatory=true
 versionRange="[52.1.5,53)"
 ordering="NONE"
 side="BOTH"
+
+[[dependencies.mythospets]]
+modId="mythoseconomy"
+mandatory=true
+versionRange="[0.3.0,0.4.0)"
+ordering="AFTER"
+side="SERVER"
