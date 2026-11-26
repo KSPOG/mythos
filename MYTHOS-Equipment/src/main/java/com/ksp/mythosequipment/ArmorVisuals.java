@@ -10,8 +10,10 @@ import net.minecraftforge.client.extensions.common.IClientItemExtensions;
 import com.ksp.mythosequipment.EquipmentRules.*;
 
 final class ArmorVisuals implements IClientItemExtensions {
-    private final HumanoidModel<LivingEntity> model;
-    ArmorVisuals(Definition d){
+    private final java.util.function.Supplier<Definition> definition;
+    private HumanoidModel<LivingEntity> model;
+    ArmorVisuals(java.util.function.Supplier<Definition> definition){this.definition=definition;}
+    private void bake(Definition d){
         boolean light=switch(d.owner()){case MAGE,NECROMANCER,RANGER,ROGUE,HEXSLINGER->true;default->false;};
         int tier=d.tier().ordinal();
         float inflate=d.slot()==Slot.LEGS?.35F:.6F;
@@ -67,6 +69,11 @@ final class ArmorVisuals implements IClientItemExtensions {
         p.addOrReplaceChild(name,CubeListBuilder.create().texOffs(u,v).addBox(x,y,z,w,h,depth),net.minecraft.client.model.geom.PartPose.rotation(0,0,rot));
     }
     @Override public HumanoidModel<?> getHumanoidArmorModel(LivingEntity entity,ItemStack stack,EquipmentSlot slot,HumanoidModel<?> original){
+        if(model==null){
+            Definition d=definition.get();
+            if(d==null)return original;
+            bake(d);
+        }
         model.head.copyFrom(original.head);model.hat.copyFrom(original.hat);model.body.copyFrom(original.body);
         model.rightArm.copyFrom(original.rightArm);model.leftArm.copyFrom(original.leftArm);
         model.rightLeg.copyFrom(original.rightLeg);model.leftLeg.copyFrom(original.leftLeg);
