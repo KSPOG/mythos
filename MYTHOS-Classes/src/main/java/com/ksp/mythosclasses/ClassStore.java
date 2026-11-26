@@ -10,11 +10,13 @@ final class ClassStore {
     private static final Gson JSON=new GsonBuilder().setPrettyPrinting().create();
     static final class Points {
         int earned=ClassRules.START_POINTS;
+        int xp;
         Map<String,Integer> allocated=new HashMap<>();
         int spent(){return allocated.values().stream().mapToInt(Integer::intValue).sum();}
-        int available(){return earned-spent();}
+        int available(){return totalEarned()-spent();}
+        int totalEarned(){return earned+ClassRules.levelPoints(xp);}
         int bonus(Stat stat){return allocated.getOrDefault(stat.id(),0);}
-        Points copy(){Points p=new Points();p.earned=earned;p.allocated.putAll(allocated);return p;}
+        Points copy(){Points p=new Points();p.earned=earned;p.xp=xp;p.allocated.putAll(allocated);return p;}
     }
     private static final class Data {
         Map<String,String> players=new HashMap<>();
@@ -39,12 +41,12 @@ final class ClassStore {
         ready=true;
     }
     private static void validate(Role role,Points p){
-        if(p==null||p.allocated==null||p.earned<ClassRules.START_POINTS||p.earned>ClassRules.MAX_POINTS)throw new IllegalStateException("Invalid point budget");
+        if(p==null||p.allocated==null||p.earned<ClassRules.START_POINTS||p.earned>ClassRules.MAX_POINTS||p.xp<0||p.xp>ClassRules.MAX_XP)throw new IllegalStateException("Invalid point budget");
         for(var e:p.allocated.entrySet()){
             Stat stat=Stat.parse(e.getKey());
             if(stat==null||!stat.id().equals(e.getKey())||e.getValue()==null||e.getValue()<0||e.getValue()>ClassRules.MAX_STAT-role.base(stat))throw new IllegalStateException("Invalid stat allocation");
         }
-        if(p.spent()>p.earned)throw new IllegalStateException("Overspent points");
+        if(p.spent()>p.totalEarned())throw new IllegalStateException("Overspent points");
     }
     Role get(UUID id){return ready?Role.parse(data.players.get(id.toString())):null;}
     Points points(UUID id){return get(id)==null?null:data.points.get(id.toString());}
@@ -79,6 +81,17 @@ final class ClassStore {
     void grant(UUID id,int amount)throws Exception{
         Points p=points(id);if(p==null||amount<=0||amount>ClassRules.MAX_POINTS-p.earned)throw new IllegalArgumentException("Invalid point grant or no class.");
         Points next=p.copy();next.earned+=amount;update(id,next);
+    }
+    record XpChange(int awarded,int xp,int oldLevel,int newLevel,int points){}
+    XpChange grantXp(UUID id,int amount)throws Exception{
+        requireReady();
+        Points p=points(id);
+        if(p==null||amount<=0)throw new IllegalArgumentException("Positive XP and a selected class required.");
+        Points next=p.copy();
+        next.xp=(int)Math.min(ClassRules.MAX_XP,(long)p.xp+amount);
+        int oldLevel=ClassRules.level(p.xp),newLevel=ClassRules.level(next.xp);
+        if(next.xp!=p.xp)update(id,next);
+        return new XpChange(next.xp-p.xp,next.xp,oldLevel,newLevel,(newLevel-oldLevel)*ClassRules.POINTS_PER_LEVEL);
     }
     void reset(UUID id)throws Exception{
         Points p=points(id);if(p==null)throw new IllegalArgumentException("No class selected.");
