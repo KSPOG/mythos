@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 group = 'com.ksp.mythospets'
-version = '0.4.8'
+version = '0.4.9'
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 minecraft {
     mappings channel: 'official', version: '1.21.1'
@@ -23,11 +23,12 @@ sourceSets {
 }
 tasks.named('compileJava') { dependsOn tasks.named('compileEconomyApiJava') }
 
-def petTextures = fileTree('src/main/texture-source') { include '*.png.b64'; exclude 'ember_dragon.png.b64' }
+def petTextures = fileTree('src/main/texture-source') { include '*.png.b64'; exclude 'ember_dragon.png.b64', 'mooncat.png.b64' }
 def generatedTextures = layout.buildDirectory.dir('generated/petTextures')
 tasks.register('generatePetTextures') {
     inputs.files(petTextures)
     inputs.file('src/main/texture-source/DragonTexture.java')
+    inputs.file('src/main/texture-source/MooncatTexture.java')
     outputs.dir(generatedTextures)
     doLast {
         delete generatedTextures.get().asFile
@@ -39,6 +40,8 @@ tasks.register('generatePetTextures') {
         def dragon = generatedTextures.get().file('assets/mythospets/textures/entity/ember_dragon.png').asFile
         def launcher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }.get()
         exec { commandLine launcher.executablePath.asFile, file('src/main/texture-source/DragonTexture.java'), dragon }
+        def mooncat = generatedTextures.get().file('assets/mythospets/textures/entity/mooncat.png').asFile
+        exec { commandLine launcher.executablePath.asFile, file('src/main/texture-source/MooncatTexture.java'), mooncat }
     }
 }
 tasks.named('processResources') {
