@@ -28,6 +28,37 @@ jobs:
           chmod +x gradlew
       - name: Compile mod
         run: ./gradlew --no-daemon build
+      - name: Verify embedded pet resources
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import struct
+          import zipfile
+
+          jars = list(pathlib.Path('build/libs').glob('mythos-pets-*.jar'))
+          jars = [p for p in jars if not p.name.endswith(('-sources.jar', '-javadoc.jar'))]
+          assert len(jars) == 1, f'Expected one distributable JAR, found {jars}'
+          with zipfile.ZipFile(jars[0]) as jar:
+              required = {
+                  'META-INF/mods.toml',
+                  'pack.mcmeta',
+                  'assets/mythospets/textures/entity/mooncat.png',
+                  'com/ksp/mythospets/PetClient.class',
+                  'com/ksp/mythospets/PetEntities.class',
+                  'com/ksp/mythospets/PetServer.class',
+              }
+              missing = required - set(jar.namelist())
+              assert not missing, f'Missing embedded resources: {missing}'
+              assert jar.testzip() is None, 'Corrupt JAR entry'
+              meta = json.loads(jar.read('pack.mcmeta'))
+              assert meta['pack']['pack_format'] == 34
+              assert meta['pack']['description']
+              png = jar.read('assets/mythospets/textures/entity/mooncat.png')
+              assert png[:8] == b'\x89PNG\r\n\x1a\n'
+              assert struct.unpack('>II', png[16:24]) == (64, 64)
+              print(f'Validated self-contained pet assets in {jars[0]}')
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: mythos-pets-0.3.0
