@@ -1,10 +1,10 @@
 name: MYTHOS-Pets build
 on:
   pull_request:
-    paths: ['MYTHOS-Pets/**', '.github/workflows/mythos-pets.yml']
+    paths: ['MYTHOS-Pets/**', 'MYTHOS-Economy/**', '.github/workflows/mythos-pets.yml']
   push:
     branches: [main]
-    paths: ['MYTHOS-Pets/**', '.github/workflows/mythos-pets.yml']
+    paths: ['MYTHOS-Pets/**', 'MYTHOS-Economy/**', '.github/workflows/mythos-pets.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-pets-0.1.0
+          name: mythos-pets-0.2.0
           path: |
             MYTHOS-Pets/build/libs/*.jar
             MYTHOS-Pets/README.md

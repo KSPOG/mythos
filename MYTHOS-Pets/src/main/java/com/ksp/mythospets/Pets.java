@@ -1,6 +1,7 @@
 package com.ksp.mythospets;
 
 import com.google.gson.*;
+import com.ksp.mythoseconomy.EconomyApi;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.commands.*;
@@ -35,10 +36,12 @@ public final class Pets {
     private static final String TAG="mythos_pet";
     private static final Gson JSON=new GsonBuilder().setPrettyPrinting().create();
     private static final org.slf4j.Logger LOG=com.mojang.logging.LogUtils.getLogger();
-    private enum Source { SHOP, QUEST, DUNGEON, RAID, WORLD_BOSS, ACHIEVEMENT, CLAN, EVENT }
+    private enum Source { SHOP, QUEST, DUNGEON, RAID, WORLD_BOSS, ACHIEVEMENT, CLAN, EVENT, PREMIUM }
     private enum Ability { STRIKE, VENOM, SLOW, WEAKEN, HEAL, SHIELD, HASTE, LUCK, BURN, SCOUT }
     private record Definition(String id,String name,String mob,Source source,int price,Ability ability,int cooldown,float power,boolean locked){}
     private static final List<Definition> CATALOG=List.of(
+        new Definition("premium_mooncat","Celestial Mooncat","cat",Source.PREMIUM,0,Ability.HASTE,240,0,false),
+        new Definition("premium_sunbird","Sunbird","parrot",Source.PREMIUM,0,Ability.HASTE,240,0,false),
         new Definition("wolf","Dire Wolf","wolf",Source.QUEST,0,Ability.STRIKE,60,4,false),
         new Definition("swift_fox","Swift Fox","fox",Source.SHOP,20000,Ability.STRIKE,80,6,false),
         new Definition("jungle_stalker","Jungle Stalker","ocelot",Source.SHOP,22000,Ability.STRIKE,80,5,false),
@@ -73,6 +76,16 @@ public final class Pets {
     private Path file; private boolean failed=true; private long tick;
     private final Map<UUID,Active> active=new HashMap<>();
     public Pets(){
+        EconomyApi.registerCreatures("pet",new EconomyApi.CreatureProvider(){
+            public boolean available(){return !failed;}
+            public boolean legacyOwns(UUID player,String key){
+                var a=store.accounts.get(player.toString());
+                return key.startsWith("pet:")&&a!=null&&a.owned.containsKey(key.substring(4));
+            }
+            public List<EconomyApi.Creature> catalog(){
+                return CATALOG.stream().filter(d->!d.locked).map(d->new EconomyApi.Creature("pet:"+d.id,d.name,d.ability.name()+" | cooldown "+d.cooldown+" ticks",d.source==Source.SHOP)).toList();
+            }
+        });
         var b=MinecraftForge.EVENT_BUS;
         b.addListener(this::start);b.addListener(this::stop);b.addListener(this::commands);
         b.addListener(this::join);b.addListener(this::mount);b.addListener(this::attack);
@@ -89,7 +102,7 @@ public final class Pets {
                 UUID.fromString(entry.getKey());var a=entry.getValue();
                 if(a==null||a.gold<0||a.owned==null)throw new IllegalStateException("Invalid account");
                 if(a.names==null)a.names=new HashMap<>();
-                for(var name:a.names.entrySet())if(!a.owned.containsKey(name.getKey())||!validName(name.getValue()))throw new IllegalStateException("Invalid pet name");
+                for(var name:a.names.entrySet())if(def(name.getKey())==null||!validName(name.getValue()))throw new IllegalStateException("Invalid pet name");
                 for(var pet:a.owned.entrySet())if(def(pet.getKey())==null||!ids.add(UUID.fromString(pet.getValue()).toString()))throw new IllegalStateException("Invalid ownership");
             }
             failed=false;
@@ -103,7 +116,7 @@ public final class Pets {
         }catch(Exception ex){failed=true;LOG.error("Pet storage locked",ex);return false;}
     }
     private Account account(UUID id){return store.accounts.computeIfAbsent(id.toString(),k->new Account());}
-    private boolean owns(UUID id,String pet){var a=store.accounts.get(id.toString());return !failed&&a!=null&&a.owned.containsKey(pet);}
+    private boolean owns(UUID id,String pet){var a=store.accounts.get(id.toString());return !failed&&(a!=null&&a.owned.containsKey(pet)||EconomyApi.ownsCreature(id,"pet:"+pet));}
     private void dismiss(UUID id){var a=active.remove(id);if(a!=null)a.entity.discard();}
     private void stop(ServerStoppingEvent e){for(var id:List.copyOf(active.keySet()))dismiss(id);}
     private void logout(PlayerEvent.PlayerLoggedOutEvent e){dismiss(e.getEntity().getUUID());}
@@ -189,12 +202,10 @@ public final class Pets {
     private int fail(CommandSourceStack s,String m){s.sendFailure(Component.literal(m));return 0;}
     private int ok(CommandSourceStack s,String m){s.sendSuccess(()->Component.literal(m),false);return 1;}
     private int acquire(CommandSourceStack s,ServerPlayer p,String id,String source){
-        var d=def(id);if(failed||d==null||d.locked||!d.source.name().equalsIgnoreCase(source))return fail(s,"Pet unavailable from this source.");
-        var a=account(p.getUUID());if(a.owned.containsKey(id))return fail(s,"Already owned.");
-        int price=d.source==Source.SHOP?d.price:0;
-        if(a.gold<price)return fail(s,"Insufficient pet gold.");
-        a.gold-=price;a.owned.put(id,UUID.randomUUID().toString());
-        if(!save()){a.gold+=price;a.owned.remove(id);return fail(s,"Acquisition failed.");}
+        var d=def(id);if(failed||d==null||d.locked||d.source==Source.SHOP||d.source==Source.PREMIUM||!d.source.name().equalsIgnoreCase(source))return fail(s,"Pet unavailable from this source.");
+        var a=account(p.getUUID());if(owns(p.getUUID(),id))return fail(s,"Already owned.");
+        a.owned.put(id,UUID.randomUUID().toString());
+        if(!save()){a.owned.remove(id);return fail(s,"Acquisition failed.");}
         return ok(s,"Unlocked "+d.name);
     }
     private static boolean validName(String name){
@@ -230,22 +241,39 @@ public final class Pets {
     }
     private int list(CommandSourceStack s,boolean shop,boolean catalog)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();if(failed)return fail(s,"Storage locked.");var a=account(p.getUUID());
-        s.sendSuccess(()->Component.literal("MYTHOS Pets | pet gold "+a.gold),false);
-        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:a.owned.containsKey(d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+(a.owned.containsKey(d.id)?petName(p.getUUID(),d):d.name)+" | "+d.ability+" | "+d.source+(d.source==Source.SHOP?" "+d.price:"")+(d.locked?" LOCKED":"")),false);
+        s.sendSuccess(()->Component.literal("MYTHOS Pets | Visit a Pet Merchant for current prices"),false);
+        for(var d:CATALOG)if(catalog||(shop?d.source==Source.SHOP&&!d.locked:owns(p.getUUID(),d.id)))s.sendSuccess(()->Component.literal(d.id+" | "+(owns(p.getUUID(),d.id)?petName(p.getUUID(),d):d.name)+" | "+d.ability+" | "+d.source+(d.locked?" LOCKED":"")),false);
         return 1;
+    }
+    private int premium(CommandSourceStack s,ServerPlayer p,String id,boolean grant){
+        var d=def(id);if(failed||d==null||d.source!=Source.PREMIUM||d.locked)return fail(s,"Not an available premium pet");
+        var a=account(p.getUUID());String old=a.owned.get(id);
+        if(grant){if(old!=null)return fail(s,"Already owned");a.owned.put(id,UUID.randomUUID().toString());}
+        else{if(old==null)return fail(s,"Not owned");a.owned.remove(id);}
+        String oldName=grant?null:a.names.remove(id);
+        if(!save()){if(old==null)a.owned.remove(id);else a.owned.put(id,old);if(oldName!=null)a.names.put(id,oldName);return fail(s,"Storage failed");}
+        var live=active.get(p.getUUID());if(!grant&&live!=null&&live.definition.id.equals(id))dismiss(p.getUUID());
+        LOG.info("Premium pet {} actor={} player={} id={}",grant?"grant":"revoke",s.getTextName(),p.getUUID(),id);
+        return ok(s,(grant?"Granted ":"Revoked ")+d.name);
     }
     private void commands(RegisterCommandsEvent e){
         var root=Commands.literal("pet").executes(c->list(c.getSource(),false,false));
         root.then(Commands.literal("list").executes(c->list(c.getSource(),false,false)));
         root.then(Commands.literal("shop").executes(c->list(c.getSource(),true,false)));
         root.then(Commands.literal("catalog").executes(c->list(c.getSource(),false,true)));
-        root.then(Commands.literal("buy").then(Commands.argument("id",StringArgumentType.word()).executes(c->acquire(c.getSource(),c.getSource().getPlayerOrException(),StringArgumentType.getString(c,"id"),"SHOP"))));
         root.then(Commands.literal("summon").then(Commands.argument("id",StringArgumentType.word()).executes(c->summon(c.getSource(),StringArgumentType.getString(c,"id")))));
         root.then(Commands.literal("rename").then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->rename(c.getSource(),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"name"))))));
         root.then(Commands.literal("resetname").then(Commands.argument("id",StringArgumentType.word()).executes(c->rename(c.getSource(),StringArgumentType.getString(c,"id"),null))));
         root.then(Commands.literal("dismiss").executes(c->{dismiss(c.getSource().getPlayerOrException().getUUID());return ok(c.getSource(),"Pet dismissed.");}));
         root.then(Commands.literal("reward").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("source",StringArgumentType.word()).executes(c->{String source=StringArgumentType.getString(c,"source");if(source.equalsIgnoreCase("SHOP"))return fail(c.getSource(),"Shop-exclusive pet.");return acquire(c.getSource(),EntityArgument.getPlayer(c,"player"),StringArgumentType.getString(c,"id"),source);})))));
-        root.then(Commands.literal("credit").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("amount",IntegerArgumentType.integer(1)).executes(c->{if(failed)return fail(c.getSource(),"Storage locked.");var a=account(EntityArgument.getPlayer(c,"player").getUUID());long old=a.gold;try{a.gold=Math.addExact(old,IntegerArgumentType.getInteger(c,"amount"));}catch(ArithmeticException ex){return fail(c.getSource(),"Balance overflow.");}if(!save()){a.gold=old;return fail(c.getSource(),"Credit failed.");}return ok(c.getSource(),"Pet gold "+a.gold);}))));
+        var premiumRoot=Commands.literal("premium").requires(source->source.hasPermission(4));
+        for(String action:List.of("grant","revoke")){
+            var idArg=Commands.argument("id",StringArgumentType.word()).executes(c->premium(c.getSource(),EntityArgument.getPlayer(c,"player"),StringArgumentType.getString(c,"id"),action.equals("grant")));
+            premiumRoot.then(Commands.literal(action).then(Commands.argument("player",EntityArgument.player()).then(idArg)));
+        }
+        premiumRoot.then(Commands.literal("catalog").executes(c->ok(c.getSource(),String.join(", ",CATALOG.stream().filter(d->d.source==Source.PREMIUM).map(d->d.id).toList()))));
+        premiumRoot.then(Commands.literal("list").then(Commands.argument("player",EntityArgument.player()).executes(c->{var target=EntityArgument.getPlayer(c,"player");return ok(c.getSource(),String.join(", ",CATALOG.stream().filter(d->d.source==Source.PREMIUM&&owns(target.getUUID(),d.id)).map(d->d.id).toList()));})));
+        root.then(premiumRoot);
         e.getDispatcher().register(root);
     }
 }
