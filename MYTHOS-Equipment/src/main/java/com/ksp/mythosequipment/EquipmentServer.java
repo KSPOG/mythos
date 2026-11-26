@@ -29,9 +29,9 @@ final class EquipmentServer {
     private static final EquipmentSlot[] SLOTS={EquipmentSlot.MAINHAND,EquipmentSlot.OFFHAND,EquipmentSlot.HEAD,EquipmentSlot.CHEST,EquipmentSlot.LEGS,EquipmentSlot.FEET};
     private static final Map<Stat,Double> SCALE=Map.of(Stat.ATK,0.25,Stat.STR,0.15,Stat.DEF,0.25,Stat.VIT,0.5,Stat.DEX,0.002);
     static boolean allowed(ServerPlayer p,Definition d){
-        if(d==null)return true;
+        if(d==null||p.getServer().getPlayerList().isOp(p.getGameProfile()))return true;
         if(!net.minecraftforge.fml.ModList.get().isLoaded("mythosclasses")){
-            // Local creative preview only. Never bypass class checks on a dedicated server.
+            // Local creative preview when the Classes mod is absent.
             return !p.getServer().isDedicatedServer()&&p.isCreative();
         }
         return ClassApi.canUse(p.getUUID(),List.of(d.owner().id))&&ClassApi.progression(p.getUUID()).map(v->v.level()>=d.level()).orElse(false);
@@ -54,19 +54,22 @@ final class EquipmentServer {
     private static boolean blockedOffhand(ServerPlayer p,ItemStack stack){
         return twoHanded(p)&&stack.getItem() instanceof net.minecraft.world.item.ShieldItem;
     }
-    private static void deny(ServerPlayer p){p.displayClientMessage(Component.literal("This MYTHOS item requires its assigned class and level."),true);}
+    private static void deny(ServerPlayer p,Definition d){
+        String message=d==null?"Cannot use a shield with a two-handed weapon.":"Requires "+d.owner().id.replace('_',' ')+" class and level "+d.level()+".";
+        p.displayClientMessage(Component.literal(message),true);
+    }
     @SubscribeEvent public void attack(AttackEntityEvent e){
-        if(e.getEntity() instanceof ServerPlayer p&&!allowed(p,p.getMainHandItem())){e.setCanceled(true);deny(p);}
+        if(e.getEntity() instanceof ServerPlayer p&&!allowed(p,p.getMainHandItem())){e.setCanceled(true);deny(p,MythosEquipment.definition(p.getMainHandItem()));}
     }
     @SubscribeEvent public void use(PlayerInteractEvent.RightClickItem e){
-        if(e.getEntity() instanceof ServerPlayer p&&(!allowed(p,e.getItemStack())||blockedOffhand(p,e.getItemStack()))){e.setCanceled(true);deny(p);}
+        if(e.getEntity() instanceof ServerPlayer p&&(!allowed(p,e.getItemStack())||blockedOffhand(p,e.getItemStack()))){e.setCanceled(true);deny(p,blockedOffhand(p,e.getItemStack())?null:MythosEquipment.definition(e.getItemStack()));}
     }
     @SubscribeEvent public void block(PlayerInteractEvent.RightClickBlock e){
-        if(e.getEntity() instanceof ServerPlayer p&&(!allowed(p,e.getItemStack())||blockedOffhand(p,e.getItemStack()))){e.setCanceled(true);deny(p);}
+        if(e.getEntity() instanceof ServerPlayer p&&(!allowed(p,e.getItemStack())||blockedOffhand(p,e.getItemStack()))){e.setCanceled(true);deny(p,MythosEquipment.definition(p.getMainHandItem()));}
     }
     @SubscribeEvent public void projectile(EntityJoinLevelEvent e){
         if(e.getLevel().isClientSide()||e.loadedFromDisk()||!(e.getEntity() instanceof Projectile projectile)||!(projectile.getOwner() instanceof ServerPlayer p))return;
-        if(!allowed(p,p.getMainHandItem())||!allowed(p,p.getOffhandItem())){e.setCanceled(true);deny(p);}
+        if(!allowed(p,p.getMainHandItem())||!allowed(p,p.getOffhandItem())){e.setCanceled(true);deny(p,MythosEquipment.definition(!allowed(p,p.getMainHandItem())?p.getMainHandItem():p.getOffhandItem()));}
     }
     @SubscribeEvent public void damage(LivingAttackEvent e){
         if(e.getSource().getEntity() instanceof ServerPlayer p&&!(e.getSource().getDirectEntity() instanceof Projectile)&&!allowed(p,p.getMainHandItem()))e.setCanceled(true);
@@ -89,6 +92,12 @@ final class EquipmentServer {
                 ItemStack stack=p.getItemBySlot(slot);Definition d=MythosEquipment.definition(stack);
                 boolean conflict=slot==EquipmentSlot.OFFHAND&&blockedOffhand(p,stack);
                 if(d==null&&!conflict)continue;
+                // A selected hotbar item is not necessarily equipped gear. Armor and shields
+                // may be held in the main hand to equip normally; they grant no held bonuses.
+                if(slot==EquipmentSlot.MAINHAND&&d!=null&&d.slot()!=Slot.WEAPON)continue;
+                // Do not relocate a selected weapon merely for selecting its hotbar slot.
+                // Attack/use/projectile handlers still deny unauthorized use.
+                if(slot==EquipmentSlot.MAINHAND&&!allowed(p,d))continue;
                 if(conflict||!allowed(p,d)||!fits(d,slot)){
                     if(p.isUsingItem())p.stopUsingItem();
                     p.setItemSlot(slot,ItemStack.EMPTY);
@@ -98,7 +107,7 @@ final class EquipmentServer {
                         p.getInventory().setItem(i,stack);moved=true;break;
                     }
                     if(!moved)p.drop(stack,false);
-                    deny(p);continue;
+                    deny(p,conflict?null:d);continue;
                 }
                 GearRolls.ensure(stack,d).stats().forEach((stat,value)->totals.merge(stat,value,Integer::sum));
             }
