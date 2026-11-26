@@ -133,16 +133,51 @@ public final class EquipmentAssets {
                 for(int i=0;i<14;i++){double a=top-1+i*.19;double w=.65+Math.sin(i*Math.PI/14)*(wand?1.0:1.8);m.box(8-w,a,7.6,8-w+.23,a+.25,8.4,2);m.box(8+w-.23,a,7.6,8+w,a+.25,8.4,2);if(!wand){m.box(7.65,a,8-w,8.35,a+.25,8-w+.22,2);m.box(7.65,a,8+w-.22,8.35,a+.25,8+w,2);}}
                 if(caster){m.box(6.8,6,7.25,9.2,12,8.75,7);m.box(7.2,11.5,7.1,8.8,16,8.9,0);m.gem(15.4,1.55);}
             }
-            case BOW,CROSSBOW -> {
-                boolean cross=d.kind()==WeaponKind.CROSSBOW;
-                if(cross){m.box(7.1,1,6.7,8.9,18,9.3,6);m.box(7.55,5,6.45,8.45,18,6.75,0);m.grip(3,6,.9);}
-                else m.grip(6.4,9.6,.82);
-                for(int i=0;i<32;i++){double t=(i+.5)/32,curve=Math.sin(t*Math.PI),y=1+t*15,x=8+curve*(active?3:4.5);
-                    if(cross){double a=1+i*.45;double Y=13+curve*(active?2.2:3.4);m.box(a,Y,7.3,a+.5,Y+.65,8.7,6);m.box(a,Y+.15,7.18,a+.5,Y+.45,7.32,2);}
-                    else{m.box(x-.38,y,7.4,x+.38,y+.53,8.6,6);m.box(x-.45,y,7.3,x-.2,y+.53,8.7,2);}
+            case BOW -> {
+                // Bow lies in the XY plane; grip at (8,8,8), limbs extend vertically.
+                m.grip(6.2,9.8,.9);
+                for(int side:new int[]{-1,1}){
+                    for(int i=0;i<30;i++){
+                        double t=i/30.0,u=(i+1)/30.0;
+                        double x=8-3.1*Math.sin(t*Math.PI/2)+1.2*Math.pow(t,6);
+                        double X=8-3.1*Math.sin(u*Math.PI/2)+1.2*Math.pow(u,6);
+                        double y=8+side*(1.5+7.8*t),Y=8+side*(1.5+7.8*u);
+                        double w=.56-.32*t;
+                        m.box(Math.min(x,X)-w/2,Math.min(y,Y),7.5+t*.2,Math.max(x,X)+w/2,Math.max(y,Y)+.035,8.5-t*.2,6);
+                        if(i%3==0)m.box(x-.32,y-.09,7.36,x+.32,y+.09,7.58,2);
+                    }
+                    for(int i=0;i<32;i++){
+                        double t=i/32.0,u=(i+1)/32.0;
+                        double x=6.1+(active?4.1:0)*t,X=6.1+(active?4.1:0)*u;
+                        double y=8+side*9.3*(1-t),Y=8+side*9.3*(1-u);
+                        m.box(Math.min(x,X)-.055,Math.min(y,Y)-.02,7.94,Math.max(x,X)+.055,Math.max(y,Y)+.02,8.06,1);
+                    }
                 }
-                if(cross){m.box(1,12.95,7.94,15.5,13.08,8.07,1);if(active)m.box(7.91,5.3,7.8,8.09,18,8.2,1);}
-                else {for(int i=0;i<32;i++){double y=1+i*15.0/32;double x=8-(active?2.3:0)*Math.sin(i*Math.PI/32);m.box(x-.065,y,7.94,x+.065,y+.50,8.06,1);}}
+                m.box(7.3,6,7.35,8.7,6.45,8.65,2);m.box(7.3,9.55,7.35,8.7,10,8.65,2);
+            }
+            case CROSSBOW -> {
+                // Horizontal crossbow: X spans limbs, Z runs along the bolt rail.
+                m.box(7,6.9,0,9,8.5,16.5,6);
+                m.box(7.35,8.5,2,8.65,9.0,16.5,7);
+                m.box(7.65,8.95,1.5,8.35,9.13,16.5,1);
+                m.box(7.25,4.6,10.2,8.75,7,12.6,3);
+                m.box(7.2,6.2,13.4,8.8,8.7,17,7);
+                m.box(6.5,7.2,2.5,9.5,9,4.5,2);
+                for(int side:new int[]{-1,1})for(int i=0;i<24;i++){
+                    double t=i/24.0,u=(i+1)/24.0;
+                    double x=8+side*(1.1+7*t),X=8+side*(1.1+7*u);
+                    double z=3+3*Math.pow(t,1.65),Z=3+3*Math.pow(u,1.65);
+                    double w=.75-.4*t;
+                    m.box(Math.min(x,X),7.5,Math.min(z,Z)-w,Math.max(x,X)+.025,8.5,Math.max(z,Z)+w,6);
+                    m.box(Math.min(x,X),8.45,Math.min(z,Z)-w,Math.max(x,X)+.025,8.62,Math.max(z,Z)+w,2);
+                }
+                for(int side:new int[]{-1,1})for(int i=0;i<32;i++){
+                    double t=i/32.0,u=(i+1)/32.0;
+                    double x=8+side*8.1*t,X=8+side*8.1*u;
+                    double z=(active?12:6)+(6-(active?12:6))*t,Z=(active?12:6)+(6-(active?12:6))*u;
+                    m.box(Math.min(x,X)-.05,8.64,Math.min(z,Z)-.05,Math.max(x,X)+.05,8.76,Math.max(z,Z)+.05,1);
+                }
+                if(active){m.box(7.9,9.14,0,8.1,9.34,12,6);m.box(7.65,9.05,-.8,8.35,9.45,.8,1);}
             }
             case GRIMOIRE -> {
                 m.box(3,3,6.5,13,14,9.5,3);
@@ -188,8 +223,8 @@ public final class EquipmentAssets {
             if(pred!=null)overrides=",\"overrides\":[{\"predicate\":{"+pred+"},\"model\":\""+NS+":item/"+d.id()+"_active\"}"+(d.kind()==WeaponKind.CROSSBOW?",{\"predicate\":{\"charged\":1},\"model\":\""+NS+":item/"+d.id()+"_active\"}":"")+"]";
         }
         boolean shield=d.kind()==WeaponKind.SHIELD;
-        String third=shield?"[0,90,0]":"[0,-90,35]";
-        String first=shield?(active?"[0,45,10]":"[0,90,0]"):"[0,-90,25]";
+        String third=shield?"[0,90,0]":d.kind()==WeaponKind.BOW?"[-80,260,-40]":d.kind()==WeaponKind.CROSSBOW?"[-90,0,0]":"[0,-90,35]";
+        String first=shield?(active?"[0,45,10]":"[0,90,0]"):d.kind()==WeaponKind.BOW?"[0,-90,25]":d.kind()==WeaponKind.CROSSBOW?"[0,0,0]":"[0,-90,25]";
         double scale=d.kind().twoHanded?.74:.85;
         String display=String.format(Locale.ROOT,"\"display\":{\"gui\":{\"rotation\":[25,-35,35],\"translation\":[0,-1,0],\"scale\":[0.90,0.90,0.90]},\"thirdperson_righthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"thirdperson_lefthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_righthand\":{\"rotation\":%s,\"translation\":[1,2,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_lefthand\":{\"rotation\":%s,\"translation\":[1,2,1],\"scale\":[%.2f,%.2f,%.2f]},\"ground\":{\"translation\":[0,3,0],\"scale\":[0.35,0.35,0.35]},\"fixed\":{\"scale\":[0.65,0.65,0.65]}}",third,scale,scale,scale,third,scale,scale,scale,first,scale,scale,scale,first,scale,scale,scale);
         return "{\"ambientocclusion\":false,\"textures\":{\"all\":\""+texture+"\",\"particle\":\""+texture+"\"},\"elements\":["+String.join(",",m.parts)+"],"+display+overrides+"}";
