@@ -20,3 +20,7 @@ Do not mark an integration milestone complete based solely on standalone unit te
 ## Asset cache increment
 
 Content-addressed local cache implemented with bounded writes, SHA-256 verification, atomic publication, and corrupt-file recovery tests. Transport, total cache quota, eviction and runtime integration remain outstanding. CI pending for this increment.
+
+## Cache quota increment
+
+Previous cache CI passed at [928244e](https://github.com/KSPOG/mythos/actions/runs/45892300131). Added configurable published-cache quota (default 512 MiB) and oldest-modified-first eviction after successful verification. One private cache instance per root is required; temporary download space is additional (up to one asset). Transport, crash cleanup, active asset lifetime and runtime integration remain open. New quota tests await CI.
