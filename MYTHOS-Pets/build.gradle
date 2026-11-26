@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 group = 'com.ksp.mythospets'
-version = '0.3.2'
+version = '0.3.3'
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 minecraft {
     mappings channel: 'official', version: '1.21.1'
@@ -23,15 +23,18 @@ sourceSets {
 }
 tasks.named('compileJava') { dependsOn tasks.named('compileEconomyApiJava') }
 
-def mooncatTexture = layout.projectDirectory.file('src/main/texture-source/mooncat.png.b64')
+def petTextures = fileTree('src/main/texture-source') { include '*.png.b64' }
 def generatedTextures = layout.buildDirectory.dir('generated/petTextures')
 tasks.register('generatePetTextures') {
-    inputs.file(mooncatTexture)
+    inputs.files(petTextures)
     outputs.dir(generatedTextures)
     doLast {
-        def output = generatedTextures.get().file('assets/mythospets/textures/entity/mooncat.png').asFile
-        output.parentFile.mkdirs()
-        output.bytes = Base64.getDecoder().decode(mooncatTexture.asFile.text.trim())
+        delete generatedTextures.get().asFile
+        petTextures.files.sort { it.name }.each { source ->
+            def output = generatedTextures.get().file('assets/mythospets/textures/entity/' + source.name.replaceFirst(/\.b64$/, '')).asFile
+            output.parentFile.mkdirs()
+            output.bytes = Base64.getDecoder().decode(source.text.trim())
+        }
     }
 }
 tasks.named('processResources') {
