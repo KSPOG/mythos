@@ -1,10 +1,10 @@
 package com.ksp.mythoscharacters;
 public final class CharacterMeshCheck {
     public static void main(String[] args){
-        for(boolean slim:new boolean[]{false,true}){
+        for(boolean slim:new boolean[]{false,true})for(int physique=0;physique<3;physique++)for(boolean hair:new boolean[]{false,true}){
             int previous=Integer.MAX_VALUE;
             for(int lod=0;lod<4;lod++){
-                var parts=CharacterMesh.build(slim,lod);
+                var parts=CharacterMesh.build(slim,lod,physique,hair);
                 if(parts.size()!=12)throw new AssertionError("Missing body or overlay");
                 int count=0;
                 for(var part:parts)for(var q:part.quads()){
@@ -17,7 +17,7 @@ public final class CharacterMeshCheck {
                 }
                 if(lod==0&&count<80000)throw new AssertionError("Cinematic mesh undersampled");
                 if(count>=previous||count>150000)throw new AssertionError("LOD budget");
-                previous=count;System.out.println("slim="+slim+" LOD="+lod+" triangles="+count);
+                previous=count;System.out.println("physique="+physique+" hair="+hair+" slim="+slim+" LOD="+lod+" triangles="+count);
             }
         }
     }

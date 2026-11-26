@@ -109,7 +109,8 @@ final class CharacterMesh {
     }
     private static Shape shape(int b,Atlas a,Atlas o,int kind,Ring... rings){return new Shape(b,a,o,rings,kind);}
     private static void append(List<Quad> dest,Shape s,int n,int rows,boolean overlay){dest.addAll(loft(s,n,rows,overlay));}
-    static List<Part> build(boolean slim,int lod){
+    static List<Part> build(boolean slim,int lod){return build(slim,lod,0,false);}
+    static List<Part> build(boolean slim,int lod,int physique,boolean hair){
         int n=switch(lod){case 0->96;case 1->48;case 2->24;default->12;};
         int rows=switch(lod){case 0->48;case 1->24;case 2->12;default->6;};
         int arm=slim?3:4;
@@ -121,6 +122,16 @@ final class CharacterMesh {
         };
         List<Part> result=new ArrayList<>();
         for(Shape s:shapes){
+            if(physique!=0){
+                Ring[] adjusted=new Ring[s.rings.length];
+                for(int i=0;i<adjusted.length;i++){
+                    Ring q=s.rings[i];float factor=1;
+                    if(s.bone==1){factor=physique==1?.90F:1.08F;if(physique==1&&q.y>9)factor=1.05F;}
+                    else if(s.bone>=2)factor=physique==1?.90F:1.06F;
+                    adjusted[i]=r(q.y,q.x,q.z,q.rx*factor,q.rz*factor);
+                }
+                s=shape(s.bone,s.base,s.overlay,s.kind,adjusted);
+            }
             List<Quad> base=loft(s,n,rows,false);
             if(s.bone==0){
                 int small=Math.max(8,(n/16)*4);
@@ -141,7 +152,12 @@ final class CharacterMesh {
             }
             result.add(new Part(s.bone,false,List.copyOf(base)));
             // Only a skin-conforming shell; do not duplicate fingers/ears.
-            result.add(new Part(s.bone,true,List.copyOf(loft(s,n,rows,true))));
+            List<Quad> outer=loft(s,n,rows,true);
+            if(hair&&s.bone==0){
+                // Hair cap follows the scalp; uses the original hat atlas.
+                append(outer,shape(0,h,ho,2,r(-9.18F,0,.2F,.04F,.05F),r(-8.8F,0,.25F,1.34F,1.36F),r(-7.8F,0,.28F,2.15F,1.96F),r(-7.15F,0,.35F,2.29F,2.02F)),n,rows/3,true);
+            }
+            result.add(new Part(s.bone,true,List.copyOf(outer)));
         }
         return List.copyOf(result);
     }

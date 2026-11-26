@@ -14,6 +14,7 @@ public final class CharacterClient {
     private CharacterClient(){}
     @SubscribeEvent
     public static void install(EntityRenderersEvent.AddLayers event){
+        CharacterOptions.load();
         if(Boolean.getBoolean("mythoscharacters.disable"))return;
         try{
             var field=ObfuscationReflectionHelper.findField(LivingEntityRenderer.class,"f_115290_");
