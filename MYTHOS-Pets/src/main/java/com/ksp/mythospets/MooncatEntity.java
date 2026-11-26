@@ -22,7 +22,12 @@ public final class MooncatEntity extends PathfinderMob {
     int idleElapsed(){return Math.max(0,(int)level().getGameTime()-entityData.get(START));}
     @Override public void tick(){
         super.tick();
-        if(level().isClientSide)return;
+        if(level().isClientSide){
+            // Body yaw is derived from the interpolated network entity yaw.
+            // No-AI companions cannot rely on vanilla AI body rotation.
+            setYBodyRot(getYRot());
+            return;
+        }
         double dx=getX()-px,dy=getY()-py,dz=getZ()-pz;
         boolean moving=!sampled||dx*dx+dy*dy+dz*dz>0.0004;
         px=getX();py=getY();pz=getZ();sampled=true;
