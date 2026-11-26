@@ -46,6 +46,9 @@ jobs:
                   'assets/mythospets/textures/entity/mooncat.png',
                   'com/ksp/mythospets/PetClient.class',
                   'com/ksp/mythospets/MooncatMeshModel.class',
+                  'com/ksp/mythospets/DragonMeshModel.class',
+                  'com/ksp/mythospets/DragonEntity.class',
+                  'assets/mythospets/textures/entity/ember_dragon.png',
                   'com/ksp/mythospets/PetEntities.class',
                   'com/ksp/mythospets/PetServer.class',
               }
@@ -55,14 +58,15 @@ jobs:
               meta = json.loads(jar.read('pack.mcmeta'))
               assert meta['pack']['pack_format'] == 34
               assert meta['pack']['description']
-              png = jar.read('assets/mythospets/textures/entity/mooncat.png')
-              assert png[:8] == b'\x89PNG\r\n\x1a\n'
-              assert struct.unpack('>II', png[16:24]) == (64, 64)
+              for name in ('mooncat', 'ember_dragon'):
+                  png = jar.read(f'assets/mythospets/textures/entity/{name}.png')
+                  assert png[:8] == b'\x89PNG\r\n\x1a\n'
+                  assert struct.unpack('>II', png[16:24]) == (64, 64)
               print(f'Validated self-contained pet assets in {jars[0]}')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-pets-0.3.2
+          name: mythos-pets-0.3.3
           path: |
             MYTHOS-Pets/build/libs/*.jar
             MYTHOS-Pets/README.md
