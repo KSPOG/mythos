@@ -21,7 +21,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Test class authorization
+      - name: Test class identity
         run: |
           mkdir -p build/rules-check
           javac -d build/rules-check src/main/java/com/ksp/mythosclasses/ClassRules.java tools/ClassRulesCheck.java
