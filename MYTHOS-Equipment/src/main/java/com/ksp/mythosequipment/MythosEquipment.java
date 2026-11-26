@@ -15,6 +15,7 @@ import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.RegistryObject;
 import java.util.*;
 import com.ksp.mythosequipment.EquipmentRules.*;
+import com.ksp.mythosequipment.EquipmentRules.Tier;
 
 @Mod(MythosEquipment.ID)
 public final class MythosEquipment {
