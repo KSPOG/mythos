@@ -29,10 +29,10 @@ public final class MythosEquipment {
         for(ClassSet c:ClassSet.values())for(Tier t:Tier.values()){
             String key=key(c,t);
             ARMOR.put(key,MATERIALS.register(key,()->new ArmorMaterial(
-                Map.of(ArmorItem.Type.HELMET,2,ArmorItem.Type.CHESTPLATE,4,ArmorItem.Type.LEGGINGS,3,ArmorItem.Type.BOOTS,2),
+                Map.of(ArmorItem.Type.HELMET,2+t.ordinal()/2,ArmorItem.Type.CHESTPLATE,4+t.ordinal()/2,ArmorItem.Type.LEGGINGS,3+t.ordinal()/2,ArmorItem.Type.BOOTS,2+t.ordinal()/2),
                 12,SoundEvents.ARMOR_EQUIP_IRON,()->Ingredient.of(Items.IRON_INGOT),
                 List.of(new ArmorMaterial.Layer(ResourceLocation.fromNamespaceAndPath(ID,key))),
-                t==Tier.DRAGON?2F:0F,0F)));
+                t.ordinal()>=4?2F+(t.ordinal()-4):0F,0F)));
         }
         for(Definition d:EquipmentRules.CATALOG)GEAR.put(d.id(),ITEMS.register(d.id(),()->create(d)));
         TABS.register("gear",()->CreativeModeTab.builder()
@@ -60,7 +60,7 @@ public final class MythosEquipment {
             case LEGS->ArmorItem.Type.LEGGINGS;case FEET->ArmorItem.Type.BOOTS;default->throw new IllegalStateException();
         };
         Holder<ArmorMaterial> material=ARMOR.get(key(d.owner(),d.tier())).getHolder().orElseThrow();
-        return new ArmorItem(material,type,p.durability(type.getDurability(15+10*d.tier().ordinal())));
+        return new MythosArmorItem(material,type,p.durability(type.getDurability(15+10*d.tier().ordinal())),d);
     }
     static Definition definition(ItemStack stack){
         if(stack.isEmpty())return null;
