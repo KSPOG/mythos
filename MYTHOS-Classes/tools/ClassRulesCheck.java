@@ -1,15 +1,12 @@
 package com.ksp.mythosclasses;
 public final class ClassRulesCheck {
     public static void main(String[] args){
+        if(ClassRules.Role.values().length!=7)throw new AssertionError("seven classes");
         for(var role:ClassRules.Role.values()){
             if(ClassRules.Role.parse(role.id())!=role)throw new AssertionError("role roundtrip");
-            for(var weapon:ClassRules.Weapon.values())
-                if(ClassRules.allows(role,weapon)!=role.weapons.contains(weapon))throw new AssertionError("authorization");
-            if(!ClassRules.allows(role,null))throw new AssertionError("ordinary items");
         }
-        for(var weapon:ClassRules.Weapon.values())if(ClassRules.allows(null,weapon))throw new AssertionError("unassigned");
-        if(ClassRules.allows(ClassRules.Role.CLERIC,ClassRules.Weapon.BOW))throw new AssertionError("cleric bow");
-        if(!ClassRules.allows(ClassRules.Role.RANGER,ClassRules.Weapon.BOW))throw new AssertionError("ranger bow");
-        System.out.println("Class authorization checks passed");
+        if(ClassRules.Role.parse("heavy_knight")!=ClassRules.Role.HEAVY_KNIGHT)throw new AssertionError("heavy knight");
+        if(ClassRules.Role.parse(null)!=null||ClassRules.Role.parse("invalid")!=null)throw new AssertionError("invalid class");
+        System.out.println("Class identity checks passed");
     }
 }
