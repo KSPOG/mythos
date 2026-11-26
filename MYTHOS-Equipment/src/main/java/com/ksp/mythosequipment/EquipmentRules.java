@@ -13,7 +13,7 @@ final class EquipmentRules {
     }
     enum Rarity {
         COMMON(4500,1,0), UNCOMMON(2800,2,1), RARE(1600,3,2),
-        EPIC(800,4,4), LEGENDARY(250,5,7), GODLIKE(50,6,10);
+        EPIC(800,4,4), LEGENDARY(250,5,7), MYTHICAL(50,6,10);
         final int weight,count,bonus;
         Rarity(int weight,int count,int bonus){this.weight=weight;this.count=count;this.bonus=bonus;}
         String label(){String s=name().toLowerCase(Locale.ROOT);return Character.toUpperCase(s.charAt(0))+s.substring(1);}
