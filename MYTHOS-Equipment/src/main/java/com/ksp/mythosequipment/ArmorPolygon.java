@@ -23,6 +23,7 @@ final class ArmorPolygon {
     private static V unit(float x,float y,float z){
         float l=(float)Math.sqrt(x*x+y*y+z*z);return l>1e-6F?new V(x/l,y/l,z/l):new V(0,-1,0);
     }
+    private static V neg(V v){return new V(-v.x,-v.y,-v.z);}
     private void curved(V a,V b,V c,V na,V nb,V nc,int mat,float ua,float va,float ub,float vb,float uc,float vc){
         float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z,vx=c.x-a.x,vy=c.y-a.y,vz=c.z-a.z;
         float x=uy*vz-uz*vy,y=uz*vx-ux*vz,z=ux*vy-uy*vx,l=(float)Math.sqrt(x*x+y*y+z*z);
@@ -122,9 +123,10 @@ final class ArmorPolygon {
             double a=(u*2-1)*arc;
             float sn=(float)Math.sin(a),cs=(float)Math.cos(a);
             float sx=Math.copySign((float)Math.pow(Math.abs(sn),shape),sn),sz=Math.copySign((float)Math.pow(Math.abs(cs),shape),cs);
-            float w=wt+(wb-wt)*v,d=dt+(db-dt)*v;
-            float ridge=(float)Math.pow(Math.max(0,cs),8)*.15F*(float)Math.sin(Math.PI*v);
-            float y=top+(bottom-top)*v+point*(float)Math.pow(Math.max(0,cs),4)*v*v;
+            float eased=v*v*(3-2*v);
+            float w=wt+(wb-wt)*eased,d=dt+(db-dt)*eased;
+            float ridge=(float)Math.pow(Math.max(0,cs),4)*.10F*(float)Math.sin(Math.PI*v);
+            float y=top+(bottom-top)*v+point*(float)Math.pow(Math.max(0,cs),3)*eased;
             outer[r][k]=new V(cx+sx*w,y,cz-sz*d-ridge);
             inner[r][k]=new V(cx+sx*(w-thickness),y,cz-sz*(d-thickness)-ridge);
         }
@@ -135,7 +137,7 @@ final class ArmorPolygon {
         }
         for(int r=0;r<rows;r++)for(int k=0;k<segments;k++){
             float u=k/(float)segments,U=(k+1)/(float)segments,v=r/(float)rows,Vv=(r+1)/(float)rows;
-            int material=(r==0||r==rows-1||k==0||k==segments-1)&&detail<2?2:mat;
+            int material=(r==0||r==rows-1||k==0||k==segments-1)&&detail<2&&mat==0?2:mat;
             curved(outer[r][k],outer[r+1][k],outer[r+1][k+1],norm[r][k],norm[r+1][k],norm[r+1][k+1],material,u,v,u,Vv,U,Vv);
             curved(outer[r][k],outer[r+1][k+1],outer[r][k+1],norm[r][k],norm[r+1][k+1],norm[r][k+1],material,u,v,U,Vv,U,v);
         }
@@ -160,7 +162,7 @@ final class ArmorPolygon {
             V a=unit(-tangent.y,tangent.x,0);
             V b=unit(tangent.y*a.z-tangent.z*a.y,tangent.z*a.x-tangent.x*a.z,tangent.x*a.y-tangent.y*a.x);
             float cx=x+dx*(.35F*t+.65F*t*t),cy=y-height*(1.35F*t-.35F*t*t),cz=z+dz*(.4F*t+.6F*t*t);
-            float rad=Math.max(.012F,radius*(float)Math.pow(1-t,.82)* (1+.055F*(float)Math.cos(t*42)));
+            float rad=Math.max(.012F,radius*(float)Math.pow(1-t,.88)*(1+.022F*(float)Math.cos(t*42)*(1-t)));
             for(int k=0;k<sides;k++){
                 double angle=2*Math.PI*k/sides;
                 float c=(float)Math.cos(angle),sn=(float)Math.sin(angle);
@@ -181,6 +183,7 @@ final class ArmorPolygon {
     private void blade(int mat,float x,float y,float z,float dx,float dy,float dz,float width){
         int steps=detail==0?14:detail==1?6:3;
         V[][] v=new V[steps+1][3];
+        V[][] normals=new V[steps+1][3];
         float l=(float)Math.hypot(dx,dy);float px=-dy/Math.max(.01F,l),py=dx/Math.max(.01F,l);
         for(int i=0;i<=steps;i++){
             float t=i/(float)steps,ww=Math.max(.012F,width*(float)Math.sin(Math.PI*t));
@@ -189,9 +192,19 @@ final class ArmorPolygon {
             v[i][1]=new V(cx,cy,cz-.18F*(float)Math.sin(Math.PI*t));
             v[i][2]=new V(cx+px*ww,cy+py*ww,cz);
         }
+        for(int i=0;i<=steps;i++)for(int k=0;k<3;k++){
+            V a=v[Math.max(0,i-1)][k],b=v[Math.min(steps,i+1)][k],c=v[i][Math.max(0,k-1)],d=v[i][Math.min(2,k+1)];
+            float ax=b.x-a.x,ay=b.y-a.y,az=b.z-a.z,bx=d.x-c.x,by=d.y-c.y,bz=d.z-c.z;
+            normals[i][k]=unit(ay*bz-az*by,az*bx-ax*bz,ax*by-ay*bx);
+        }
         for(int i=0;i<steps;i++)for(int k=0;k<2;k++){
             V a=v[i][k],b=v[i+1][k],c=v[i+1][k+1],d=v[i][k+1];
-            tri(a,b,c,mat);tri(a,c,d,mat);tri(a,c,b,mat);tri(a,d,c,mat);
+            V na=normals[i][k],nb=normals[i+1][k],nc=normals[i+1][k+1],nd=normals[i][k+1];
+            float u=k*.5F,U=(k+1)*.5F,w=i/(float)steps,W=(i+1)/(float)steps;
+            curved(a,b,c,na,nb,nc,mat,u,w,u,W,U,W);
+            curved(a,c,d,na,nc,nd,mat,u,w,U,W,U,w);
+            curved(a,c,b,neg(na),neg(nc),neg(nb),mat,u,w,U,W,u,W);
+            curved(a,d,c,neg(na),neg(nd),neg(nc),mat,u,w,U,w,U,W);
         }
     }
     private void ornaments(int side,float x,float w,int t){

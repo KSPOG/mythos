@@ -263,20 +263,71 @@ public final class EquipmentAssets {
     private static BufferedImage icon(Definition d){
         return ArmorPreview.render(List.of(d),128);
     }
+    private static double grain(int x,int y,int seed){
+        int h=x*374761393+y*668265263+seed*1274126177;
+        h=(h^(h>>>13))*1274126177;
+        return ((h^(h>>>16))&65535)/65535.0*2-1;
+    }
+    private static double noise(int x,int y,int period,int seed){
+        int a=Math.floorDiv(x,period),b=Math.floorDiv(y,period);
+        double u=Math.floorMod(x,period)/(double)period,v=Math.floorMod(y,period)/(double)period;
+        u=u*u*(3-2*u);v=v*v*(3-2*v);
+        return (grain(a,b,seed)*(1-u)+grain(a+1,b,seed)*u)*(1-v)
+            +(grain(a,b+1,seed)*(1-u)+grain(a+1,b+1,seed)*u)*v;
+    }
     private static BufferedImage armor(ClassSet c,Tier t,int layer){
         var p=ArmorDesign.of(c,t);
         BufferedImage im=new BufferedImage(1024,512,BufferedImage.TYPE_INT_RGB);
-        Graphics2D g=im.createGraphics();
-        int[] colors={p.primary(),p.secondary(),p.trim(),p.cloth(),p.primary(),p.secondary(),p.trim(),p.cloth()};
-        for(int i=0;i<8;i++){
-            Color base=new Color(colors[i]);int x=i*128;
-            g.setPaint(new GradientPaint(x,0,shade(base,.25),x+128,256,shade(base,-.25)));
-            g.fillRect(x,0,128,512);
-            for(int y=4;y<512;y+=16){
-                g.setColor(shade(base,-.12));g.drawLine(x,y,x+127,y);
-                g.setColor(shade(base,.12));g.drawLine(x,y+1,x+127,y+1);
+        int[] colors={p.primary(),p.secondary(),p.trim(),p.cloth()};
+        boolean fabric=c==ClassSet.MAGE||c==ClassSet.HEXSLINGER||c==ClassSet.SUMMONER||c==ClassSet.NECROMANCER;
+        boolean leather=c==ClassSet.RANGER||c==ClassSet.ROGUE;
+        int seed=37*c.ordinal()+t.ordinal()*11;
+        for(int band=0;band<4;band++){
+            Color base=new Color(colors[band]);
+            for(int y=0;y<512;y++)for(int x=0;x<128;x++){
+                double cloud=noise(x,y,24,seed+band),fine=noise(x,y,4,seed+band+101),g=grain(x,y,seed+band+91);
+                double delta;
+                if(band==3||(band==0&&fabric)){
+                    // Interwoven threads, low frequency fabric folds and subtle embroidered motifs.
+                    double weave=Math.sin(x*Math.PI*.5)*Math.sin(y*Math.PI*.5);
+                    double fold=Math.cos(x*.098+noise(x,y,36,seed)*.7);
+                    delta=.10*fold+.09*cloud+.035*weave+.02*fine;
+                    if(t.ordinal()>=2&&Math.abs(Math.sin(x*.12+y*.055)*Math.sin(x*.12-y*.055))>.92)delta+=.07;
+                }else if(leather&&band<2){
+                    // Pebbled hide, pores, irregular dye absorption.
+                    delta=.10*cloud+.07*fine+.025*g;
+                    if(noise(x,y,3,seed+81)>.62)delta-=.065;
+                }else if(c==ClassSet.NECROMANCER&&band==2){
+                    delta=.08*cloud+.055*Math.sin(x*.18+cloud*2)+.025*fine;
+                }else{
+                    // Brushed steel, dark forged seams, fine grain and a broad soft highlight.
+                    double brushing=noise(x,y/5,3,seed+171);
+                    double highlight=.10*Math.cos(x*Math.PI/64);
+                    delta=highlight+.065*cloud+.04*brushing+.018*g;
+                    if(band==2)delta+=.065*Math.cos(x*.10+y*.013);
+                    if(t.ordinal()>=4&&band==0){
+                        double scale=Math.sin(x*.22)*Math.sin(y*.20+Math.PI*.5*Math.floor(x/14.0));
+                        delta+=.045*scale;
+                    }
+                }
+                int rgb=shade(base,delta).getRGB();
+                im.setRGB(band*128+x,y,rgb);
+                im.setRGB((band+4)*128+x,y,rgb);
             }
-            if(i==2||i==3){g.setColor(shade(base,.25));for(int y=16;y<512;y+=64)g.drawPolygon(new int[]{x+64,x+100,x+64,x+28},new int[]{y,y+22,y+44,y+22},4);}
+        }
+        // Sparse wear marks run along the material, not across every polygon.
+        Graphics2D g=im.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
+        java.util.Random rng=new java.util.Random(seed);
+        for(int band=0;band<3;band++){
+            if((fabric&&band==0)||(leather&&band<2))continue;
+            Graphics2D q=(Graphics2D)g.create();q.clipRect(band*128,0,128,512);
+            for(int k=0;k<26;k++){
+                int x=band*128+rng.nextInt(128),y=rng.nextInt(512),len=3+rng.nextInt(15);
+                q.setColor(new Color(0,0,0,22));q.drawLine(x,y,x+len,y+1);
+                q.setColor(new Color(255,255,255,18));q.drawLine(x,y+1,x+len,y+2);
+            }
+            q.dispose();
         }
         g.dispose();return im;
     }

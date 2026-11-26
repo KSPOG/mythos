@@ -24,7 +24,8 @@ final class ArmorPreview {
             var p=ArmorDesign.of(d.owner(),d.tier());
             int[] palette={p.primary(),p.secondary(),p.trim(),p.cloth()};
             for(var part:ArmorPolygon.build(d,0))for(var f:part.faces()){
-                double lit=Math.max(.27,Math.min(1.2,.72-.3*f.nz()-.2*f.ny()+.16*f.nx()));
+                double nx=(f.na().x()+f.nb().x()+f.nc().x())/3.0,ny=(f.na().y()+f.nb().y()+f.nc().y())/3.0,nz=(f.na().z()+f.nb().z()+f.nc().z())/3.0;
+                double lit=Math.max(.27,Math.min(1.2,.72-.3*nz-.2*ny+.16*nx));
                 int rgb=palette[f.material()],r=(int)Math.min(255,((rgb>>16)&255)*lit),g=(int)Math.min(255,((rgb>>8)&255)*lit),b=(int)Math.min(255,(rgb&255)*lit);
                 triangles.add(new Triangle(project(f.a(),part.bone()),project(f.b(),part.bone()),project(f.c(),part.bone()),(r<<16)|(g<<8)|b));
             }
