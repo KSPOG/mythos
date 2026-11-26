@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import net.minecraft.client.model.EntityModel;
+import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
 
 /**
@@ -12,9 +13,19 @@ import net.minecraft.util.Mth;
  * All positions below are in Minecraft model pixels, with Y increasing down.
  */
 final class MooncatMeshModel extends EntityModel<MooncatEntity> {
-    private static final Surface BODY = new Surface(32, 20);
-    private static final Surface DETAIL = new Surface(20, 12);
-    private static final Surface SMALL = new Surface(12, 8);
+    private static final Surface[] BODY = surfaces(112,72, 64,40, 32,20, 16,10);
+    private static final Surface[] DETAIL = surfaces(64,44, 40,24, 20,12, 10,6);
+    private static final Surface[] SMALL = surfaces(40,24, 24,16, 12,8, 6,4);
+    private static final Surface[] ACCENT = surfaces(12,8, 8,6, 6,4, 4,3);
+    private static final int[] SIDES = {-1, 1};
+    private int lod;
+
+    private static Surface[] surfaces(int... dimensions) {
+        Surface[] result = new Surface[dimensions.length / 2];
+        for (int i=0; i<result.length; i++)
+            result[i] = new Surface(dimensions[i*2], dimensions[i*2+1]);
+        return result;
+    }
     private static final int FUR = 0, MANE = 1, GOLD = 2, EAR = 3, EYE = 4, TIP = 5;
     // Coordinates sample the existing embedded Mooncat palette.
     private static final int[][] PALETTE = {{8,8},{8,24},{24,35},{5,35},{40,9},{25,52}};
@@ -23,6 +34,9 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
     @Override
     public void setupAnim(MooncatEntity entity, float limbSwing, float limbSwingAmount,
                           float ageInTicks, float netHeadYaw, float headPitch) {
+        double distance = Minecraft.getInstance().gameRenderer.getMainCamera()
+            .getPosition().distanceToSqr(entity.position());
+        lod = distance <= 25 ? 0 : distance <= 225 ? 1 : distance <= 900 ? 2 : 3;
         swing = limbSwing;
         amount = Mth.clamp(limbSwingAmount, 0, 1);
         age = ageInTicks;
@@ -32,7 +46,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
 
     @Override
     public void renderToBuffer(PoseStack stack, VertexConsumer vertices, int light, int overlay, int color) {
-        Painter p = new Painter(stack, vertices, light, overlay, color);
+        Painter p = new Painter(stack, vertices, light, overlay, color, lod);
         stack.pushPose();
         stack.translate(0, Mth.sin(age * 0.12F) * 0.008F, 0);
         // Overlapping curved surfaces produce a rounded feline silhouette.
@@ -47,19 +61,36 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         stack.mulPose(Axis.XP.rotationDegrees(pitch));
         p.shape(BODY, 0, -0.8F, -0.3F, 3.5F, 3.2F, 3.4F, FUR);
         p.shape(DETAIL, 0, 1.1F, -2.5F, 2.3F, 1.8F, 1.9F, MANE);
-        for (int side : new int[]{-1, 1}) {
+        for (int side : SIDES) {
             p.shape(DETAIL, side*2.1F, 0.5F, -1.4F, 1.7F, 1.9F, 2.1F, FUR);
             p.shape(DETAIL, side*1.65F, -0.9F, -3.05F, 0.85F, 0.75F, 0.44F, GOLD);
             p.shape(SMALL, side*1.65F, -0.9F, -3.35F, 0.62F, 0.58F, 0.29F, EYE);
             p.shape(SMALL, side*1.65F, -0.9F, -3.59F, 0.16F, 0.43F, 0.10F, FUR);
             p.shape(SMALL, side*1.86F, -1.09F, -3.55F, 0.12F, 0.12F, 0.10F, TIP);
             p.shape(DETAIL, side*0.9F, 1.1F, -3.5F, 1.12F, 0.93F, 0.75F, MANE);
+            // Three individual tapered whiskers per cheek, close and medium LOD.
+            if (lod <= 1) for (int w=0; w<3; w++) {
+                stack.pushPose();
+                p.translate(side*1.45F, 0.65F+w*0.38F, -3.55F);
+                stack.mulPose(Axis.ZP.rotationDegrees(side*(w-1)*13F));
+                stack.mulPose(Axis.YP.rotationDegrees(side*12F));
+                p.shape(ACCENT, side*1.45F, 0, 0, 1.65F, 0.045F, 0.045F, TIP);
+                stack.popPose();
+            }
             stack.pushPose();
             p.translate(side*2.3F, -2.8F, 0.2F);
             stack.mulPose(Axis.ZP.rotationDegrees(side*18F));
             p.shape(DETAIL, 0, -1.5F, 0, 1.15F, 2.2F, 0.85F, FUR);
             p.shape(SMALL, 0, -1.55F, -0.62F, 0.72F, 1.48F, 0.31F, EAR);
             p.shape(SMALL, 0, -3.25F, 0.02F, 0.40F, 0.75F, 0.36F, TIP);
+            stack.popPose();
+        }
+        // Layered cheek fur, tapering towards the neck.
+        if (lod <= 1) for (int side : SIDES) for (int tuft=0; tuft<4; tuft++) {
+            stack.pushPose();
+            p.translate(side*(2.5F+tuft*0.08F), -0.15F+tuft*0.65F, 0.8F);
+            stack.mulPose(Axis.ZP.rotationDegrees(-side*30F));
+            p.shape(ACCENT, side*0.55F, 0.55F, 0.55F, 0.55F, 1.35F, 1.1F, MANE);
             stack.popPose();
         }
         p.shape(SMALL, 0, 0.63F, -4.2F, 0.65F, 0.35F, 0.35F, EAR);
@@ -81,6 +112,8 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
             stack.mulPose(Axis.XP.rotation(Math.max(0, -stride)*0.7F));
             p.shape(DETAIL, 0, 1.3F, 0, 0.91F, 1.8F, 0.96F, FUR);
             p.shape(DETAIL, 0, 2.85F, -0.55F, 1.23F, 0.85F, 1.55F, TIP);
+            if (lod <= 1) for (int claw=0; claw<3; claw++)
+                p.shape(ACCENT, (claw-1)*0.48F, 3.15F, -1.85F, 0.15F, 0.19F, 0.42F, GOLD);
             stack.popPose();
         }
 
@@ -101,15 +134,16 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
     private static final class Painter {
         private final PoseStack stack;
         private final VertexConsumer vertices;
-        private final int light, overlay, color;
+        private final int light, overlay, color, lod;
 
-        Painter(PoseStack stack, VertexConsumer vertices, int light, int overlay, int color) {
-            this.stack=stack; this.vertices=vertices; this.light=light; this.overlay=overlay; this.color=color;
+        Painter(PoseStack stack, VertexConsumer vertices, int light, int overlay, int color, int lod) {
+            this.stack=stack; this.vertices=vertices; this.light=light; this.overlay=overlay; this.color=color; this.lod=lod;
         }
 
         void translate(float x, float y, float z) { stack.translate(x/16F,y/16F,z/16F); }
 
-        void shape(Surface surface,float x,float y,float z,float rx,float ry,float rz,int material) {
+        void shape(Surface[] levels,float x,float y,float z,float rx,float ry,float rz,int material) {
+            Surface surface = levels[lod];
             stack.pushPose();
             translate(x,y,z);
             stack.scale(rx/16F,ry/16F,rz/16F);
