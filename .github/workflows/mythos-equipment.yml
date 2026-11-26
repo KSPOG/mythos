@@ -47,6 +47,13 @@ jobs:
               models=[n for n in names if n.startswith("assets/mythosequipment/models/item/") and n.endswith(".json")]
               meshes=[json.loads(z.read(n)) for n in models]
               assert sum(bool(m.get("elements")) for m in meshes)>=144
+              for n in models:
+                  if n.endswith("_ranger_weapon.json"):
+                      stages=json.loads(z.read(n))["overrides"]
+                      assert len(stages)==4
+                      assert [o["predicate"]["pull"] for o in stages]==[0,.25,.55,.85]
+                      assert len({z.read("assets/"+o["model"].replace(":","/models/")+".json") for o in stages})==4
+              assert "com/ksp/mythosequipment/EquipmentClient.class" in names
               for m in meshes:
                   for e in m.get("elements",[]):
                       assert all(-16<=a<=b<=32 for a,b in zip(e["from"],e["to"]))
