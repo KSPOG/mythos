@@ -61,3 +61,6 @@ Idle flap now lasts 128 ticks (6.4 seconds at 20 TPS). A continuous harmonic str
 
 ## 0.4.9 — Celestial Mooncat redesign
 Replaces overlapping torso ellipsoids with a continuous spline profile, tapered ears, a continuous animated tail, slimmer feline proportions, a luminous crescent and eyes, and a generated 4096-square fur atlas. Adds breathing, blinking, ear flicks, staggered walking and synchronized idle stretch/groom performances. Existing pet identity, movement controller, abilities and dragon model are unchanged. Procedural geometry and animations require in-game review for clipping, silhouette and performance.
+
+## 0.5.0 — Feline anatomy correction
+Mooncat has a broad rounded skull, substantially shorter muzzle, separate whisker pads, triangular nose, almond-shaped eyes, shorter upright ears, reduced cheek ruff, narrower forequarters, pronounced rear haunches, rounded paws and a more upright tapered tail. Existing 4K materials and idle performances remain. Corrected torso face winding. The shape requires in-game visual validation; no ownership IDs, dragon code or other mods changed.
