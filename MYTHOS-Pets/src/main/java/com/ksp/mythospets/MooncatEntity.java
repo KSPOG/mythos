@@ -9,7 +9,7 @@ import net.minecraft.world.level.Level;
 
 /** A registered companion with no autonomous combat or spawning AI. */
 public final class MooncatEntity extends PathfinderMob {
-    static final int NONE=0, STRETCH=1, GROOM=2;
+    static final int NONE=0, STRETCH=1, GROOM=2, POUNCE=3, BLESS=4;
     private static final EntityDataAccessor<Integer> ACTION=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> START=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.INT);
     private int quiet,next=100,sequence;
@@ -20,6 +20,14 @@ public final class MooncatEntity extends PathfinderMob {
     }
     int idleAction(){return entityData.get(ACTION);}
     int idleElapsed(){return Math.max(0,(int)level().getGameTime()-entityData.get(START));}
+    void beginCombat(int action){
+        entityData.set(START,(int)level().getGameTime());
+        entityData.set(ACTION,action);
+    }
+    void endCombat(){
+        if(idleAction()>=POUNCE)entityData.set(ACTION,NONE);
+        quiet=0;
+    }
     @Override public void tick(){
         super.tick();
         if(level().isClientSide){
@@ -31,6 +39,7 @@ public final class MooncatEntity extends PathfinderMob {
         double dx=getX()-px,dy=getY()-py,dz=getZ()-pz;
         boolean moving=!sampled||dx*dx+dy*dy+dz*dz>0.0004;
         px=getX();py=getY();pz=getZ();sampled=true;
+        if(idleAction()>=POUNCE)return; // Combat controller owns the cast lifecycle.
         if(moving){quiet=0;if(idleAction()!=NONE)entityData.set(ACTION,NONE);return;}
         if(idleAction()!=NONE){
             if(idleElapsed()>=(idleAction()==STRETCH?100:140)){
