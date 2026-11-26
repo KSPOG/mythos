@@ -12,7 +12,17 @@ import net.minecraftforge.fml.common.Mod;
 public final class PetClient {
     @SubscribeEvent
     public static void renderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(PetEntities.DRAGON.get(), DragonRenderer::new);
         event.registerEntityRenderer(PetEntities.MOONCAT.get(), MooncatRenderer::new);
+    }
+
+    private static final class DragonRenderer extends MobRenderer<DragonEntity, DragonMeshModel> {
+        DragonRenderer(EntityRendererProvider.Context context) {
+            super(context, new DragonMeshModel(), 0.4F);
+        }
+        @Override public ResourceLocation getTextureLocation(DragonEntity entity) {
+            return ResourceLocation.fromNamespaceAndPath("mythospets", "textures/entity/ember_dragon.png");
+        }
     }
 
     private static final class MooncatRenderer extends MobRenderer<MooncatEntity, MooncatMeshModel> {
