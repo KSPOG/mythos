@@ -33,9 +33,22 @@ jobs:
           chmod +x gradlew
       - name: Compile mod
         run: ./gradlew --no-daemon build
+      - name: Validate packaged mod metadata
+        run: |
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          jar = Path("build/libs/mythos-characters-0.1.1.jar")
+          with zipfile.ZipFile(jar) as z:
+              pack = json.loads(z.read("pack.mcmeta"))["pack"]
+              assert pack["pack_format"] == 34
+              assert pack["description"]
+              assert b'version="0.1.1"' in z.read("META-INF/mods.toml")
+              assert z.testzip() is None
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-characters-0.1.0
+          name: mythos-characters-0.1.1
           path: |
             MYTHOS-Characters/build/libs/*.jar
             MYTHOS-Characters/README.md

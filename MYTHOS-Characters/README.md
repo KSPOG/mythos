@@ -1,4 +1,4 @@
-# MYTHOS Characters 0.1.0
+# MYTHOS Characters 0.1.1
 
 Experimental client-side player renderer for Minecraft 1.21.1 / Forge 52.1.5 / Java 21.
 
