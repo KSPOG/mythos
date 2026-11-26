@@ -3,7 +3,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 group = 'com.ksp.mythosequipment'
-version = '0.1.4'
+version = '0.1.5'
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 minecraft { mappings channel: 'official', version: '1.21.1' }
 repositories { mavenCentral() }
@@ -20,6 +20,7 @@ tasks.named('compileJava') { dependsOn tasks.named('compileClassesApiJava') }
 def generated = layout.buildDirectory.dir('generated/equipmentAssets')
 tasks.register('generateEquipmentAssets') {
     inputs.file('tools/EquipmentAssets.java')
+    inputs.file('src/main/java/com/ksp/mythosequipment/ArmorDesign.java')
     inputs.file('src/main/java/com/ksp/mythosequipment/EquipmentRules.java')
     outputs.dir(generated)
     doLast {
@@ -27,7 +28,7 @@ tasks.register('generateEquipmentAssets') {
         def launcher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }.get()
         def output = layout.buildDirectory.dir('assetGenerator').get().asFile
         output.mkdirs()
-        exec { commandLine new File(launcher.metadata.installationPath.asFile,'bin/javac'), '-d', output, file('src/main/java/com/ksp/mythosequipment/EquipmentRules.java'), file('tools/EquipmentAssets.java') }
+        exec { commandLine new File(launcher.metadata.installationPath.asFile,'bin/javac'), '-d', output, file('src/main/java/com/ksp/mythosequipment/EquipmentRules.java'), file('src/main/java/com/ksp/mythosequipment/ArmorDesign.java'), file('tools/EquipmentAssets.java') }
         exec { commandLine launcher.executablePath.asFile, '-cp', output, 'com.ksp.mythosequipment.EquipmentAssets', generated.get().asFile }
     }
 }

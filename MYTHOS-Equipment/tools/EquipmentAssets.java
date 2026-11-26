@@ -274,42 +274,19 @@ public final class EquipmentAssets {
         g.dispose();return im;
     }
     private static BufferedImage armor(ClassSet c,Tier t,int layer){
-        // Dedicated 128x64 model UV atlas, eight physical pixels per model texel.
-        BufferedImage im=new BufferedImage(1024,512,BufferedImage.TYPE_INT_ARGB);
-        Color steel=metal(c,t),gold=trim(c,t),cloth=new Color(c.color);
-        boolean light=c==ClassSet.MAGE||c==ClassSet.NECROMANCER||c==ClassSet.RANGER||c==ClassSet.ROGUE||c==ClassSet.HEXSLINGER||c==ClassSet.SUMMONER;
-        Color[] materials={light?shade(cloth,-.32):steel,shade(steel,-.34),gold,shade(gold,.17),shade(cloth,.22),shade(cloth,-.44)};
-        for(int y=0;y<512;y++)for(int x=0;x<1024;x++){
-            int u=x/8,v=y/8,band=Math.min(5,u/16);
-            Color base=materials[band];
-            double wave=.13*Math.cos(x*.035)+.08*Math.sin(y*.05);
-            double grain=.025*Math.sin(x*2.13+y*1.67)+.017*Math.cos(x*.82-y*.93);
-            if(band==5)grain+=.06*Math.sin(x*1.6)*Math.cos(y*1.6);
-            if(v>=32){
-                int px=x%128,py=(y-256)%64;
-                if(px<3||px>124||py<3||py>60)wave-=.28;
-                if(px==4||px==123||py==4||py==59)wave+=.32;
-                if(band==2||band==3)wave+=.09*Math.cos((px+py)*.2);
-            }
-            im.setRGB(x,y,shade(base,wave+grain).getRGB());
-        }
+        var p=ArmorDesign.of(c,t);
+        BufferedImage im=new BufferedImage(1024,512,BufferedImage.TYPE_INT_RGB);
         Graphics2D g=im.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
-        for(int block=0;block<6;block++){
-            int x=block*128,y=256;
-            g.setColor(shade(gold,-.36));g.setStroke(new BasicStroke(2f));
-            for(int k=0;k<4+t.ordinal();k++){
-                int yy=y+12+k*21;
-                g.drawLine(x+10,yy,x+60,yy+8);g.drawLine(x+60,yy+8,x+117,yy);
+        int[] colors={p.primary(),p.secondary(),p.trim(),p.cloth(),p.primary(),p.secondary(),p.trim(),p.cloth()};
+        for(int i=0;i<8;i++){
+            Color base=new Color(colors[i]);int x=i*128;
+            g.setPaint(new GradientPaint(x,0,shade(base,.25),x+128,256,shade(base,-.25)));
+            g.fillRect(x,0,128,512);
+            for(int y=4;y<512;y+=16){
+                g.setColor(shade(base,-.12));g.drawLine(x,y,x+127,y);
+                g.setColor(shade(base,.12));g.drawLine(x,y+1,x+127,y+1);
             }
-            if(t.ordinal()>=2){
-                g.setColor(shade(gold,.24));
-                for(int k=0;k<4;k++){int xx=x+10+k*34;g.fillOval(xx,y+7,4,4);g.fillOval(xx,y+53,4,4);}
-            }
-            if(block==4){
-                g.setColor(shade(cloth,.45));
-                for(int k=0;k<3;k++){int yy=y+24+k*48;g.drawPolygon(new int[]{x+64,x+83,x+64,x+45},new int[]{yy-16,yy,yy+16,yy},4);}
-            }
+            if(i==2||i==3){g.setColor(shade(base,.25));for(int y=16;y<512;y+=64)g.drawPolygon(new int[]{x+64,x+100,x+64,x+28},new int[]{y,y+22,y+44,y+22},4);}
         }
         g.dispose();return im;
     }

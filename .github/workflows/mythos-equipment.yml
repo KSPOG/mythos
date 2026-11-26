@@ -26,6 +26,10 @@ jobs:
           mkdir -p build/rules-check
           javac -d build/rules-check src/main/java/com/ksp/mythosequipment/EquipmentRules.java tools/EquipmentRulesCheck.java
           java -cp build/rules-check com.ksp.mythosequipment.EquipmentRulesCheck
+      - name: Check armor geometry budgets
+        run: |
+          javac -cp build/rules-check -d build/rules-check src/main/java/com/ksp/mythosequipment/ArmorDesign.java src/main/java/com/ksp/mythosequipment/ArmorPolygon.java tools/ArmorVisualCheck.java
+          java -cp build/rules-check com.ksp.mythosequipment.ArmorVisualCheck
       - name: Forge wrapper
         run: |
           curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.5/forge-1.21.1-52.1.5-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
@@ -38,7 +42,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import zipfile, json, struct
-          jar=next(Path("build/libs").glob("mythos-equipment-0.1.4.jar"))
+          jar=next(Path("build/libs").glob("mythos-equipment-0.1.5.jar"))
           with zipfile.ZipFile(jar) as z:
               names=z.namelist()
               assert len([n for n in names if n.startswith("assets/mythosequipment/textures/item/") and n.endswith(".png")])==435
@@ -66,7 +70,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-equipment-0.1.4
+          name: mythos-equipment-0.1.5
           path: |
             MYTHOS-Equipment/build/libs/*.jar
             MYTHOS-Equipment/README.md
