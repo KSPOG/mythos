@@ -293,8 +293,9 @@ final class PetServer {
         if(elapsed==0)level.playSound(null,dragon.getX(),dragon.getY(),dragon.getZ(),SoundEvents.BLAZE_SHOOT,SoundSource.NEUTRAL,1.0F,0.65F);
         if(elapsed%3==0){
             Vec3 q=origin.add(aim.scale(length*0.8));
-            level.sendParticles(ParticleTypes.SMALL_FLAME,q.x,q.y,q.z,5,0.25,0.25,0.25,0.025);
-            level.sendParticles(ParticleTypes.SMOKE,q.x,q.y,q.z,2,0.2,0.2,0.2,0.025);
+            level.sendParticles(ParticleTypes.SMALL_FLAME,q.x,q.y,q.z,9,0.36,0.36,0.36,0.045);
+            level.sendParticles(ParticleTypes.SMOKE,q.x,q.y,q.z,5,0.32,0.32,0.32,0.035);
+            level.sendParticles(ParticleTypes.LAVA,q.x,q.y,q.z,2,0.20,0.20,0.20,0.02);
         }
         // Three pulses separated by eleven ticks respect vanilla hit immunity.
         if(elapsed!=0&&elapsed!=11&&elapsed!=22)return;
@@ -325,6 +326,15 @@ final class PetServer {
                     a.impacted=true;breathTick(p,a,d,target);
                 }else d.stream(Vec3.ZERO,0);
                 return true;
+            }
+            if(a.cast==POUNCE&&target!=null&&!a.impacted){
+                long elapsed=tick-(a.impactAt-MooncatEntity.POUNCE_IMPACT);
+                if(elapsed>=8&&elapsed<=MooncatEntity.POUNCE_IMPACT){
+                    Vec3 delta=target.position().subtract(a.entity.position());
+                    Vec3 flat=new Vec3(delta.x,0,delta.z);
+                    Vec3 step=flat.normalize().scale(Math.min(0.28,Math.max(0,flat.length()-0.85)));
+                    if(safe(p.serverLevel(),a.entity,a.entity.position().add(step)))a.entity.move(MoverType.SELF,step);
+                }
             }
             if(a.cast==BLESS&&a.entity instanceof MooncatEntity m&&tick%4==0){
                 var level=p.serverLevel();double angle=tick*0.28;
@@ -364,7 +374,7 @@ final class PetServer {
         }
         if(tick<a.nextAbility||!a.entity.hasLineOfSight(target))return true;
         a.nextAbility=tick+(dragon?120:100);
-        startCast(a,target,dragon?BREATH:POUNCE,dragon?10:8,dragon?44:20);
+        startCast(a,target,dragon?BREATH:POUNCE,dragon?10:MooncatEntity.POUNCE_IMPACT,dragon?44:MooncatEntity.POUNCE_DURATION);
         return true;
     }
     private void impact(ServerPlayer p,Active a,LivingEntity target){
@@ -373,7 +383,8 @@ final class PetServer {
             case POUNCE -> {
                 if(target.hurt(level.damageSources().mobAttack(a.entity),4))
                     target.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,60,0));
-                level.sendParticles(ParticleTypes.CRIT,target.getX(),target.getY()+0.7,target.getZ(),12,0.25,0.25,0.25,0.1);
+                level.sendParticles(ParticleTypes.SWEEP_ATTACK,target.getX(),target.getY()+0.65,target.getZ(),1,0,0,0,0);
+                level.sendParticles(ParticleTypes.CRIT,target.getX(),target.getY()+0.7,target.getZ(),5,0.18,0.18,0.18,0.06);
                 level.playSound(null,a.entity.getX(),a.entity.getY(),a.entity.getZ(),SoundEvents.CAT_HISS,SoundSource.NEUTRAL,0.6F,1.1F);
             }
             case GUARD -> {
