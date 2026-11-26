@@ -26,6 +26,8 @@ jobs:
           curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.5/forge-1.21.1-52.1.5-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
           unzip -o "${RUNNER_TEMP}/forge-mdk.zip" gradlew 'gradle/wrapper/*'
           chmod +x gradlew
+      - name: Check cinematic geometry budget
+        run: python3 tools/check_dragon_geometry.py
       - name: Compile mod
         run: ./gradlew --no-daemon build
       - name: Verify embedded pet resources
@@ -62,12 +64,12 @@ jobs:
               for name in ('mooncat', 'ember_dragon'):
                   png = jar.read(f'assets/mythospets/textures/entity/{name}.png')
                   assert png[:8] == b'\x89PNG\r\n\x1a\n'
-                  assert struct.unpack('>II', png[16:24]) == ((2048, 2048) if name == 'ember_dragon' else (64, 64))
+                  assert struct.unpack('>II', png[16:24]) == ((4096, 4096) if name == 'ember_dragon' else (64, 64))
               print(f'Validated self-contained pet assets in {jars[0]}')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-pets-0.4.0
+          name: mythos-pets-0.4.1
           path: |
             MYTHOS-Pets/build/libs/*.jar
             MYTHOS-Pets/README.md
