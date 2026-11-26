@@ -3,10 +3,10 @@ import java.util.*;
 import com.ksp.mythosequipment.EquipmentRules.*;
 public final class EquipmentRulesCheck {
     public static void main(String[] args){
-        if(EquipmentRules.CATALOG.size()!=120)throw new AssertionError("catalog");
-        if(EquipmentRules.CATALOG.stream().map(Definition::id).distinct().count()!=120)throw new AssertionError("duplicate id");
+        if(EquipmentRules.CATALOG.size()!=240)throw new AssertionError("catalog");
+        if(EquipmentRules.CATALOG.stream().map(Definition::id).distinct().count()!=240)throw new AssertionError("duplicate id");
         if(Arrays.stream(Rarity.values()).mapToInt(r->r.weight).sum()!=10000)throw new AssertionError("weights");
-        if(EquipmentRules.CATALOG.stream().map(Definition::name).distinct().count()!=120)throw new AssertionError("unique names");
+        if(EquipmentRules.CATALOG.stream().map(Definition::name).distinct().count()!=240)throw new AssertionError("unique names");
         if(Arrays.stream(Rarity.values()).filter(Rarity::hasEffect).count()!=4||Rarity.COMMON.effectRank()!=0||Rarity.UNCOMMON.effectRank()!=0||Rarity.MYTHICAL.effectRank()!=4)throw new AssertionError("effect gate");
         if(EquipmentRules.CATALOG.stream().map(Definition::effect).distinct().count()!=24)throw new AssertionError("signature catalog");
         var rng=new Random(12345);
