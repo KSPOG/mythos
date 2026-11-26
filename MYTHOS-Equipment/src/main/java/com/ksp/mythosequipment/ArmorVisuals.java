@@ -14,7 +14,7 @@ final class ArmorVisuals implements IClientItemExtensions {
     private HumanoidModel<LivingEntity> model;
     ArmorVisuals(java.util.function.Supplier<Definition> definition){this.definition=definition;}
     private void bake(Definition d){
-        boolean light=switch(d.owner()){case MAGE,NECROMANCER,RANGER,ROGUE,HEXSLINGER->true;default->false;};
+        boolean light=switch(d.owner()){case MAGE,NECROMANCER,RANGER,ROGUE,HEXSLINGER,SUMMONER->true;default->false;};
         int tier=d.tier().ordinal();
         float inflate=d.slot()==Slot.LEGS?.35F:.6F;
         MeshDefinition mesh=HumanoidModel.createMesh(new CubeDeformation(inflate),0);
