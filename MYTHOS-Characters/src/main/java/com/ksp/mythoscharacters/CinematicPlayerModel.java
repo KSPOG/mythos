@@ -59,7 +59,7 @@ final class CinematicPlayerModel extends PlayerModel<AbstractClientPlayer> {
             bone.translateAndRotate(stack);
             float bend=part.bone()==4?rightKnee:part.bone()==5?leftKnee:0;
             for(var q:part.quads()){
-                emit(stack,consumer,q.a(),light,overlay,color,bend);emit(stack,consumer,q.b(),light,overlay,color);
+                emit(stack,consumer,q.a(),light,overlay,color,bend);emit(stack,consumer,q.b(),light,overlay,color,bend);
                 emit(stack,consumer,q.c(),light,overlay,color,bend);emit(stack,consumer,q.d(),light,overlay,color,bend);
             }
             stack.popPose();
