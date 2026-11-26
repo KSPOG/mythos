@@ -8,26 +8,16 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
 
 /**
- * Smooth, articulated polygon mesh. Geometry is cached in local space and
+ * Angular articulated mesh with connected bevel rings and hard normals,
  * rendered using the vanilla entity vertex format (four vertices per face).
  * All positions below are in Minecraft model pixels, with Y increasing down.
  */
 final class DragonMeshModel extends EntityModel<DragonEntity> {
-    private static final Surface[] BODY = surfaces(112,72, 64,40, 32,20, 16,10);
-    private static final Surface[] DETAIL = surfaces(64,44, 40,24, 20,12, 10,6);
-    private static final Surface[] SMALL = surfaces(40,24, 24,16, 12,8, 6,4);
-    private static final Surface[] ACCENT = surfaces(12,8, 8,6, 6,4, 4,3);
     private static final int[] SIDES = {-1, 1};
     private int lod;
     private static final int EMBER = 4;
     private static final int FULL_LIGHT = 0xF000F0;
 
-    private static Surface[] surfaces(int... dimensions) {
-        Surface[] result = new Surface[dimensions.length / 2];
-        for (int i=0; i<result.length; i++)
-            result[i] = new Surface(dimensions[i*2], dimensions[i*2+1]);
-        return result;
-    }
     private static final int FUR = 0, MANE = 1, GOLD = 2, EAR = 3, EYE = 4, TIP = 5;
     // Dragon-specific material atlas; ember surfaces use full packed light.
     private static final int[][] PALETTE = {{8,8},{24,8},{40,8},{56,8},{8,24},{24,24}};
@@ -52,35 +42,41 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.pushPose();
         stack.translate(0, Mth.sin(age * 0.12F) * 0.008F, 0);
         // Long reptilian torso, plated belly and curved neck.
-        p.shape(BODY,0,15.2F,1,2.65F,2.9F,7.2F,FUR);
-        p.shape(DETAIL,0,14.5F,-3.5F,3.1F,3.2F,3.8F,FUR);
-        p.shape(DETAIL,0,17.4F,-1,1.95F,1.35F,5.5F,MANE);
+        p.hull(new float[][]{
+            {-7.3F,14.3F,1.35F,1.75F},{-4.3F,14.5F,3.05F,2.75F},
+            {-1.5F,15,2.65F,2.6F},{2.5F,15.5F,1.85F,2.05F},
+            {5.5F,15.1F,2.45F,2.45F},{8,15.2F,1.35F,1.35F}},FUR);
+        p.hull(new float[][]{{-5,16.8F,1.4F,0.9F},{-2,17.2F,1.95F,1.25F},{3,17.3F,1.35F,0.7F},{5.5F,16.8F,0.65F,0.45F}},MANE);
         for(int plate=0;plate<6;plate++) {
-            p.shape(ACCENT,0,18.25F,-4+plate*1.15F,1.7F,0.35F,0.45F,MANE);
-            p.shape(ACCENT,0,18.42F,-3.5F+plate*1.15F,1.35F,0.12F,0.13F,EMBER);
+            p.plate(0,18.25F,-4+plate*1.15F,1.7F,0.35F,0.45F,MANE);
+            p.plate(0,18.42F,-3.5F+plate*1.15F,1.35F,0.12F,0.13F,EMBER);
         }
-        p.bone(0,14,-4,0,10,-7,1.85F,FUR);
-        p.bone(0,10,-7,0,8,-9,1.35F,FUR);
-        p.bone(0,13.5F,-5.4F,0,9.1F,-8.2F,0.45F,MANE);
+        p.hull(new float[][]{{-10,8.1F,1.1F,1.3F},{-8,9.7F,1.35F,1.75F},{-6,12.2F,1.65F,2.0F},{-4,14.2F,2.1F,2.0F}},FUR);
+        for(int i=0;i<4;i++){
+            p.plate(0,9.3F+i*1.2F,-9+i*1.15F,0.8F+i*0.12F,0.25F,0.64F,MANE);
+        }
         stack.pushPose();
         p.translate(0,8,-9);
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
         stack.mulPose(Axis.XP.rotationDegrees(pitch));
-        p.shape(DETAIL,0,0,0,1.9F,1.55F,2.7F,FUR);
-        p.taper(0,0.15F,-0.7F,0,0.65F,-5.5F,1.55F,0.66F,FUR);
-        p.shape(SMALL,0,0.55F,-4.8F,0.95F,0.57F,1.0F,FUR);
-        p.taper(0,-1.1F,-0.3F,0,-0.5F,-4.9F,0.75F,0.25F,MANE);
+        // Connected angular skull, wedge muzzle, raised cheek and crown ridges.
+        p.hull(new float[][]{{-5.8F,0.45F,0.65F,0.44F},{-4.6F,0.25F,0.9F,0.65F},
+            {-2.3F,-0.1F,1.32F,0.95F},{-0.7F,-0.2F,1.8F,1.4F},
+            {1.2F,0,1.65F,1.3F},{2.3F,0.1F,0.75F,0.8F}},FUR);
+        p.plate(0,-1.2F,-1.1F,0.64F,0.44F,1.75F,MANE);
+        for(int side:SIDES)
+            p.plate(side*1.47F,0.22F,0.1F,0.46F,0.73F,1.6F,FUR);
         stack.pushPose();
         p.translate(0,1.6F,-1.8F);
         stack.mulPose(Axis.XP.rotation(Mth.sin(age*0.12F)*0.05F+0.08F));
-        p.taper(0,-0.15F,0.8F,0,0.1F,-3.9F,1.25F,0.38F,MANE);
-        p.shape(ACCENT,0,-0.28F,-2.0F,0.7F,0.12F,1.6F,EMBER);
+        p.hull(new float[][]{{-4.1F,0,0.48F,0.24F},{-2.6F,0.1F,0.77F,0.35F},{0.6F,-0.1F,1.25F,0.5F}},MANE);
+        p.plate(0,-0.28F,-2.0F,0.7F,0.12F,1.6F,EMBER);
         stack.popPose();
         for(int side:SIDES){
-            p.shape(ACCENT,side*1.67F,-0.52F,-1.55F,0.22F,0.23F,0.55F,EMBER);
-            p.shape(ACCENT,side*1.86F,-0.53F,-1.55F,0.045F,0.18F,0.07F,FUR);
+            p.plate(side*1.67F,-0.52F,-1.55F,0.22F,0.23F,0.55F,EMBER);
+            p.plate(side*1.86F,-0.53F,-1.55F,0.045F,0.18F,0.07F,FUR);
             p.taper(side*1.38F,-0.9F,-2.4F,side*1.75F,-0.98F,-0.3F,0.31F,0.14F,FUR);
-            p.shape(ACCENT,side*0.77F,0.08F,-5.1F,0.18F,0.11F,0.24F,FUR);
+            p.plate(side*0.77F,0.08F,-5.1F,0.18F,0.11F,0.24F,FUR);
             p.taper(side*1.15F,-0.9F,1.1F,side*2.05F,-2.5F,3.2F,0.53F,0.25F,GOLD);
             p.taper(side*2.05F,-2.5F,3.2F,side*2.45F,-2.9F,5.2F,0.25F,0.025F,GOLD);
             p.taper(side*1.5F,0.45F,0.7F,side*2.3F,0.1F,2.6F,0.31F,0.025F,GOLD);
@@ -101,7 +97,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             p.translate(0,3.2F,i<2?-0.3F:1.0F);
             stack.mulPose(Axis.XP.rotation(Math.max(0,-stride)*0.7F));
             p.bone(0,0,0,0,3.7F,-0.5F,0.52F,FUR);
-            p.shape(SMALL,0,4.3F,-0.65F,0.9F,0.65F,1.35F,FUR);
+            p.plate(0,4.3F,-0.65F,0.9F,0.65F,1.35F,FUR);
             for(int claw=0;claw<3;claw++)
                 p.taper((claw-1)*0.5F,4.35F,-1.5F,(claw-1)*0.57F,4.75F,-2.45F,0.19F,0.02F,GOLD);
             stack.popPose();
@@ -114,7 +110,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             {
                 float x=side*(2.57F-row*0.18F),y=14.0F+row*0.85F,z=-4+col*1.25F;
                 p.taper(x,y,z,x*1.03F,y+0.14F,z+0.83F,0.49F,0.08F,FUR);
-                if((row+col)%3==0) p.shape(ACCENT,x*1.035F,y+0.32F,z+0.45F,0.08F,0.12F,0.33F,EMBER);
+                if((row+col)%3==0) p.plate(x*1.035F,y+0.32F,z+0.45F,0.08F,0.12F,0.33F,EMBER);
             }
         stack.pushPose();
         p.translate(0,15.2F,7);
@@ -124,37 +120,56 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             float radius=1.45F-i*0.105F;
             p.taper(0,0,-0.12F,0,0,2.4F,radius,radius-0.105F,FUR);
             p.taper(0,-radius,0.6F,0,-radius*1.8F,1.5F,0.25F,0.02F,GOLD);
-            if(i%2==0) p.shape(ACCENT,0,-radius,1.8F,0.18F,0.08F,0.3F,EMBER);
+            if(i%2==0) p.plate(0,-radius,1.8F,0.18F,0.08F,0.3F,EMBER);
             p.translate(0,0,2.25F);
         }
         p.taper(0,0,-0.2F,0,0,2.6F,0.65F,0.02F,GOLD);
         p.taper(0,-0.35F,0.25F,0,-0.1F,2.1F,0.28F,0.02F,EMBER);
         stack.popPose();
 
-        // Bat-like wings: articulated roots, bones and actual two-sided membranes.
+        // Shoulder yaw and lift, delayed elbow flex, and continuously attached membrane fingers.
+        float motion=amount*amount*(3-2*amount);
+        float phase=swing*0.55F;
         for(int side:SIDES){
             stack.pushPose();
             p.translate(side*2.15F,12.7F,-3);
-            stack.mulPose(Axis.YP.rotation(side*(0.65F-amount*0.48F)));
-            stack.mulPose(Axis.ZP.rotation(side*(-0.48F+Mth.sin(age*0.13F)*(0.035F+amount*0.18F))));
-            p.bone(0,0,0,side*5,-3,-2,0.62F,FUR);
-            p.taper(side*5,-3,-2,side*15,-4,-1,0.48F,0.05F,FUR);
-            p.taper(side*5,-3,-2,side*17,0,6,0.29F,0.02F,GOLD);
-            p.taper(side*5,-3,-2,side*12,1,12,0.26F,0.02F,FUR);
-            p.taper(side*5,-3,-2,side*5,2,10,0.23F,0.02F,FUR);
-            float[] root={0,0,0}, elbow={side*5,-3,-2}, tip={side*15,-4,-1},
-                finger={side*17,0,6}, rear={side*12,1,12}, inner={side*5,2,10};
+            float idle=Mth.sin(age*0.09F)*0.025F;
+            stack.mulPose(Axis.YP.rotation(side*(-0.95F+motion*0.75F)));
+            stack.mulPose(Axis.ZP.rotation(side*(-0.48F+idle+motion*0.24F*Mth.sin(phase))));
+            float[] root={0,0,0}, elbow={side*5,-3,-2};
+            float flex=side*(-0.85F+motion*0.62F+motion*0.18F*Mth.sin(phase-0.8F));
+            float lift=side*(0.12F+motion*0.22F*Mth.sin(phase-0.65F));
+            float[] tip=wingPoint(side,elbow,11,-1,1,flex,lift);
+            float[] finger=wingPoint(side,elbow,13,3,8,flex,lift);
+            float[] rear=wingPoint(side,elbow,8,4,14,flex,lift);
+            float[] inner=wingPoint(side,elbow,2,5,12,flex,lift);
+            float[] notch1=wingPoint(side,elbow,7,2,4,flex,lift);
+            float[] notch2=wingPoint(side,elbow,6,3,8,flex,lift);
+            float[] notch3=wingPoint(side,elbow,2,4,8,flex,lift);
+            p.link(root,elbow,0.58F,0.40F,FUR);
+            p.link(elbow,tip,0.42F,0.025F,FUR);
+            p.link(elbow,finger,0.27F,0.025F,GOLD);
+            p.link(elbow,rear,0.23F,0.025F,FUR);
+            p.link(elbow,inner,0.20F,0.025F,FUR);
             p.membrane(root,elbow,inner);
-            p.membrane(elbow,tip,new float[]{side*11,-1,2});
-            p.membrane(elbow,new float[]{side*11,-1,2},finger);
-            p.membrane(elbow,finger,new float[]{side*10,0,6});
-            p.membrane(elbow,new float[]{side*10,0,6},rear);
-            p.membrane(elbow,rear,new float[]{side*6,1,6});
-            p.membrane(elbow,new float[]{side*6,1,6},inner);
+            p.membrane(elbow,tip,notch1);
+            p.membrane(elbow,notch1,finger);
+            p.membrane(elbow,finger,notch2);
+            p.membrane(elbow,notch2,rear);
+            p.membrane(elbow,rear,notch3);
+            p.membrane(elbow,notch3,inner);
             p.membrane(root,inner,new float[]{0,1,7});
             stack.popPose();
         }
         stack.popPose();
+    }
+
+    private static float[] wingPoint(int side,float[] pivot,float x,float y,float z,float yaw,float roll) {
+        x*=side;
+        float rx=x*Mth.cos(yaw)+z*Mth.sin(yaw);
+        float rz=-x*Mth.sin(yaw)+z*Mth.cos(yaw);
+        return new float[]{pivot[0]+rx*Mth.cos(roll)-y*Mth.sin(roll),
+            pivot[1]+rx*Mth.sin(roll)+y*Mth.cos(roll),pivot[2]+rz};
     }
 
     private static final class Painter {
@@ -169,16 +184,13 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         void translate(float x, float y, float z) { stack.translate(x/16F,y/16F,z/16F); }
 
         void bone(float ax,float ay,float az,float bx,float by,float bz,float radius,int material) {
-            float dx=bx-ax,dy=by-ay,dz=bz-az;
-            float length=(float)Math.sqrt(dx*dx+dy*dy+dz*dz);
-            stack.pushPose();
-            translate((ax+bx)/2,(ay+by)/2,(az+bz)/2);
-            stack.mulPose(new org.joml.Quaternionf().rotationTo(0,0,1,dx/length,dy/length,dz/length));
-            shape(DETAIL,0,0,0,radius,radius,length/2+radius,material);
-            stack.popPose();
+            taper(ax,ay,az,bx,by,bz,radius,radius*0.72F,material);
         }
 
-        // Tapered axial tube with a pointed end instead of overlapping spheres.
+        void link(float[] a,float[] b,float r0,float r1,int material) {
+            taper(a[0],a[1],a[2],b[0],b[1],b[2],r0,r1,material);
+        }
+
         void taper(float ax,float ay,float az,float bx,float by,float bz,float r0,float r1,int material) {
             float dx=bx-ax,dy=by-ay,dz=bz-az;
             float length=(float)Math.sqrt(dx*dx+dy*dy+dz*dz);
@@ -186,19 +198,47 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             stack.pushPose();
             translate(ax,ay,az);
             stack.mulPose(new org.joml.Quaternionf().rotationTo(0,0,1,dx/length,dy/length,dz/length));
-            int sides=lod==0?32:lod==1?20:lod==2?12:6;
-            float slope=(r0-r1)/length;
-            float norm=(float)Math.sqrt(1+slope*slope);
-            for(int i=0;i<sides;i++){
-                for(int corner=0;corner<4;corner++){
-                    boolean end=corner>=2;
-                    int index=i+((corner==1||corner==2)?1:0);
-                    float angle=index*Mth.TWO_PI/sides, c=Mth.cos(angle), si=Mth.sin(angle);
-                    float radius=end?r1:r0;
-                    emit(c*radius,si*radius,end?length:0,c/norm,si/norm,slope/norm,material);
-                }
-            }
+            hull(new float[][]{{0,0,r0,r0},{length,0,r1,r1}},material);
             stack.popPose();
+        }
+
+        // Beveled octagonal cross-sections; connected rings with hard face normals.
+        void hull(float[][] rings,int material) {
+            int count=rings.length;
+            float[][][] points=new float[count][8][3];
+            float[][] profile={{-0.55F,-1},{0.55F,-1},{1,-0.48F},{1,0.48F},
+                {0.55F,1},{-0.55F,1},{-1,0.48F},{-1,-0.48F}};
+            for(int i=0;i<count;i++) for(int j=0;j<8;j++)
+                points[i][j]=new float[]{profile[j][0]*rings[i][2],rings[i][1]+profile[j][1]*rings[i][3],rings[i][0]};
+            for(int i=0;i<count-1;i++) for(int j=0;j<8;j++){
+                int k=(j+1)%8;
+                face(points[i][j],points[i][k],points[i+1][k],points[i+1][j],material);
+            }
+            float[] first={0,rings[0][1],rings[0][0]};
+            float[] last={0,rings[count-1][1],rings[count-1][0]};
+            for(int j=0;j<8;j++){
+                int k=(j+1)%8;
+                face(first,points[0][k],points[0][j],points[0][j],material);
+                face(last,points[count-1][j],points[count-1][k],points[count-1][k],material);
+            }
+        }
+
+        void plate(float x,float y,float z,float rx,float ry,float rz,int material){
+            stack.pushPose();
+            translate(x,y,z);
+            hull(new float[][]{{-rz,0,rx*0.28F,ry*0.28F},
+                {-rz*0.42F,0,rx,ry},{rz*0.42F,0,rx*0.8F,ry*0.8F},
+                {rz,0,rx*0.10F,ry*0.10F}},material);
+            stack.popPose();
+        }
+
+        void face(float[] a,float[] b,float[] c,float[] d,int material) {
+            float ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2];
+            float vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
+            float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+            float length=(float)Math.sqrt(nx*nx+ny*ny+nz*nz);
+            if(length<0.00001F)return;
+            for(float[] v:new float[][]{a,b,c,d})emit(v[0],v[1],v[2],nx/length,ny/length,nz/length,material);
         }
 
         void emit(float x,float y,float z,float nx,float ny,float nz,int material) {
@@ -226,46 +266,5 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             }
         }
 
-        void shape(Surface[] levels,float x,float y,float z,float rx,float ry,float rz,int material) {
-            Surface surface = levels[lod];
-            stack.pushPose();
-            translate(x,y,z);
-            stack.scale(rx/16F,ry/16F,rz/16F);
-            var pose=stack.last();
-            int[] sample=PALETTE[material];
-            float u=(sample[0]+0.5F)/64F, v=(sample[1]+0.5F)/64F;
-            // Positions also form unit-sphere normals. PoseStack handles inverse
-            // scale when transforming normals for ellipsoids.
-            for (int i=0;i<surface.vertices.length;i+=3) {
-                float nx=surface.vertices[i], ny=surface.vertices[i+1], nz=surface.vertices[i+2];
-                vertices.addVertex(pose,nx,ny,nz).setColor(color).setUv(u,v)
-                    .setOverlay(overlay).setLight(material==EMBER?FULL_LIGHT:light).setNormal(pose,nx,ny,nz);
-            }
-            stack.popPose();
-        }
-    }
-
-    private static final class Surface {
-        final float[] vertices;
-        Surface(int slices,int stacks) {
-            vertices=new float[slices*stacks*4*3];
-            int i=0;
-            for(int row=0;row<stacks;row++) {
-                for(int col=0;col<slices;col++) {
-                    i=point(i,row,col,slices,stacks);
-                    i=point(i,row,col+1,slices,stacks);
-                    i=point(i,row+1,col+1,slices,stacks);
-                    i=point(i,row+1,col,slices,stacks);
-                }
-            }
-        }
-
-        private int point(int i,int row,int col,int slices,int stacks) {
-            double theta=Math.PI*row/stacks, phi=2*Math.PI*col/slices;
-            vertices[i++]=(float)(Math.sin(theta)*Math.cos(phi));
-            vertices[i++]=(float)Math.cos(theta);
-            vertices[i++]=(float)(Math.sin(theta)*Math.sin(phi));
-            return i;
-        }
     }
 }
