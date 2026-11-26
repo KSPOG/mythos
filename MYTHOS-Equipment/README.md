@@ -1,4 +1,4 @@
-# MYTHOS Equipment 0.1.2
+# MYTHOS Equipment 0.1.3
 
 Forge 1.21.1 / 52.1.5 / Java 21. Equipment JAR on client AND server; MYTHOS Classes 0.1.4 on server. Stacked PR depends on Classes PR #63.
 
@@ -21,3 +21,6 @@ CI checks the catalog, all rarity roll ranges, generated assets and compile. Cli
 
 ## 0.1.2 visual and weapon expansion
 240 registered items (135 weapons, 9 shields, 96 armor pieces), preserving original IDs. Expanded sword, greatsword, shortsword, dagger, axe, greataxe, hammer, mace, staff, wand and crossbow families. Original weapons now have category-specific speed and damage. Shields are real ShieldItems, Warrior/Heavy Knight/Cleric, offhand only; server rejects shields alongside two-handed custom weapons. Weapon models use detailed segmented cuboids and a 256x256 material atlas; armor icons 128x128 and wearable textures 512x256 with corrected vanilla UV mapping. This is detailed Minecraft JSON geometry, not arbitrary polygon meshes. Wearable armor still uses vanilla geometry. Magical weapons remain melee foundations, added weapons reuse class/tier signature effects, and custom arrows, dual wielding, projectile render overrides, full custom armor meshes and runtime visual validation are not yet implemented.
+
+## 0.1.3
+375 items, 48 complete class sets across levels 1/10/20/30/40/50; 192 armor pieces, 18 shields, 165 weapons. Added articulated armor model extension and larger inventory weapon render. Six tier stat ranges. Existing added level 10/30/50 weapon rolls outside new ranges may be regenerated on inventory validation. Custom armor model runtime visual validation pending.
