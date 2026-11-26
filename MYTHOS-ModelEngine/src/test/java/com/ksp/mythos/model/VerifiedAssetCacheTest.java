@@ -28,6 +28,17 @@ public final class VerifiedAssetCacheTest {
             check(!cache.contains(asset));
             check(cache.store(asset, new ByteArrayInputStream(data)).equals(file));
             check(cache.contains(asset));
+            var limited = new VerifiedAssetCache(root, 24);
+            byte[] other = data.clone(); other[22] = 9;
+            var second = new ModelRegistry.Asset("mythos:other", "mythos:fallback", "other.glb",
+                HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(other)), 24, 1);
+            reject(limited, second, corrupt);
+            check(limited.contains(asset));
+            limited.store(second, new ByteArrayInputStream(other));
+            check(!limited.contains(asset));
+            check(limited.contains(second));
+            reject(new VerifiedAssetCache(root, 23), asset, data);
+            check(limited.contains(second));
         } finally {
             try (var entries = Files.list(root)) {
                 for (Path file : entries.toList()) Files.delete(file);
