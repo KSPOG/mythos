@@ -115,7 +115,7 @@ final class ArmorPolygon {
     // A fitted open plate follows a superellipse; the front arc is centered at -Z.
     // The inner lip is real geometry, so plates have thickness without solid inflated limbs.
     private void plate(int n,int mat,float cx,float cz,float top,float bottom,float wt,float wb,float dt,float db,float arc,float point,float thickness,float shape){
-        int segments=Math.max(6,(int)(n*arc/3.141593F)), rows=detail==0?16:detail==1?6:3;
+        int segments=Math.max(detail==2?4:6,(int)(n*arc/3.141593F)), rows=detail==0?16:detail==1?6:2;
         V[][] outer=new V[rows+1][segments+1],inner=new V[rows+1][segments+1],norm=new V[rows+1][segments+1];
         for(int r=0;r<=rows;r++)for(int k=0;k<=segments;k++){
             float v=r/(float)rows,u=k/(float)segments;
