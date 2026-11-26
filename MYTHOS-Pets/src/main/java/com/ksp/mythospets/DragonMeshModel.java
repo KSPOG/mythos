@@ -55,7 +55,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.translate(0, Mth.sin(age * 0.12F) * 0.008F, 0);
         // Long reptilian torso, plated belly and curved neck.
         p.hull(anatomy.torso,FUR);
-        p.scales(anatomy.torso,96,64);
+        p.scales(anatomy.torso,112,64);
         p.hull(anatomy.belly,MANE);
         for(int plate=0;plate<6;plate++) {
             p.plate(0,18.25F,-4+plate*1.15F,1.7F,0.35F,0.45F,MANE);
@@ -317,8 +317,8 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             for(int i=0;i<mesh.length;i+=13){
                 for(int k=0;k<6;k++){
                     int n=(k+1)%6;
-                    face(mesh[i+k],mesh[i+n],mesh[i+6+n],mesh[i+6+k],FUR);
-                    face(mesh[i+6+k],mesh[i+6+n],mesh[i+12],mesh[i+12],FUR);
+                    texturedFace(mesh[i+k],mesh[i+n],mesh[i+6+n],mesh[i+6+k],FUR,0.35F,0.35F,0.65F,0.65F);
+                    texturedFace(mesh[i+6+k],mesh[i+6+n],mesh[i+12],mesh[i+12],FUR,0.40F,0.40F,0.60F,0.60F);
                 }
             }
         }
