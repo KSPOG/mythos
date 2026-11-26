@@ -23,9 +23,9 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
     private int lod;
     private static final ResourceLocation ANATOMY = ResourceLocation.fromNamespaceAndPath("mythospets", "meshes/ember_dragon.anatomy");
     private Anatomy anatomy;
-    private static final int[] SCALE_ROWS={96,48,24,0};
-    private static final int[] SCALE_COLUMNS={64,40,20,0};
-    private static final int[] MEMBRANE_STEPS={24,15,8,3};
+    private static final int[] SCALE_ROWS={24,12,6,0};
+    private static final int[] SCALE_COLUMNS={24,12,8,0};
+    private static final int[] MEMBRANE_STEPS={10,6,4,2};
     private static final int EMBER = 4;
     private static final int FULL_LIGHT = 0xF000F0;
 
@@ -56,7 +56,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                           float ageInTicks, float netHeadYaw, float headPitch) {
         double distance = Minecraft.getInstance().gameRenderer.getMainCamera()
             .getPosition().distanceToSqr(entity.position());
-        lod = distance <= 25 ? 0 : distance <= 100 ? 1 : distance <= 400 ? 2 : 3;
+        lod = distance <= 9 ? 0 : distance <= 49 ? 1 : distance <= 196 ? 2 : 3;
         swing = limbSwing;
         amount = Mth.clamp(limbSwingAmount, 0, 1);
         age = ageInTicks;
@@ -517,7 +517,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         // Connected anatomy with a finer curved profile, preserving dorsal ridges.
         void hull(float[][] rings,int material) {
             int count=rings.length;
-            int sides=count>=5?(lod==0?32:lod==1?24:lod==2?16:8):8;
+            int sides=count>=5?(lod==0?20:lod==1?16:lod==2?12:8):8;
             float[][][] points=new float[count][sides][3];
             for(int i=0;i<count;i++) for(int j=0;j<sides;j++) {
                 float angle=-Mth.HALF_PI+j*Mth.TWO_PI/sides;
@@ -605,8 +605,8 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 {side*2.40F,-3.0F,2.38F},{side*2.48F,-4.18F,3.20F},
                 {side*2.22F,-5.10F,4.20F},{side*1.85F,-5.58F,5.10F}};
             float[] radius={0.92F,0.76F,0.55F,0.34F,0.16F,0.008F};
-            int segments=lod==0?64:lod==1?40:lod==2?24:12;
-            int sides=lod==0?32:lod==1?24:lod==2?16:8;
+            int segments=lod==0?24:lod==1?16:lod==2?10:6;
+            int sides=lod==0?20:lod==1?16:lod==2?12:8;
             float[][][] rings=new float[segments+1][sides][3];
             float[][][] normals=new float[segments+1][sides][3];
             for(int i=0;i<=segments;i++){
@@ -671,7 +671,12 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
             float length=(float)Math.sqrt(nx*nx+ny*ny+nz*nz);
             if(length<0.00001F)return;
-            for(float[] v:new float[][]{a,b,c,d})emit(v[0],v[1],v[2],nx/length,ny/length,nz/length,material);
+            float inv=1/length;
+            nx*=inv;ny*=inv;nz*=inv;
+            emit(a[0],a[1],a[2],nx,ny,nz,material);
+            emit(b[0],b[1],b[2],nx,ny,nz,material);
+            emit(c[0],c[1],c[2],nx,ny,nz,material);
+            emit(d[0],d[1],d[2],nx,ny,nz,material);
         }
 
         void texturedFace(float[] a,float[] b,float[] c,float[] d,int material,float u0,float v0,float u1,float v1) {
@@ -680,9 +685,12 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
             float length=(float)Math.sqrt(nx*nx+ny*ny+nz*nz);
             if(length<0.00001F)return;
-            float[][] points={a,b,c,d};
-            float[] us={u0,u1,u1,u0},vs={v0,v0,v1,v1};
-            for(int i=0;i<4;i++)emitUv(points[i][0],points[i][1],points[i][2],nx/length,ny/length,nz/length,material,us[i],vs[i]);
+            float inv=1/length;
+            nx*=inv;ny*=inv;nz*=inv;
+            emitUv(a[0],a[1],a[2],nx,ny,nz,material,u0,v0);
+            emitUv(b[0],b[1],b[2],nx,ny,nz,material,u1,v0);
+            emitUv(c[0],c[1],c[2],nx,ny,nz,material,u1,v1);
+            emitUv(d[0],d[1],d[2],nx,ny,nz,material,u0,v1);
         }
 
         void emitUv(float x,float y,float z,float nx,float ny,float nz,int material,float u,float v) {
