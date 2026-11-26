@@ -20,7 +20,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
 
     private static final int FUR = 0, MANE = 1, GOLD = 2, EAR = 3, EYE = 4, TIP = 5;
     // Dragon-specific material atlas; ember surfaces use full packed light.
-    private static final int[][] PALETTE = {{8,8},{24,8},{40,8},{56,8},{8,24},{24,24}};
+    private static final int[][] PALETTE = {{8,8},{24,8},{40,8},{56,8},{8,24},{24,24},{40,24},{56,24}};
     private float swing, amount, age, yaw, pitch;
 
     @Override
@@ -43,15 +43,15 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.translate(0, Mth.sin(age * 0.12F) * 0.008F, 0);
         // Long reptilian torso, plated belly and curved neck.
         p.hull(new float[][]{
-            {-7.3F,14.3F,1.35F,1.75F},{-4.3F,14.5F,3.05F,2.75F},
-            {-1.5F,15,2.65F,2.6F},{2.5F,15.5F,1.85F,2.05F},
-            {5.5F,15.1F,2.45F,2.45F},{8,15.2F,1.35F,1.35F}},FUR);
+            {-7.3F,13.4F,1.45F,1.85F},{-5.2F,14.0F,2.35F,2.65F},{-3.3F,14.4F,2.8F,2.9F},
+            {-0.5F,15,2.65F,2.55F},{2.5F,15.1F,2.1F,1.95F},
+            {4.5F,14.8F,2.6F,2.45F},{6.2F,14.8F,2.45F,2.2F},{8,15.2F,1.35F,1.35F}},FUR);
         p.hull(new float[][]{{-5,16.8F,1.4F,0.9F},{-2,17.2F,1.95F,1.25F},{3,17.3F,1.35F,0.7F},{5.5F,16.8F,0.65F,0.45F}},MANE);
         for(int plate=0;plate<6;plate++) {
             p.plate(0,18.25F,-4+plate*1.15F,1.7F,0.35F,0.45F,MANE);
             p.plate(0,18.42F,-3.5F+plate*1.15F,1.35F,0.12F,0.13F,EMBER);
         }
-        p.hull(new float[][]{{-10,8.1F,1.1F,1.3F},{-8,9.7F,1.35F,1.75F},{-6,12.2F,1.65F,2.0F},{-4,14.2F,2.1F,2.0F}},FUR);
+        p.hull(new float[][]{{-10,8.1F,1.15F,1.3F},{-9,8.6F,1.3F,1.45F},{-8,9.7F,1.45F,1.75F},{-7,10.8F,1.7F,2.0F},{-6,12.2F,2.0F,2.3F},{-4,14.0F,2.35F,2.5F}},FUR);
         for(int i=0;i<4;i++){
             p.plate(0,9.3F+i*1.2F,-9+i*1.15F,0.8F+i*0.12F,0.25F,0.64F,MANE);
         }
@@ -60,29 +60,29 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
         stack.mulPose(Axis.XP.rotationDegrees(pitch));
         // Connected angular skull, wedge muzzle, raised cheek and crown ridges.
-        p.hull(new float[][]{{-5.8F,0.45F,0.65F,0.44F},{-4.6F,0.25F,0.9F,0.65F},
-            {-2.3F,-0.1F,1.32F,0.95F},{-0.7F,-0.2F,1.8F,1.4F},
+        p.hull(new float[][]{{-4.9F,0.35F,0.72F,0.5F},{-4.2F,0.12F,0.95F,0.72F},
+            {-2.3F,-0.1F,1.32F,1.05F},{-0.7F,-0.2F,1.8F,1.4F},
             {1.2F,0,1.65F,1.3F},{2.3F,0.1F,0.75F,0.8F}},FUR);
         p.plate(0,-1.2F,-1.1F,0.64F,0.44F,1.75F,MANE);
         for(int side:SIDES)
             p.plate(side*1.47F,0.22F,0.1F,0.46F,0.73F,1.6F,FUR);
         stack.pushPose();
-        p.translate(0,1.6F,-1.8F);
-        stack.mulPose(Axis.XP.rotation(Mth.sin(age*0.12F)*0.05F+0.08F));
+        p.translate(0,0.75F,-0.6F);
+        stack.mulPose(Axis.XP.rotation(-0.025F+Mth.sin(age*0.08F)*0.012F));
         p.hull(new float[][]{{-4.1F,0,0.48F,0.24F},{-2.6F,0.1F,0.77F,0.35F},{0.6F,-0.1F,1.25F,0.5F}},MANE);
-        p.plate(0,-0.28F,-2.0F,0.7F,0.12F,1.6F,EMBER);
+        p.plate(0,0.03F,-2.6F,0.42F,0.05F,0.9F,MANE);
         stack.popPose();
         for(int side:SIDES){
             p.plate(side*1.67F,-0.52F,-1.55F,0.22F,0.23F,0.55F,EMBER);
             p.plate(side*1.86F,-0.53F,-1.55F,0.045F,0.18F,0.07F,FUR);
             p.taper(side*1.38F,-0.9F,-2.4F,side*1.75F,-0.98F,-0.3F,0.31F,0.14F,FUR);
-            p.plate(side*0.77F,0.08F,-5.1F,0.18F,0.11F,0.24F,FUR);
+            p.plate(side*0.81F,-0.03F,-4.35F,0.18F,0.11F,0.24F,FUR);
             p.taper(side*1.15F,-0.9F,1.1F,side*2.05F,-2.5F,3.2F,0.53F,0.25F,GOLD);
             p.taper(side*2.05F,-2.5F,3.2F,side*2.45F,-2.9F,5.2F,0.25F,0.025F,GOLD);
             p.taper(side*1.5F,0.45F,0.7F,side*2.3F,0.1F,2.6F,0.31F,0.025F,GOLD);
-            for(int tooth=0;tooth<4;tooth++)
+            for(int tooth=0;tooth<3;tooth++)
                 p.taper(side*(1.1F-tooth*0.12F),0.95F,-1.8F-tooth*0.72F,
-                    side*(1.1F-tooth*0.12F),1.42F,-1.95F-tooth*0.72F,0.14F,0.015F,GOLD);
+                    side*(1.1F-tooth*0.12F),1.15F,-1.95F-tooth*0.72F,0.14F,0.015F,GOLD);
         }
         stack.popPose();
 
@@ -93,13 +93,16 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             stack.pushPose();
             p.translate(x,15.5F,z);
             stack.mulPose(Axis.XP.rotation(stride));
-            p.bone(0,0,0,0,3.2F,i<2?-0.3F:1.0F,0.93F,FUR);
+            p.plate(0,0.8F,0,1.35F,2.0F,i<2?1.4F:2.1F,FUR);
+            p.taper(0,0,0,0,3.2F,i<2?-0.5F:1.0F,i<2?1.05F:1.35F,0.72F,FUR);
             p.translate(0,3.2F,i<2?-0.3F:1.0F);
             stack.mulPose(Axis.XP.rotation(Math.max(0,-stride)*0.7F));
-            p.bone(0,0,0,0,3.7F,-0.5F,0.52F,FUR);
-            p.plate(0,4.3F,-0.65F,0.9F,0.65F,1.35F,FUR);
+            p.plate(0,0,0,0.82F,0.85F,0.92F,FUR);
+            p.taper(0,0,0,0,3.65F,-0.65F,0.70F,0.46F,FUR);
+            p.plate(0,4.0F,-0.85F,1.14F,0.65F,1.55F,FUR);
+            for(int toe=0;toe<3;toe++)p.plate((toe-1)*0.63F,4.25F,-1.65F,0.38F,0.36F,0.85F,FUR);
             for(int claw=0;claw<3;claw++)
-                p.taper((claw-1)*0.5F,4.35F,-1.5F,(claw-1)*0.57F,4.75F,-2.45F,0.19F,0.02F,GOLD);
+                p.taper((claw-1)*0.63F,4.2F,-2.0F,(claw-1)*0.70F,4.65F,-2.75F,0.19F,0.02F,GOLD);
             stack.popPose();
         }
 
@@ -132,12 +135,12 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         float phase=swing*0.55F;
         for(int side:SIDES){
             stack.pushPose();
-            p.translate(side*2.15F,12.7F,-3);
+            p.translate(side*2.15F,12.5F,-3.6F);
             float idle=Mth.sin(age*0.09F)*0.025F;
-            stack.mulPose(Axis.YP.rotation(side*(-0.95F+motion*0.75F)));
-            stack.mulPose(Axis.ZP.rotation(side*(-0.48F+idle+motion*0.24F*Mth.sin(phase))));
+            stack.mulPose(Axis.YP.rotation(side*(-0.55F+motion*0.40F)));
+            stack.mulPose(Axis.ZP.rotation(side*(-0.18F+idle+motion*0.31F*Mth.sin(phase))));
             float[] root={0,0,0}, elbow={side*5,-3,-2};
-            float flex=side*(-0.85F+motion*0.62F+motion*0.18F*Mth.sin(phase-0.8F));
+            float flex=side*(-0.48F+motion*0.34F+motion*0.16F*Mth.sin(phase-0.8F));
             float lift=side*(0.12F+motion*0.22F*Mth.sin(phase-0.65F));
             float[] tip=wingPoint(side,elbow,11,-1,1,flex,lift);
             float[] finger=wingPoint(side,elbow,13,3,8,flex,lift);
@@ -158,7 +161,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             p.membrane(elbow,notch2,rear);
             p.membrane(elbow,rear,notch3);
             p.membrane(elbow,notch3,inner);
-            p.membrane(root,inner,new float[]{0,1,7});
+            p.membrane(root,inner,new float[]{-side*0.8F,2.3F,10});
             stack.popPose();
         }
         stack.popPose();
@@ -249,21 +252,34 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 .setNormal(stack.last(),nx,ny,nz);
         }
 
+        // Curved membrane patch: boundaries remain fixed to the animated bones.
         void membrane(float[] a,float[] b,float[] c) {
-            // Entity render type uses quads; repeat the third vertex to encode a triangle.
-            float ax=b[0]-a[0],ay=b[1]-a[1],az=b[2]-a[2];
-            float bx=c[0]-a[0],by=c[1]-a[1],bz=c[2]-a[2];
-            float nx=ay*bz-az*by,ny=az*bx-ax*bz,nz=ax*by-ay*bx;
+            int steps=lod==0?12:lod==1?8:lod==2?4:2;
+            float ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2];
+            float vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
+            float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
             float len=(float)Math.sqrt(nx*nx+ny*ny+nz*nz);
             if(len<0.001F)return;
-            for(int face=0;face<2;face++){
-                float sign=face==0?1:-1;
-                float[][] points=face==0?new float[][]{a,b,c,c}:new float[][]{a,c,b,b};
-                for(float[] v:points)
-                    vertices.addVertex(stack.last(),v[0]/16,v[1]/16,v[2]/16).setColor(color)
-                        .setUv(56.5F/64,24.5F/64).setOverlay(overlay).setLight(light)
-                        .setNormal(stack.last(),sign*nx/len,sign*ny/len,sign*nz/len);
+            float bend=Math.min(0.75F,len*0.017F);
+            float[][][] points=new float[steps+1][][];
+            for(int i=0;i<=steps;i++){
+                points[i]=new float[steps-i+1][];
+                for(int j=0;j<=steps-i;j++){
+                    float u=i/(float)steps,v=j/(float)steps,w=1-u-v;
+                    points[i][j]=new float[]{w*a[0]+u*b[0]+v*c[0],
+                        w*a[1]+u*b[1]+v*c[1]+27*u*v*w*bend,
+                        w*a[2]+u*b[2]+v*c[2]};
+                }
             }
+            for(int i=0;i<steps;i++)for(int j=0;j<steps-i;j++){
+                membraneTriangle(points[i][j],points[i+1][j],points[i][j+1]);
+                if(j<steps-i-1)membraneTriangle(points[i+1][j],points[i+1][j+1],points[i][j+1]);
+            }
+        }
+
+        void membraneTriangle(float[] a,float[] b,float[] c){
+            face(a,b,c,c,7);
+            face(a,c,b,b,7);
         }
 
     }
