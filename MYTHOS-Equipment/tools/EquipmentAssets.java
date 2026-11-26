@@ -63,8 +63,16 @@ public final class EquipmentAssets {
     }
     private static final class Mesh {
         final List<String> parts=new ArrayList<>();
+        boolean vanillaBowBasis;
         void box(double x,double y,double z,double X,double Y,double Z,int material){box(x,y,z,X,Y,Z,material,null);}
         void box(double x,double y,double z,double X,double Y,double Z,int material,String rotation){
+            if(vanillaBowBasis){
+                // Map the original -X firing axis to the vanilla sprite's +X,+Y diagonal.
+                // A half-turn of the bounds followed by a legal 45-degree Z element rotation.
+                double nx=16-X,nX=16-x,ny=16-Y,nY=16-y;
+                x=nx;X=nX;y=ny;Y=nY;
+                rotation="\"rotation\":{\"origin\":[8,8,8],\"axis\":\"z\",\"angle\":45,\"rescale\":false}";
+            }
             double u=(material%4)*4+.08,v=(material/4)*8+.08;
             String uv=String.format(Locale.ROOT,"[%.3f,%.3f,%.3f,%.3f]",u,v,u+3.84,v+7.84);
             StringJoiner faces=new StringJoiner(",");
@@ -137,6 +145,7 @@ public final class EquipmentAssets {
                 if(caster){m.box(6.8,6,7.25,9.2,12,8.75,7);m.box(7.2,11.5,7.1,8.8,16,8.9,0);m.gem(15.4,1.55);}
             }
             case BOW -> {
+                m.vanillaBowBasis=true;
                 // Bow lies in the XY plane; grip at (8,8,8), string behind grip on +X.
                 // Pull moves the string farther behind the grip, never through the riser.
                 m.grip(6.2,9.8,.9);
@@ -243,10 +252,14 @@ public final class EquipmentAssets {
         }
         boolean shield=d.kind()==WeaponKind.SHIELD;
         String third=shield?"[0,90,0]":d.kind()==WeaponKind.BOW?"[-80,260,-40]":d.kind()==WeaponKind.CROSSBOW?"[-90,0,0]":"[0,-90,35]";
-        String first=shield?(active?"[0,45,10]":"[0,90,0]"):d.kind()==WeaponKind.BOW?(active?"[0,-90,0]":"[0,-90,15]"):d.kind()==WeaponKind.CROSSBOW?"[0,0,0]":"[0,-90,25]";
-        double scale=d.kind()==WeaponKind.BOW?.58:d.kind().twoHanded?.74:.85;
-        String firstTranslation=d.kind()==WeaponKind.BOW?(active?"[-5,3,-1]":"[0,2,1]"):"[1,2,1]";
-        String display=String.format(Locale.ROOT,"\"display\":{\"gui\":{\"rotation\":[25,-35,35],\"translation\":[0,-1,0],\"scale\":[0.90,0.90,0.90]},\"thirdperson_righthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"thirdperson_lefthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_righthand\":{\"rotation\":%s,\"translation\":%s,\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_lefthand\":{\"rotation\":%s,\"translation\":%s,\"scale\":[%.2f,%.2f,%.2f]},\"ground\":{\"translation\":[0,3,0],\"scale\":[0.35,0.35,0.35]},\"fixed\":{\"scale\":[0.65,0.65,0.65]}}",third,scale,scale,scale,third,scale,scale,scale,first,firstTranslation,scale,scale,scale,first,firstTranslation,scale,scale,scale);
+        String first=shield?(active?"[0,45,10]":"[0,90,0]"):d.kind()==WeaponKind.BOW?"[0,-90,25]":d.kind()==WeaponKind.CROSSBOW?"[0,0,0]":"[0,-90,25]";
+        double scale=d.kind()==WeaponKind.BOW?.68:d.kind().twoHanded?.74:.85;
+        String firstTranslation=d.kind()==WeaponKind.BOW?"[1.13,3.2,1.13]":"[1,2,1]";
+        String firstLeft=d.kind()==WeaponKind.BOW?"[0,90,-25]":first;
+        String thirdLeft=d.kind()==WeaponKind.BOW?"[-80,-280,40]":third;
+        String thirdTranslation=d.kind()==WeaponKind.BOW?"[-1,-2,2.5]":"[0,3,1]";
+        double thirdScale=d.kind()==WeaponKind.BOW?.90:scale;
+        String display=String.format(Locale.ROOT,"\"display\":{\"gui\":{\"rotation\":[25,-35,35],\"translation\":[0,-1,0],\"scale\":[0.90,0.90,0.90]},\"thirdperson_righthand\":{\"rotation\":%s,\"translation\":%s,\"scale\":[%.2f,%.2f,%.2f]},\"thirdperson_lefthand\":{\"rotation\":%s,\"translation\":%s,\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_righthand\":{\"rotation\":%s,\"translation\":%s,\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_lefthand\":{\"rotation\":%s,\"translation\":%s,\"scale\":[%.2f,%.2f,%.2f]},\"ground\":{\"translation\":[0,3,0],\"scale\":[0.35,0.35,0.35]},\"fixed\":{\"scale\":[0.65,0.65,0.65]}}",third,thirdTranslation,thirdScale,thirdScale,thirdScale,thirdLeft,thirdTranslation,thirdScale,thirdScale,thirdScale,first,firstTranslation,scale,scale,scale,firstLeft,firstTranslation,scale,scale,scale);
         return "{\"ambientocclusion\":false,\"textures\":{\"all\":\""+texture+"\",\"particle\":\""+texture+"\"},\"elements\":["+String.join(",",m.parts)+"],"+display+overrides+"}";
     }
     private static BufferedImage icon(Definition d){
