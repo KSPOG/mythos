@@ -33,7 +33,8 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
     // Dragon-specific material atlas; ember surfaces use full packed light.
     private static final int[][] PALETTE = {{8,8},{24,8},{40,8},{56,8},{8,24},{24,24},{40,24},{56,24}};
     private float swing, amount, age, yaw, pitch;
-    private float rearPose, roarPose, wingSpread, wingBeat, wingLag;
+    private float rearPose, roarPose, wingSpread, wingBeat, wingLag, crouch;
+    private static final float REAR_ANGLE=1.43F;
 
     private static float ease(float t) { t=Mth.clamp(t,0,1); return t*t*(3-2*t); }
     private static float envelope(float t,float duration,float rise,float fall) {
@@ -54,7 +55,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         int action=entity.idleAction();
         float t=entity.idleElapsed()+Mth.clamp(ageInTicks-entity.tickCount,0,1);
         float still=1-ease(amount/0.25F);
-        rearPose=0;roarPose=0;wingSpread=0;wingBeat=0;wingLag=0;
+        rearPose=0;roarPose=0;wingSpread=0;wingBeat=0;wingLag=0;crouch=0;
         switch(action) {
             case DragonEntity.FLAP -> {
                 wingSpread=envelope(t,64,12,14)*still;
@@ -63,8 +64,9 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 wingLag=beat*Mth.sin((t-13)*Mth.TWO_PI/16);
             }
             case DragonEntity.REAR -> {
-                rearPose=envelope(t,84,20,20)*still;
-                wingSpread=rearPose*0.72F;
+                rearPose=envelope(t-10,110,22,25)*still;
+                crouch=(envelope(t,18,7,9)+envelope(t-100,20,9,10))*still;
+                wingSpread=rearPose*0.92F;
                 wingBeat=rearPose*0.18F*Mth.sin(t*0.18F);
                 wingLag=rearPose*0.12F*Mth.sin(t*0.18F-0.6F);
             }
@@ -84,10 +86,14 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         if (anatomy == null) anatomy = Anatomy.load();
         Painter p = new Painter(stack, vertices, light, overlay, color, lod);
         stack.pushPose();
-        stack.translate(0, Mth.sin(age * 0.12F) * 0.008F, 0);
+        stack.translate(0, Mth.sin(age * 0.12F) * 0.008F*(1-rearPose), 0);
+        float tilt=rearPose*REAR_ANGLE;
+        // Shift the hips forward over the hind feet; lower the pelvis during anticipation.
+        float hipDrop=0.85F*crouch;
+        p.translate(0,hipDrop,-rearPose*0.8F);
         // Raise chest about the hind hip; the rear feet remain in world-facing stance.
         p.translate(0,15.5F,5);
-        stack.mulPose(Axis.XP.rotation(-rearPose*0.95F));
+        stack.mulPose(Axis.XP.rotation(-tilt));
         p.translate(0,-15.5F,-5);
         // Long reptilian torso, plated belly and curved neck.
         p.hull(anatomy.torso,FUR);
@@ -105,7 +111,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.pushPose();
         p.translate(0,8,-9);
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
-        stack.mulPose(Axis.XP.rotationDegrees(pitch*(1-roarPose)+roarPose*18F));
+        stack.mulPose(Axis.XP.rotationDegrees(pitch*(1-rearPose)+rearPose*42F-roarPose*18F));
         // Connected angular skull, wedge muzzle, raised cheek and crown ridges.
         p.hull(anatomy.skull,FUR);
         p.scales(anatomy.skull,40,32);
@@ -142,13 +148,21 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             float stride=Mth.cos(swing*0.8F+((i==0||i==3)?0:Mth.PI))*0.55F*amount;
             stack.pushPose();
             p.translate(x,15.5F,z);
-            stack.mulPose(Axis.XP.rotation(stride+(i<2?rearPose*0.45F:rearPose*0.95F)));
+            // Hind legs cancel body pitch, while forelegs reach ahead and curl at the elbow.
+            float upper=i<2?rearPose*1.05F:tilt-rearPose*0.26F+crouch*0.27F;
+            stack.mulPose(Axis.XP.rotation(stride+upper));
             p.plate(0,0.8F,0,i<2?1.45F:1.7F,2.15F,i<2?1.6F:2.35F,FUR);
             p.taper(0,0,0,0,3.2F,i<2?-0.5F:1.0F,i<2?1.05F:1.35F,0.72F,FUR);
             p.translate(0,3.2F,i<2?-0.3F:1.0F);
-            stack.mulPose(Axis.XP.rotation(Math.max(0,-stride)*0.7F+(i<2?-rearPose*0.8F:0)));
+            stack.mulPose(Axis.XP.rotation(Math.max(0,-stride)*0.7F+(i<2?-rearPose*1.35F:rearPose*0.52F-crouch*0.54F)));
             p.plate(0,0,0,0.82F,0.85F,0.92F,FUR);
             p.taper(0,0,0,0,3.65F,-0.65F,0.70F,0.46F,FUR);
+            // Counter-rotate hind paws independently of knee bend.
+            if(i>=2){
+                p.translate(0,3.65F,-0.65F);
+                stack.mulPose(Axis.XP.rotation(-rearPose*0.26F+crouch*0.27F));
+                p.translate(0,-3.65F,0.65F);
+            }
             p.plate(0,4.0F,-0.85F,1.14F,0.65F,1.55F,FUR);
             for(int toe=0;toe<3;toe++)p.plate((toe-1)*0.63F,4.25F,-1.65F,0.38F,0.36F,0.85F,FUR);
             for(int claw=0;claw<3;claw++)
@@ -167,7 +181,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             }
         stack.pushPose();
         p.translate(0,15.2F,7);
-        stack.mulPose(Axis.XP.rotation(rearPose*0.95F));
+        stack.mulPose(Axis.XP.rotation(tilt-rearPose*0.12F));
         for(int i=0;i<12;i++){
             stack.mulPose(Axis.YP.rotation(Mth.sin(age*0.09F-i*0.45F)*0.15F));
             stack.mulPose(Axis.XP.rotation(i==0?0.1F:-0.05F));
