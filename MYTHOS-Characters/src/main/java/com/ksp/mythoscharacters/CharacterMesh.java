@@ -61,7 +61,8 @@ final class CharacterMesh {
         float e=.0005F;
         V du=position(s,u+e,t,overlay).sub(position(s,u-e,t,overlay));
         V dt=position(s,u,Math.min(1,t+e),overlay).sub(position(s,u,Math.max(0,t-e),overlay));
-        V normal=du.cross(dt).unit();
+        // At the front, dt points down (+Y) and du right (+X); their cross points forward (-Z).
+        V normal=dt.cross(du).unit();
         // Continuous mapping around the original front/right/back/left skin rectangles.
         Atlas a=overlay?s.overlay:s.base;
         float theta=u*4+.5F;

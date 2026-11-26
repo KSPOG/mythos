@@ -9,7 +9,9 @@ public final class CharacterMeshCheck {
                 int count=0;
                 var torso=parts.get(2);
                 var front=torso.quads().stream().flatMap(q->java.util.stream.Stream.of(q.a(),q.b(),q.c(),q.d())).filter(v->Math.abs(v.position().x())<.08F&&v.position().y()>3&&v.position().y()<6&&v.position().z()<-1.4F).findFirst().orElse(null);
-                if(lod<=1&&(front==null||front.normal().z()>-.65F))throw new AssertionError("Torso front normals must point outward");
+                if(lod<=1&&(front==null||front.normal().z()>-.65F))throw new AssertionError("Torso front normals must point outward: "+front);
+                var back=torso.quads().stream().flatMap(q->java.util.stream.Stream.of(q.a(),q.b(),q.c(),q.d())).filter(v->Math.abs(v.position().x())<.08F&&v.position().y()>3&&v.position().y()<6&&v.position().z()>1.4F).findFirst().orElse(null);
+                if(lod<=1&&(back==null||back.normal().z()<.65F))throw new AssertionError("Torso rear normals must point outward: "+back);
                 for(var part:parts)for(var q:part.quads()){
                     count+=2;
                     for(var v:new CharacterMesh.Vertex[]{q.a(),q.b(),q.c(),q.d()}){
