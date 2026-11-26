@@ -13,6 +13,6 @@ final class MythosArmorItem extends ArmorItem {
         super(material,type,properties);this.definition=definition;
     }
     @Override public void initializeClient(Consumer<IClientItemExtensions> consumer){
-        consumer.accept(new ArmorVisuals(definition));
+        consumer.accept(new ArmorVisuals(() -> definition));
     }
 }
