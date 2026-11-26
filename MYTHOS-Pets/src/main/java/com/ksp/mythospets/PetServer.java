@@ -141,7 +141,7 @@ final class PetServer {
     }
     private void mount(EntityMountEvent e){if(!e.getLevel().isClientSide()&&e.isMounting()&&e.getEntityBeingMounted().getTags().contains(TAG))e.setCanceled(true);}
     private static boolean eligible(ServerPlayer owner,LivingEntity target){
-        return target instanceof Monster&&target.isAlive()&&target.level()==owner.level()&&!target.getTags().contains(TAG)&&!target.getTags().contains("mythos_mount")&&!target.isAlliedTo(owner)&&!owner.isAlliedTo(target)&&target.distanceToSqr(owner)<=144;
+        return target instanceof Monster&&target.isAlive()&&target.level()==owner.level()&&!target.getTags().contains(TAG)&&!target.getTags().contains("mythos_mount")&&!target.isAlliedTo(owner)&&!owner.isAlliedTo(target);
     }
     private void attack(LivingAttackEvent e){
         if(e.getEntity().level().isClientSide())return;
@@ -210,11 +210,15 @@ final class PetServer {
             if(!custom&&tick>=a.nextAbility)ability(p,a);
         }
     }
-    private LivingEntity combatTarget(ServerPlayer p,Active a,UUID id,double range){
+    private LivingEntity engagedTarget(ServerPlayer p,Active a,UUID id){
         if(id==null||tick>a.targetUntil)return null;
         var found=p.serverLevel().getEntity(id);
-        return found instanceof LivingEntity l&&eligible(p,l)&&l.distanceToSqr(a.entity)<=range*range
-            &&a.entity.hasLineOfSight(l)?l:null;
+        return found instanceof LivingEntity l&&eligible(p,l)?l:null;
+    }
+    private LivingEntity combatTarget(ServerPlayer p,Active a,UUID id,double range){
+        LivingEntity target=engagedTarget(p,a,id);
+        return target!=null&&target.distanceToSqr(a.entity)<=range*range
+            &&a.entity.hasLineOfSight(target)?target:null;
     }
     private void finishCast(Active a){
         a.cast=0;a.castTarget=null;a.impacted=false;
@@ -234,7 +238,7 @@ final class PetServer {
         if(a.cast!=0){
             boolean support=a.cast==GUARD||a.cast==BLESS;
             LivingEntity target=combatTarget(p,a,a.castTarget,support?8:dragon?6:2.6);
-            if(a.entity.distanceToSqr(p)>36||(!a.impacted&&target==null)){
+            if(!a.impacted&&target==null){
                 finishCast(a);return false;
             }
             if(tick>=a.finishAt){finishCast(a);return false;}
@@ -245,25 +249,30 @@ final class PetServer {
             }
             return true;
         }
-        LivingEntity target=combatTarget(p,a,a.target,8);
-        if(target==null||a.entity.distanceToSqr(p)>36)return false;
-        if(tick>=a.nextSupport&&p.getHealth()<=p.getMaxHealth()*0.70F){
+        LivingEntity target=engagedTarget(p,a,a.target);
+        if(target==null)return false;
+        face(a.entity,target.position().subtract(a.entity.position()));
+        // Support retains its local casting requirements, but owner distance
+        // is irrelevant once the owner has established a valid engagement.
+        if(tick>=a.nextSupport&&p.getHealth()<=p.getMaxHealth()*0.70F
+            &&combatTarget(p,a,a.target,8)!=null){
             a.nextSupport=tick+240;
             startCast(a,target,dragon?GUARD:BLESS,10,24);return true;
         }
-        if(tick<a.nextAbility)return false;
         double range=dragon?6:2.6;
         if(a.entity.distanceToSqr(target)>range*range){
-            // Close the distance only while the owner remains nearby.
+            // Pursue the engaged target, never the owner, while combat is active.
             var delta=target.position().subtract(a.entity.position());
             var step=delta.normalize().scale(Math.min(0.16,Math.max(0,delta.length()-range+0.15)));
             var dest=a.entity.position().add(step);
-            if(dest.distanceToSqr(p.position())<=36&&safe(p.serverLevel(),a.entity,dest)){
+            if(safe(p.serverLevel(),a.entity,dest)){
                 var before=a.entity.position();a.entity.move(MoverType.SELF,step);
-                face(a.entity,a.entity.position().subtract(before));return true;
+                face(a.entity,a.entity.position().subtract(before));
             }
-            return false;
+            return true;
         }
+        // Remain with the enemy through cooldowns; no owner-follow teleport.
+        if(tick<a.nextAbility||!a.entity.hasLineOfSight(target))return true;
         a.nextAbility=tick+(dragon?120:100);
         startCast(a,target,dragon?BREATH:POUNCE,dragon?12:8,dragon?30:20);
         return true;
