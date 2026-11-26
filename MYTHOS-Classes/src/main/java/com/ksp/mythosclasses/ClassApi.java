@@ -16,6 +16,24 @@ public final class ClassApi {
         var role=store.get(player);
         return role==null?Optional.empty():Optional.of(role.id());
     }
+    public record StatValue(int base,int allocated,int total){}
+    public record Stats(String classId,int earnedPoints,int availablePoints,java.util.Map<String,StatValue> values){}
+    public static Optional<Stats> stats(UUID player){
+        if(!available()||player==null)return Optional.empty();
+        var role=store.get(player);var points=store.points(player);
+        if(role==null||points==null)return Optional.empty();
+        var values=new java.util.LinkedHashMap<String,StatValue>();
+        for(var stat:ClassRules.Stat.values()){
+            int base=role.base(stat),allocated=points.bonus(stat);
+            values.put(stat.id(),new StatValue(base,allocated,base+allocated));
+        }
+        return Optional.of(new Stats(role.id(),points.earned,points.available(),java.util.Collections.unmodifiableMap(values)));
+    }
+    /** Trusted server reward integrations only; does not expose a client packet. */
+    public static boolean grantPoints(UUID player,int amount){
+        if(!available()||player==null)return false;
+        try{store.grant(player,amount);return true;}catch(Exception ex){return false;}
+    }
     public static boolean validClass(String id){return ClassRules.Role.parse(id)!=null;}
     /** Empty allowed set means unrestricted; null policy fails closed. */
     public static boolean canUse(UUID player,Collection<String> allowedClasses){
