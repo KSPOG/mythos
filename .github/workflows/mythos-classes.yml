@@ -21,7 +21,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Test class identity
+      - name: Test class identity and base stats
         run: |
           mkdir -p build/rules-check
           javac -d build/rules-check src/main/java/com/ksp/mythosclasses/ClassRules.java tools/ClassRulesCheck.java
@@ -35,7 +35,7 @@ jobs:
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-classes-0.1.0
+          name: mythos-classes-0.1.1
           path: |
             MYTHOS-Classes/build/libs/*.jar
             MYTHOS-Classes/README.md
