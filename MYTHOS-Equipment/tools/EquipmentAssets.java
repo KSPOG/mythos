@@ -261,17 +261,7 @@ public final class EquipmentAssets {
         return "{\"ambientocclusion\":false,\"textures\":{\"all\":\""+texture+"\",\"particle\":\""+texture+"\"},\"elements\":["+String.join(",",m.parts)+"],"+display+overrides+"}";
     }
     private static BufferedImage icon(Definition d){
-        BufferedImage im=new BufferedImage(128,128,BufferedImage.TYPE_INT_ARGB);Graphics2D g=im.createGraphics();g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
-        Color c=accent(d),metal=metal(d.owner(),d.tier()),edge=trim(d.owner(),d.tier());
-        g.scale(4,4);
-        int[][] xs={{5,9,23,27,27,21,21,11,11,5},{3,10,14,18,22,29,27,23,23,9,9,5},{7,25,25,19,16,13,7},{4,13,14,16,16,2}};
-        int[][] ys={{12,4,4,12,25,25,16,16,25,25},{7,4,8,8,4,7,17,15,29,29,15,17},{5,5,29,29,16,29,29},{8,8,19,23,29,29}};
-        int i=switch(d.slot()){case HEAD->0;case CHEST->1;case LEGS->2;default->3;};
-        g.setPaint(new GradientPaint(3,3,shade(metal,.4),26,29,shade(metal,-.45)));g.fillPolygon(xs[i],ys[i],xs[i].length);
-        g.setColor(edge);g.setStroke(new BasicStroke(.65f));g.drawPolygon(xs[i],ys[i],xs[i].length);
-        g.setColor(c);g.fillRoundRect(12,10,8,10,2,2);g.setColor(edge);g.drawRoundRect(12,10,8,10,2,2);
-        if(i==3){g.translate(15,0);g.setPaint(new GradientPaint(3,3,shade(metal,.4),14,29,shade(metal,-.45)));g.fillPolygon(xs[i],ys[i],xs[i].length);g.setColor(edge);g.drawPolygon(xs[i],ys[i],xs[i].length);}
-        g.dispose();return im;
+        return ArmorPreview.render(List.of(d),128);
     }
     private static BufferedImage armor(ClassSet c,Tier t,int layer){
         var p=ArmorDesign.of(c,t);

@@ -20,6 +20,8 @@ tasks.named('compileJava') { dependsOn tasks.named('compileClassesApiJava') }
 def generated = layout.buildDirectory.dir('generated/equipmentAssets')
 tasks.register('generateEquipmentAssets') {
     inputs.file('tools/EquipmentAssets.java')
+    inputs.file('tools/ArmorPreview.java')
+    inputs.file('src/main/java/com/ksp/mythosequipment/ArmorPolygon.java')
     inputs.file('src/main/java/com/ksp/mythosequipment/ArmorDesign.java')
     inputs.file('src/main/java/com/ksp/mythosequipment/EquipmentRules.java')
     outputs.dir(generated)
@@ -28,7 +30,7 @@ tasks.register('generateEquipmentAssets') {
         def launcher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }.get()
         def output = layout.buildDirectory.dir('assetGenerator').get().asFile
         output.mkdirs()
-        exec { commandLine new File(launcher.metadata.installationPath.asFile,'bin/javac'), '-d', output, file('src/main/java/com/ksp/mythosequipment/EquipmentRules.java'), file('src/main/java/com/ksp/mythosequipment/ArmorDesign.java'), file('tools/EquipmentAssets.java') }
+        exec { commandLine new File(launcher.metadata.installationPath.asFile,'bin/javac'), '-d', output, file('src/main/java/com/ksp/mythosequipment/EquipmentRules.java'), file('src/main/java/com/ksp/mythosequipment/ArmorDesign.java'), file('src/main/java/com/ksp/mythosequipment/ArmorPolygon.java'), file('tools/ArmorPreview.java'), file('tools/EquipmentAssets.java') }
         exec { commandLine launcher.executablePath.asFile, '-cp', output, 'com.ksp.mythosequipment.EquipmentAssets', generated.get().asFile }
     }
 }
