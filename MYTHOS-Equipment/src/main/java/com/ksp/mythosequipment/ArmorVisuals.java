@@ -24,12 +24,13 @@ final class ArmorVisuals implements IClientItemExtensions {
         return LayerDefinition.create(mesh,128,64).bakeRoot();
     }
     private static final class PolygonModel extends HumanoidModel<LivingEntity>{
-        private final List<List<ArmorPolygon.Piece>> levels;
+        private final Definition definition;
+        private final Map<Integer,List<ArmorPolygon.Piece>> levels=new HashMap<>();
         private int lod;
-        PolygonModel(Definition d){super(skeleton());levels=List.of(ArmorPolygon.build(d,0),ArmorPolygon.build(d,1),ArmorPolygon.build(d,2));}
+        PolygonModel(Definition d){super(skeleton());definition=d;}
         @Override public void renderToBuffer(PoseStack stack,VertexConsumer out,int light,int overlay,int color){
             ModelPart[] bones={head,body,rightArm,leftArm,rightLeg,leftLeg};
-            for(var piece:levels.get(lod)){
+            for(var piece:levels.computeIfAbsent(lod,k->ArmorPolygon.build(definition,k))){
                 ModelPart bone=bones[piece.bone()];if(!bone.visible)continue;
                 stack.pushPose();bone.translateAndRotate(stack);
                 for(var f:piece.faces()){
@@ -49,7 +50,7 @@ final class ArmorVisuals implements IClientItemExtensions {
     @Override public HumanoidModel<?> getHumanoidArmorModel(LivingEntity entity,ItemStack stack,EquipmentSlot slot,HumanoidModel<?> original){
         if(model==null){Definition d=definition.get();if(d==null)return original;model=new PolygonModel(d);}
         double distance=Minecraft.getInstance().gameRenderer.getMainCamera().getPosition().distanceToSqr(entity.position());
-        model.lod=distance<=25?0:distance<=144?1:2;
+        model.lod=distance<=9?0:distance<=64?1:2;
         model.head.copyFrom(original.head);model.hat.copyFrom(original.hat);model.body.copyFrom(original.body);
         model.rightArm.copyFrom(original.rightArm);model.leftArm.copyFrom(original.leftArm);
         model.rightLeg.copyFrom(original.rightLeg);model.leftLeg.copyFrom(original.leftLeg);
