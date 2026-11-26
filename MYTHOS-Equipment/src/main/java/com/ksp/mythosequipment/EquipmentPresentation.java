@@ -23,6 +23,7 @@ final class EquipmentPresentation {
         }else lines.add(Component.literal("Unrolled — generated on server").withStyle(ChatFormatting.GRAY));
         lines.add(Component.literal("Set: "+d.profile().name()).withStyle(ChatFormatting.GRAY));
         lines.add(Component.literal("Class: "+d.owner().id.replace('_',' ')).withStyle(ChatFormatting.GOLD));
-        lines.add(Component.literal("Required level: "+d.tier().level).withStyle(ChatFormatting.GRAY));
+        if(d.kind()!=null)lines.add(Component.literal(d.kind().name().replace('_',' ')+(d.kind().twoHanded?" | Two-handed":"")).withStyle(ChatFormatting.GRAY));
+        lines.add(Component.literal("Required level: "+d.level()).withStyle(ChatFormatting.GRAY));
     }
 }
