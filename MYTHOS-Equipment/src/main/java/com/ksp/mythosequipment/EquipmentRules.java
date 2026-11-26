@@ -5,7 +5,7 @@ import java.util.random.RandomGenerator;
 
 final class EquipmentRules {
     enum Stat { ATK, STR, DEF, VIT, DEX, INT, SPI }
-    enum Slot { WEAPON, HEAD, CHEST, LEGS, FEET }
+    enum Slot { WEAPON, HEAD, CHEST, LEGS, FEET, SHIELD }
     enum Tier {
         ADVENTURER(1,1,3), VETERAN(20,3,7), DRAGON(40,6,12);
         final int level,min,max;
@@ -78,7 +78,22 @@ final class EquipmentRules {
             case HEXSLINGER -> switch(t){case ADVENTURER->new Profile("Ash Hexweaver","Ashmark",Stat.DEX,Effect.ASH_CURSE);case VETERAN->new Profile("Runebound","Runebreaker",Stat.INT,Effect.RUNE_FRACTURE);case DRAGON->new Profile("Dragon Hexweaver","Doomsigil",Stat.ATK,Effect.DOOM_MARK);};
         };
     }
-    record Definition(String id,String name,ClassSet owner,Tier tier,Slot slot){
+    enum WeaponKind {
+        SWORD(5,1.6F,false), GREATSWORD(10,0.9F,true), SHORTSWORD(3,1.9F,false),
+        DAGGER(2,2.4F,false), AXE(7,1.2F,false), GREATAXE(12,0.8F,true),
+        HAMMER(8,1.0F,false), GREAT_HAMMER(13,0.7F,true), MACE(6,1.3F,false),
+        STAFF(3,1.0F,true), WAND(1,1.8F,false), BOW(0,0,true), CROSSBOW(0,0,true), CASTER(2,1.5F,false), SHIELD(0,0,false);
+        final int damage;final float speed;final boolean twoHanded;
+        WeaponKind(int damage,float speed,boolean twoHanded){this.damage=damage;this.speed=speed;this.twoHanded=twoHanded;}
+    }
+    record Definition(String id,String name,ClassSet owner,Tier tier,Slot slot,WeaponKind kind,int level){
+        Definition(String id,String name,ClassSet owner,Tier tier,Slot slot){
+            this(id,name,owner,tier,slot,slot==Slot.WEAPON?switch(owner){
+                case WARRIOR->WeaponKind.SWORD;case HEAVY_KNIGHT->WeaponKind.GREAT_HAMMER;
+                case RANGER->WeaponKind.BOW;case ROGUE->WeaponKind.DAGGER;
+                case MAGE,NECROMANCER,CLERIC->WeaponKind.STAFF;case HEXSLINGER->WeaponKind.CASTER;
+            }:null,tier.level);
+        }
         Profile profile(){return EquipmentRules.profile(owner,tier);}
         Effect effect(){return profile().effect();}
     }
@@ -86,12 +101,129 @@ final class EquipmentRules {
     private static List<Definition> make(){
         List<Definition> out=new ArrayList<>();
         for(ClassSet c:ClassSet.values())for(Tier t:Tier.values())for(Slot s:Slot.values()){
+            if(s==Slot.SHIELD&&c!=ClassSet.WARRIOR&&c!=ClassSet.HEAVY_KNIGHT&&c!=ClassSet.CLERIC)continue;
             String tier=t.name().toLowerCase(Locale.ROOT),slot=s.name().toLowerCase(Locale.ROOT);
             Profile p=profile(c,t);
-            String item=switch(s){case WEAPON->p.weapon();case HEAD->p.name()+" Helm";case CHEST->p.name()+" Armor";case LEGS->p.name()+" Leggings";case FEET->p.name()+" Boots";};
-            out.add(new Definition(tier+"_"+c.id+"_"+slot,item,c,t,s));
+            String item=switch(s){case WEAPON->p.weapon();case HEAD->p.name()+" Helm";case CHEST->p.name()+" Armor";case LEGS->p.name()+" Leggings";case FEET->p.name()+" Boots";case SHIELD->p.name()+" Shield";};
+            out.add(s==Slot.SHIELD?new Definition(tier+"_"+c.id+"_"+slot,item,c,t,s,WeaponKind.SHIELD,t.level):new Definition(tier+"_"+c.id+"_"+slot,item,c,t,s));
         }
+        add(out,ClassSet.WARRIOR,WeaponKind.SWORD,10,"Ironfang");
+        add(out,ClassSet.WARRIOR,WeaponKind.SWORD,30,"Kingsblade");
+        add(out,ClassSet.WARRIOR,WeaponKind.SWORD,50,"Sovereign's Edge");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATSWORD,1,"Iron Colossus");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATSWORD,10,"Executioner");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATSWORD,20,"Dreadblade");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATSWORD,30,"Warforged");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATSWORD,40,"Dragon's Dominion");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATSWORD,50,"Worldender");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATSWORD,1,"Bastion Blade");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATSWORD,10,"Stormbringer");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATSWORD,20,"Blood Oath");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATSWORD,30,"Frostmourner");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATSWORD,40,"Dragonheart");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATSWORD,50,"Celestial Judgement");
+        add(out,ClassSet.WARRIOR,WeaponKind.AXE,1,"Iron Rend");
+        add(out,ClassSet.WARRIOR,WeaponKind.AXE,10,"Ravager");
+        add(out,ClassSet.WARRIOR,WeaponKind.AXE,20,"Bloodreaver");
+        add(out,ClassSet.WARRIOR,WeaponKind.AXE,30,"King's Cleaver");
+        add(out,ClassSet.WARRIOR,WeaponKind.AXE,40,"Dragon's Fang");
+        add(out,ClassSet.WARRIOR,WeaponKind.AXE,50,"Tyrant's Wrath");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATAXE,1,"Iron Reaper");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATAXE,10,"Skullsplitter");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATAXE,20,"Bloodstorm");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATAXE,30,"Dread Executioner");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATAXE,40,"Dragon Apocalypse");
+        add(out,ClassSet.WARRIOR,WeaponKind.GREATAXE,50,"Ragnarok");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATAXE,1,"Citadel Reaper");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATAXE,10,"Siege Fang");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATAXE,20,"Bastion Cleaver");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATAXE,30,"Iron Tempest");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATAXE,40,"Titan's Axe");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.GREATAXE,50,"Mountainfall");
+        add(out,ClassSet.WARRIOR,WeaponKind.HAMMER,1,"Ironbreaker");
+        add(out,ClassSet.WARRIOR,WeaponKind.HAMMER,20,"Bloodforge");
+        add(out,ClassSet.WARRIOR,WeaponKind.HAMMER,40,"Worldsplitter");
+        add(out,ClassSet.CLERIC,WeaponKind.HAMMER,1,"Dawnbringer");
+        add(out,ClassSet.CLERIC,WeaponKind.HAMMER,20,"Light's Judgment");
+        add(out,ClassSet.CLERIC,WeaponKind.HAMMER,40,"Divine Reckoning");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.MACE,1,"Ironclad");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.MACE,10,"Fortress Breaker");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.MACE,20,"Dreadcrusher");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.MACE,30,"Blacksteel Morningstar");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.MACE,40,"Dragon's Wrath");
+        add(out,ClassSet.HEAVY_KNIGHT,WeaponKind.MACE,50,"Titan's Judgment");
+        add(out,ClassSet.WARRIOR,WeaponKind.MACE,1,"Skullcrusher");
+        add(out,ClassSet.WARRIOR,WeaponKind.MACE,10,"Bloodthorn");
+        add(out,ClassSet.WARRIOR,WeaponKind.MACE,20,"Warbringer");
+        add(out,ClassSet.WARRIOR,WeaponKind.MACE,30,"Crimson Morningstar");
+        add(out,ClassSet.WARRIOR,WeaponKind.MACE,40,"Wyrmcrusher");
+        add(out,ClassSet.WARRIOR,WeaponKind.MACE,50,"Kingsfall");
+        add(out,ClassSet.CLERIC,WeaponKind.MACE,1,"Dawnstar");
+        add(out,ClassSet.CLERIC,WeaponKind.MACE,10,"Sacred Justice");
+        add(out,ClassSet.CLERIC,WeaponKind.MACE,20,"Lightbringer");
+        add(out,ClassSet.CLERIC,WeaponKind.MACE,30,"Radiant Judgment");
+        add(out,ClassSet.CLERIC,WeaponKind.MACE,40,"Seraph's Wrath");
+        add(out,ClassSet.CLERIC,WeaponKind.MACE,50,"Hand of Divinity");
+        add(out,ClassSet.ROGUE,WeaponKind.DAGGER,10,"Serpent's Tooth");
+        add(out,ClassSet.ROGUE,WeaponKind.DAGGER,30,"Nightpiercer");
+        add(out,ClassSet.ROGUE,WeaponKind.DAGGER,50,"Death's Embrace");
+        add(out,ClassSet.ROGUE,WeaponKind.SHORTSWORD,1,"Steel Talon");
+        add(out,ClassSet.ROGUE,WeaponKind.SHORTSWORD,10,"Quickfang");
+        add(out,ClassSet.ROGUE,WeaponKind.SHORTSWORD,20,"Crimson Edge");
+        add(out,ClassSet.ROGUE,WeaponKind.SHORTSWORD,30,"Phantom Blade");
+        add(out,ClassSet.ROGUE,WeaponKind.SHORTSWORD,40,"Dragonfang");
+        add(out,ClassSet.ROGUE,WeaponKind.SHORTSWORD,50,"Eternity's Edge");
+        add(out,ClassSet.WARRIOR,WeaponKind.SHORTSWORD,1,"Iron Talon");
+        add(out,ClassSet.WARRIOR,WeaponKind.SHORTSWORD,10,"Swiftsteel");
+        add(out,ClassSet.WARRIOR,WeaponKind.SHORTSWORD,20,"Crimson Talon");
+        add(out,ClassSet.WARRIOR,WeaponKind.SHORTSWORD,30,"Royal Fang");
+        add(out,ClassSet.WARRIOR,WeaponKind.SHORTSWORD,40,"Wyrm Talon");
+        add(out,ClassSet.WARRIOR,WeaponKind.SHORTSWORD,50,"Crownblade");
+        add(out,ClassSet.MAGE,WeaponKind.STAFF,10,"Frostspire");
+        add(out,ClassSet.MAGE,WeaponKind.STAFF,30,"Stormcaller");
+        add(out,ClassSet.MAGE,WeaponKind.STAFF,50,"Astral Sovereign");
+        add(out,ClassSet.MAGE,WeaponKind.WAND,1,"Emberlight");
+        add(out,ClassSet.MAGE,WeaponKind.WAND,10,"Frostwhisper");
+        add(out,ClassSet.MAGE,WeaponKind.WAND,20,"Arcane Whisper");
+        add(out,ClassSet.MAGE,WeaponKind.WAND,30,"Thunderbite");
+        add(out,ClassSet.MAGE,WeaponKind.WAND,40,"Voidshard");
+        add(out,ClassSet.MAGE,WeaponKind.WAND,50,"Celestial Prism");
+        add(out,ClassSet.NECROMANCER,WeaponKind.STAFF,10,"Bonecaller");
+        add(out,ClassSet.NECROMANCER,WeaponKind.STAFF,30,"Deathspeaker");
+        add(out,ClassSet.NECROMANCER,WeaponKind.STAFF,50,"Oblivion");
+        add(out,ClassSet.NECROMANCER,WeaponKind.WAND,1,"Bone Whisper");
+        add(out,ClassSet.NECROMANCER,WeaponKind.WAND,10,"Rotfang");
+        add(out,ClassSet.NECROMANCER,WeaponKind.WAND,20,"Soulthorn");
+        add(out,ClassSet.NECROMANCER,WeaponKind.WAND,30,"Gravebind");
+        add(out,ClassSet.NECROMANCER,WeaponKind.WAND,40,"Dreadshard");
+        add(out,ClassSet.NECROMANCER,WeaponKind.WAND,50,"Eternal Night");
+        add(out,ClassSet.CLERIC,WeaponKind.STAFF,10,"Lightkeeper");
+        add(out,ClassSet.CLERIC,WeaponKind.STAFF,30,"Sunward");
+        add(out,ClassSet.CLERIC,WeaponKind.STAFF,50,"Divine Ascension");
+        add(out,ClassSet.CLERIC,WeaponKind.WAND,1,"Light's Touch");
+        add(out,ClassSet.CLERIC,WeaponKind.WAND,10,"Silver Grace");
+        add(out,ClassSet.CLERIC,WeaponKind.WAND,20,"Sacred Bloom");
+        add(out,ClassSet.CLERIC,WeaponKind.WAND,30,"Radiant Star");
+        add(out,ClassSet.CLERIC,WeaponKind.WAND,40,"Angel's Blessing");
+        add(out,ClassSet.CLERIC,WeaponKind.WAND,50,"Heaven's Light");
+        add(out,ClassSet.HEXSLINGER,WeaponKind.WAND,1,"Hexthorn");
+        add(out,ClassSet.HEXSLINGER,WeaponKind.WAND,10,"Curseweaver");
+        add(out,ClassSet.HEXSLINGER,WeaponKind.WAND,20,"Rune Needle");
+        add(out,ClassSet.HEXSLINGER,WeaponKind.WAND,30,"Malice");
+        add(out,ClassSet.HEXSLINGER,WeaponKind.WAND,40,"Doom Needle");
+        add(out,ClassSet.HEXSLINGER,WeaponKind.WAND,50,"Fatebreaker");
+        add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,1,"Ironbolt");
+        add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,10,"Windpiercer");
+        add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,20,"Thornbolt");
+        add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,30,"Stormbolt");
+        add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,40,"Dragonbolt");
+        add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,50,"Skybreaker");
         return List.copyOf(out);
+    }
+    private static void add(List<Definition> out,ClassSet owner,WeaponKind kind,int level,String name){
+        Tier tier=level>=40?Tier.DRAGON:level>=20?Tier.VETERAN:Tier.ADVENTURER;
+        String id=owner.id+"_"+kind.name().toLowerCase(Locale.ROOT)+"_"+level;
+        out.add(new Definition(id,name,owner,tier,Slot.WEAPON,kind,level));
     }
     static int min(Definition d,Rarity rarity){return d.tier.min+rarity.bonus;}
     static int max(Definition d,Rarity rarity){return d.tier.max+rarity.bonus;}
