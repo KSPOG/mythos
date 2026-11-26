@@ -35,7 +35,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
     private float swing, amount, age, yaw, pitch;
     private float breath, blink, walkBob;
     private float wingOpen, wingDrive, wingRecovery;
-    private float liftHeight, flightTuck, landingFlex, flightPitch;
+    private float liftHeight, flightTuck, landingFlex, flightPitch, airBlend;
     private float performanceTime, performanceWeight, foreGesture, foreFollow, wristFollow, wingWrist, wingFinger;
     private float rearPose, roarPose, wingSpread, wingBeat, wingLag, crouch, rearReach, rearLook, rearClaw, rearTail;
     private static final float REAR_ANGLE=1.48F;
@@ -142,9 +142,9 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 wristFollow=roarPose*0.35F*Mth.sin(t*0.21F-1.1F);
             }
             case DragonEntity.BREATH -> {
-                float charge=envelope(t,30,10,9);
-                roarPose=envelope(t-5,22,6,8);
-                rearLook=track(t,0,0,8,-18,12,8,20,4,30,0);
+                float charge=envelope(t,44,8,10);
+                roarPose=envelope(t-3,38,7,7);
+                rearLook=track(t,0,0,7,-12,10,0,33,0,44,0);
                 crouch=charge*0.42F;wingOpen=charge*0.64F;
                 wingDrive=track(t,0,0,8,-0.42F,13,0.55F,30,0);
                 wingLag=wingDrive*0.6F;wingWrist=wingDrive*0.3F;
@@ -157,6 +157,30 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 wingRecovery=guard*0.4F;rearLook=-guard*12;
             }
             default -> {}
+        }
+        float desired=entity.flight()/20F;
+        // Interpolate flight weight over render frames using the entity's
+        // synchronized intensity; wing phase never resets between casts.
+        airBlend=smooth(desired);
+        if(airBlend>0){
+            float phase=age*Mth.TWO_PI/19F;
+            wingOpen=Mth.lerp(airBlend,wingOpen,0.95F);
+            wingSpread=Mth.lerp(airBlend,wingSpread,0.95F);
+            wingDrive=Mth.lerp(airBlend,wingDrive,-0.82F*Mth.cos(phase)+0.08F*Mth.sin(phase*2));
+            wingRecovery=Mth.lerp(airBlend,wingRecovery,0.55F*Mth.sin(phase-0.45F));
+            wingBeat=wingDrive;wingLag=-0.78F*Mth.cos(phase-0.42F)*airBlend;
+            wingWrist=-0.65F*Mth.cos(phase-0.8F)*airBlend;
+            wingFinger=-0.52F*Mth.cos(phase-1.2F)*airBlend;
+            flightTuck=airBlend;rearPose*=1-airBlend;crouch*=1-airBlend;
+            flightPitch=0.045F*Mth.sin(phase-0.5F)*airBlend;
+            walkBob*=1-airBlend;amount*=1-airBlend;
+            if(action==DragonEntity.BREATH){
+                var aim=entity.breathAim();
+                if(entity.streamLength()>0){
+                    pitch=(float)Math.toDegrees(Math.atan2(-aim.y,Math.hypot(aim.x,aim.z)));
+                    pitch=Mth.clamp(pitch,-65,65);
+                }
+            }
         }
     }
 
