@@ -11,6 +11,18 @@ final class EquipmentRules {
         final int level,min,max;
         Tier(int level,int min,int max){this.level=level;this.min=min;this.max=max;}
     }
+    enum Rarity {
+        COMMON(4500,1,0), UNCOMMON(2800,2,1), RARE(1600,3,2),
+        EPIC(800,4,4), LEGENDARY(250,5,7), GODLIKE(50,6,10);
+        final int weight,count,bonus;
+        Rarity(int weight,int count,int bonus){this.weight=weight;this.count=count;this.bonus=bonus;}
+        String label(){String s=name().toLowerCase(Locale.ROOT);return Character.toUpperCase(s.charAt(0))+s.substring(1);}
+        static Rarity random(RandomGenerator rng){
+            int value=rng.nextInt(10000);
+            for(Rarity r:values()){value-=r.weight;if(value<0)return r;}
+            throw new IllegalStateException("Invalid rarity weights");
+        }
+    }
     enum ClassSet {
         WARRIOR("warrior","Vanguard","Longsword",0xB44C35,Stat.STR,Stat.ATK,Stat.DEF),
         HEAVY_KNIGHT("heavy_knight","Bastion","Warhammer",0x718298,Stat.DEF,Stat.VIT,Stat.STR),
@@ -35,23 +47,24 @@ final class EquipmentRules {
         }
         return List.copyOf(out);
     }
-    static Map<Stat,Integer> roll(Definition d,RandomGenerator rng){
+    static int min(Definition d,Rarity rarity){return d.tier.min+rarity.bonus;}
+    static int max(Definition d,Rarity rarity){return d.tier.max+rarity.bonus;}
+    static Map<Stat,Integer> roll(Definition d,Rarity rarity,RandomGenerator rng){
         var result=new EnumMap<Stat,Integer>(Stat.class);
         var first=d.slot==Slot.WEAPON?d.owner.preferred.getFirst():Stat.DEF;
-        result.put(first,rng.nextInt(d.tier.min,d.tier.max+1));
+        result.put(first,rng.nextInt(min(d,rarity),max(d,rarity)+1));
         var candidates=new ArrayList<>(Arrays.asList(Stat.values()));candidates.remove(first);
-        // Two additional distinct stats; class-favored stats are weighted 3:1.
-        for(int i=0;i<2;i++){
+        for(int i=1;i<rarity.count;i++){
             var weighted=new ArrayList<Stat>();
             for(Stat stat:candidates){int weight=d.owner.preferred.contains(stat)?3:1;for(int j=0;j<weight;j++)weighted.add(stat);}
             Stat stat=weighted.get(rng.nextInt(weighted.size()));candidates.remove(stat);
-            result.put(stat,rng.nextInt(d.tier.min,d.tier.max+1));
+            result.put(stat,rng.nextInt(min(d,rarity),max(d,rarity)+1));
         }
         return Collections.unmodifiableMap(result);
     }
-    static boolean valid(Definition d,Map<Stat,Integer> values){
-        if(values==null||values.size()!=3||!values.containsKey(d.slot==Slot.WEAPON?d.owner.preferred.getFirst():Stat.DEF))return false;
-        for(var e:values.entrySet())if(e.getKey()==null||e.getValue()==null||e.getValue()<d.tier.min||e.getValue()>d.tier.max)return false;
+    static boolean valid(Definition d,Rarity rarity,Map<Stat,Integer> values){
+        if(rarity==null||values==null||values.size()!=rarity.count||!values.containsKey(d.slot==Slot.WEAPON?d.owner.preferred.getFirst():Stat.DEF))return false;
+        for(var e:values.entrySet())if(e.getKey()==null||e.getValue()==null||e.getValue()<min(d,rarity)||e.getValue()>max(d,rarity))return false;
         return true;
     }
 }
