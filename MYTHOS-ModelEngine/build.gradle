@@ -8,3 +8,12 @@ tasks.register('verifyRegistry', JavaExec) {
  mainClass = 'com.ksp.mythos.model.RegistryTest'
 }
 tasks.named('check') { dependsOn 'verifyRegistry' }
+
+['CapabilityTest', 'AssetVerifierTest', 'VerifiedAssetCacheTest'].each { testName ->
+    tasks.register("verify${testName}", JavaExec) {
+        dependsOn testClasses
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = "com.ksp.mythos.model.${testName}"
+    }
+    tasks.named('check') { dependsOn "verify${testName}" }
+}
