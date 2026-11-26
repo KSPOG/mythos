@@ -1,16 +1,21 @@
 package com.ksp.mythosequipment;
+
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 
 final class EquipmentLifecycle {
-    private static EquipmentServer active;
-    static void start(ServerStartedEvent e){
-        if(active!=null)MinecraftForge.EVENT_BUS.unregister(active);
-        active=new EquipmentServer();
-        MinecraftForge.EVENT_BUS.register(active);
+    private static final EquipmentServer SERVER=new EquipmentServer();
+    static void register(){
+        var bus=MinecraftForge.EVENT_BUS;
+        bus.addListener(SERVER::commands);
+        bus.addListener(SERVER::attack);
+        bus.addListener(SERVER::use);
+        bus.addListener(SERVER::block);
+        bus.addListener(SERVER::projectile);
+        bus.addListener(SERVER::damage);
+        bus.addListener(SERVER::tick);
+        bus.addListener(EquipmentLifecycle::stop);
     }
-    static void stop(ServerStoppingEvent e){
-        if(active!=null){active.cleanup(e.getServer());MinecraftForge.EVENT_BUS.unregister(active);active=null;}
-    }
+    private static void stop(ServerStoppingEvent e){SERVER.cleanup(e.getServer());}
 }
