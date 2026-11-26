@@ -38,11 +38,11 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import zipfile, json, struct
-          jar=next(Path("build/libs").glob("mythos-equipment-0.1.2.jar"))
+          jar=next(Path("build/libs").glob("mythos-equipment-0.1.3.jar"))
           with zipfile.ZipFile(jar) as z:
               names=z.namelist()
-              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/item/") and n.endswith(".png")])==240
-              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/models/armor/") and n.endswith(".png")])==48
+              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/item/") and n.endswith(".png")])==375
+              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/models/armor/") and n.endswith(".png")])==96
               assert not any(n.startswith("com/ksp/mythosclasses/") for n in names)
               models=[n for n in names if n.startswith("assets/mythosequipment/models/item/") and n.endswith(".json")]
               meshes=[json.loads(z.read(n)) for n in models]
@@ -59,7 +59,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-equipment-0.1.2
+          name: mythos-equipment-0.1.3
           path: |
             MYTHOS-Equipment/build/libs/*.jar
             MYTHOS-Equipment/README.md
