@@ -41,8 +41,8 @@ jobs:
           jar=next(Path("build/libs").glob("mythos-equipment-0.1.4.jar"))
           with zipfile.ZipFile(jar) as z:
               names=z.namelist()
-              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/item/") and n.endswith(".png")])==375
-              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/models/armor/") and n.endswith(".png")])==96
+              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/item/") and n.endswith(".png")])==435
+              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/models/armor/") and n.endswith(".png")])==108
               assert not any(n.startswith("com/ksp/mythosclasses/") for n in names)
               models=[n for n in names if n.startswith("assets/mythosequipment/models/item/") and n.endswith(".json")]
               meshes=[json.loads(z.read(n)) for n in models]
