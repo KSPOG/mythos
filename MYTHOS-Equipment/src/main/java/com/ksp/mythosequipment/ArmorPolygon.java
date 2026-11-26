@@ -150,6 +150,92 @@ final class ArmorPolygon {
             tri(outer[r][k],inner[r+1][k],outer[r+1][k],2);tri(outer[r][k],inner[r][k],inner[r+1][k],2);
         }
     }
+    /** Tapered swept horn, with a curved spine and cross sections perpendicular to its tangent. */
+    private void horn(int mat,float x,float y,float z,float dx,float height,float dz,float radius){
+        int steps=detail==0?28:detail==1?10:4, sides=detail==0?16:detail==1?8:4;
+        V[][] v=new V[steps+1][sides],norm=new V[steps+1][sides];
+        for(int i=0;i<=steps;i++){
+            float t=i/(float)steps;
+            V tangent=unit(dx*(.35F+1.3F*t),-height*(1.35F-.7F*t),dz*(.4F+1.2F*t));
+            V a=unit(-tangent.y,tangent.x,0);
+            V b=unit(tangent.y*a.z-tangent.z*a.y,tangent.z*a.x-tangent.x*a.z,tangent.x*a.y-tangent.y*a.x);
+            float cx=x+dx*(.35F*t+.65F*t*t),cy=y-height*(1.35F*t-.35F*t*t),cz=z+dz*(.4F*t+.6F*t*t);
+            float rad=Math.max(.012F,radius*(float)Math.pow(1-t,.82)* (1+.055F*(float)Math.cos(t*42)));
+            for(int k=0;k<sides;k++){
+                double angle=2*Math.PI*k/sides;
+                float c=(float)Math.cos(angle),sn=(float)Math.sin(angle);
+                V normal=unit(a.x*c+b.x*sn,a.y*c+b.y*sn,a.z*c+b.z*sn);
+                norm[i][k]=normal;
+                v[i][k]=new V(cx+normal.x*rad,cy+normal.y*rad,cz+normal.z*rad);
+            }
+        }
+        for(int i=0;i<steps;i++)for(int k=0;k<sides;k++){
+            int j=(k+1)%sides;float u=k/(float)sides,U=(k+1)/(float)sides,w=i/(float)steps,W=(i+1)/(float)steps;
+            int material=i==0&&detail<2?2:mat;
+            curved(v[i][k],v[i][j],v[i+1][j],norm[i][k],norm[i][j],norm[i+1][j],material,u,w,U,w,U,W);
+            curved(v[i][k],v[i+1][j],v[i+1][k],norm[i][k],norm[i+1][j],norm[i+1][k],material,u,w,U,W,u,W);
+        }
+        for(int k=1;k<sides-1;k++)tri(v[steps][0],v[steps][k],v[steps][k+1],mat);
+    }
+    /** Raised leaf, feather or blade with a curved silhouette, central ridge and bevel. */
+    private void blade(int mat,float x,float y,float z,float dx,float dy,float dz,float width){
+        int steps=detail==0?14:detail==1?6:3;
+        V[][] v=new V[steps+1][3];
+        float l=(float)Math.hypot(dx,dy);float px=-dy/Math.max(.01F,l),py=dx/Math.max(.01F,l);
+        for(int i=0;i<=steps;i++){
+            float t=i/(float)steps,ww=Math.max(.012F,width*(float)Math.sin(Math.PI*t));
+            float cx=x+dx*t,cy=y+dy*t,cz=z+dz*t;
+            v[i][0]=new V(cx-px*ww,cy-py*ww,cz);
+            v[i][1]=new V(cx,cy,cz-.18F*(float)Math.sin(Math.PI*t));
+            v[i][2]=new V(cx+px*ww,cy+py*ww,cz);
+        }
+        for(int i=0;i<steps;i++)for(int k=0;k<2;k++){
+            V a=v[i][k],b=v[i+1][k],c=v[i+1][k+1],d=v[i][k+1];
+            tri(a,b,c,mat);tri(a,c,d,mat);tri(a,c,b,mat);tri(a,d,c,mat);
+        }
+    }
+    private void ornaments(int side,float x,float w,int t){
+        switch(owner){
+            case WARRIOR -> {
+                float root=x+side*w*.57F;
+                // Root intersects the upper pauldron, tip sweeps outward and upward.
+                horn(t>=3?2:1,root,-1.85F,-w*.52F,side*(1.35F+t*.23F),1.9F+t*.38F,-.45F-t*.09F,.46F+t*.055F);
+                if(t>=2)horn(2,root,-1.55F,w*.38F,side*(.9F+t*.17F),1.35F+t*.26F,.48F,.34F+t*.035F);
+                if(t>=4)blade(2,x+side*w*.55F,.0F,-w*.73F,side*1.6F,-1.8F,-.2F,.42F);
+            }
+            case HEAVY_KNIGHT -> {
+                for(int k=0;k<2+t/2;k++){
+                    float z=-w*.58F+k*w*1.15F/(1+t/2);
+                    if(detail<2||k==0)blade(0,x+side*w*.60F,-1.8F,z,side*.45F,-1.15F-t*.17F,0,.46F);
+                }
+                blade(2,x+side*w*.60F,.1F,-w*.76F,side*.80F,1.6F,-.1F,.43F);
+            }
+            case RANGER -> {
+                for(int k=0;k<2+t/2;k++)blade(k%2==0?0:3,x+side*w*.25F,-1.75F+k*.35F,-w*.72F,side*(1.65F+k*.15F),1.65F+k*.25F,-.12F,.42F);
+            }
+            case ROGUE -> {
+                blade(1,x+side*w*.40F,-1.8F,-w*.68F,side*(1.6F+t*.17F),1.1F,-.2F,.46F);
+                if(t>=3)blade(2,x+side*w*.30F,-.8F,-w*.77F,side*1.5F,1.6F,-.15F,.26F);
+            }
+            case MAGE -> {
+                gem(detail==0?16:6,2,x+side*w*.45F,-3.2F-t*.25F,-w*.54F,.46F+t*.05F,1.85F+t*.25F,.48F);
+                if(t>=2)blade(2,x+side*w*.20F,-1.7F,-w*.76F,side*1.1F,2.2F,-.2F,.27F);
+            }
+            case CLERIC -> {
+                for(int k=0;k<3+t/2;k++)blade(k%2==0?2:0,x+side*w*.30F,-1.7F+k*.28F,-w*.75F,side*(1.4F+k*.16F),1.8F+k*.2F,-.12F,.30F);
+            }
+            case NECROMANCER -> {
+                horn(2,x+side*w*.55F,-1.7F,-w*.48F,side*(1.2F+t*.18F),1.5F+t*.3F,-.55F,.38F+t*.04F);
+                if(t>=2)horn(2,x+side*w*.6F,-.8F,w*.2F,side*.9F,1.2F+t*.18F,.5F,.28F);
+            }
+            case HEXSLINGER -> {
+                for(int k=0;k<2+t/2;k++)blade(k==0?2:1,x+side*w*.4F,-1.6F+k*.5F,-w*.73F,side*(1.2F+t*.12F),-.9F+k*.65F,-.25F,.40F);
+            }
+            case SUMMONER -> {
+                for(int k=0;k<2+t/2;k++)gem(detail==0?12:6,k%2==0?2:3,x+side*(w*.4F+k*.25F),-3.0F-k*.18F,-w*.6F+k*.45F,.30F,1.8F+t*.24F,.35F);
+            }
+        }
+    }
     private void stud(float x,float y,float z,float size){
         gem(detail==0?12:6,2,x,y-size*.5F,z,size,size,size*.6F);
     }
@@ -228,6 +314,7 @@ final class ArmorPolygon {
                         float y=-2.15F+k*.92F;
                         m.plate(n,steel?0:cloth?3:0,x,0,y,y+1.7F,w-k*.15F,w-k*.12F,w*.82F-k*.10F,w*.80F-k*.08F,1.9F,.3F,.16F,shape);
                     }
+                    m.ornaments(side,x,w,t);
                     // Backward-facing arm armor uses the same fitted underlayer; leave the elbow flexible.
                     m.plate(n,steel?0:1,x,0,5.0F,9.5F,2.29F+extra*.28F,2.13F,2.28F+extra*.25F,2.18F,1.7F,.30F,.15F,.48F);
                     if(lod<2){m.stud(x-1.25F,6.0F,-2.15F,.20F);m.stud(x+1.25F,6.0F,-2.15F,.20F);}
