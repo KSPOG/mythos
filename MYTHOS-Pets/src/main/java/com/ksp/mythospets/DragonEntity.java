@@ -11,7 +11,7 @@ import net.minecraft.world.level.Level;
 
 /** Server-owned idle events; model animation never changes movement or combat. */
 public final class DragonEntity extends PathfinderMob {
-    static final int NONE=0, FLAP=1, REAR=2, ROAR=3;
+    static final int NONE=0, FLAP=1, REAR=2, ROAR=3, BREATH=4, GUARD=5;
     private static final EntityDataAccessor<Integer> IDLE =
         SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> START =
@@ -30,11 +30,19 @@ public final class DragonEntity extends PathfinderMob {
     }
 
     static int duration(int action) {
-        return switch(action){case FLAP->128;case REAR->160;case ROAR->72;default->0;};
+        return switch(action){case FLAP->128;case REAR->160;case ROAR->72;case BREATH->30;case GUARD->24;default->0;};
     }
     int idleAction(){return entityData.get(IDLE);}
     int idleElapsed(){return Math.max(0,(int)level().getGameTime()-entityData.get(START));}
 
+    void beginCombat(int action){
+        entityData.set(START,(int)level().getGameTime());
+        entityData.set(IDLE,action);
+    }
+    void endCombat(){
+        if(idleAction()>=BREATH)entityData.set(IDLE,NONE);
+        quietTicks=0;
+    }
     @Override public void tick(){
         super.tick();
         if(level().isClientSide){
@@ -46,6 +54,7 @@ public final class DragonEntity extends PathfinderMob {
         double dx=getX()-previousX,dy=getY()-previousY,dz=getZ()-previousZ;
         boolean moving=!sampled||dx*dx+dy*dy+dz*dz>0.0004;
         previousX=getX();previousY=getY();previousZ=getZ();sampled=true;
+        if(idleAction()>=BREATH)return; // Combat controller owns the cast lifecycle.
         if(moving){
             quietTicks=0;
             if(idleAction()!=NONE)entityData.set(IDLE,NONE);
