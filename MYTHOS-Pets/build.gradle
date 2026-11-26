@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 group = 'com.ksp.mythospets'
-version = '0.3.6'
+version = '0.4.0'
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 minecraft {
     mappings channel: 'official', version: '1.21.1'
@@ -23,10 +23,11 @@ sourceSets {
 }
 tasks.named('compileJava') { dependsOn tasks.named('compileEconomyApiJava') }
 
-def petTextures = fileTree('src/main/texture-source') { include '*.png.b64' }
+def petTextures = fileTree('src/main/texture-source') { include '*.png.b64'; exclude 'ember_dragon.png.b64' }
 def generatedTextures = layout.buildDirectory.dir('generated/petTextures')
 tasks.register('generatePetTextures') {
     inputs.files(petTextures)
+    inputs.file('src/main/texture-source/DragonTexture.java')
     outputs.dir(generatedTextures)
     doLast {
         delete generatedTextures.get().asFile
@@ -35,6 +36,9 @@ tasks.register('generatePetTextures') {
             output.parentFile.mkdirs()
             output.bytes = Base64.getDecoder().decode(source.text.trim())
         }
+        def dragon = generatedTextures.get().file('assets/mythospets/textures/entity/ember_dragon.png').asFile
+        def launcher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }.get()
+        exec { commandLine launcher.executablePath.asFile, file('src/main/texture-source/DragonTexture.java'), dragon }
     }
 }
 tasks.named('processResources') {
