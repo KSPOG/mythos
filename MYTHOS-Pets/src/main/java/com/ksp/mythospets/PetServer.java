@@ -68,8 +68,8 @@ final class PetServer {
     );
     private static String description(Definition d){
         return switch(d.id){
-            case "ember_dragon" -> "Flame Breath (6 damage, 6s cooldown) | Ember Guard (Resistance I, Fire Resistance, 12s cooldown)";
-            case "premium_mooncat" -> "Lunar Pounce (4 damage, Slowness I, 5s cooldown) | Moon Blessing (heal 4, Speed I, 12s cooldown)";
+            case "ember_dragon" -> "Flame Breath (6 damage, 6s cooldown) | Ember Guard (5s Resistance I + Fire Resistance at <=70% health, 12s cooldown)";
+            case "premium_mooncat" -> "Lunar Pounce (4 damage, Slowness I, 5s cooldown) | Moon Blessing (heal 4 + 5s Speed I at <=70% health, 12s cooldown)";
             default -> d.ability.name()+" | cooldown "+d.cooldown+" ticks";
         };
     }
@@ -223,7 +223,7 @@ final class PetServer {
     }
     private void startCast(Active a,LivingEntity target,int action,int windup,int duration){
         a.cast=action;a.castTarget=target.getUUID();a.impactAt=tick+windup;a.finishAt=tick+duration;a.impacted=false;
-        combatLock.put(a.owner,tick+duration+100);
+        combatLock.merge(a.owner,Math.max(a.nextAbility,a.nextSupport),Math::max);
         face(a.entity,target.position().subtract(a.entity.position()));
         if(a.entity instanceof DragonEntity d)d.beginCombat(action==BREATH?DragonEntity.BREATH:DragonEntity.GUARD);
         if(a.entity instanceof MooncatEntity m)m.beginCombat(action==POUNCE?MooncatEntity.POUNCE:MooncatEntity.BLESS);
