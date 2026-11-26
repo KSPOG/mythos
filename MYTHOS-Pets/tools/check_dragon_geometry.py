@@ -13,7 +13,7 @@ sections = [(int(r), int(c)) for r, c in re.findall(r"p\.scales\(anatomy\.\w+,(\
 assert len(sections) == 4
 # Wing rendering iterates both sides. Each patch has steps^2 triangles per side.
 patches = len(re.findall(r"p\.membrane\(", source)) * 2
-assert patches == 18
+assert patches == 32
 budgets = []
 for lod in range(4):
     count = sum((r * rows[lod] // 96) * (c * cols[lod] // 64) for r, c in sections)
