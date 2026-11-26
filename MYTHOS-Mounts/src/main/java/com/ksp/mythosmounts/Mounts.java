@@ -95,6 +95,7 @@ public final class Mounts {
         };
     }
     private static double scale(Definition d){
+        if(d.id.equals("royal_warhorse"))return 1.10;
         return switch(d.entity){
             case "bee","allay","parrot","rabbit","chicken","silverfish","axolotl","frog"->2.5;
             case "fox","ocelot","armadillo","wolf","cave_spider"->1.8;
@@ -264,6 +265,13 @@ public final class Mounts {
         var speed=mob.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED);
         if(speed!=null)speed.setBaseValue(d.speed);
         if(mob instanceof AbstractHorse horse){horse.setTamed(true);}
+        // Native horse appearance and equipment are synchronized to unmodified clients.
+        if(d.id.equals("royal_warhorse") && mob instanceof net.minecraft.world.entity.animal.horse.Horse royal){
+            royal.setVariantAndMarkings(net.minecraft.world.entity.animal.horse.Variant.BLACK,
+                net.minecraft.world.entity.animal.horse.Markings.NONE);
+            royal.setBodyArmorItem(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.GOLDEN_HORSE_ARMOR));
+            royal.setCustomName(Component.literal(d.name).withStyle(net.minecraft.ChatFormatting.GOLD,net.minecraft.ChatFormatting.BOLD));
+        }
         // Native horses can be mounted with force but require saddle equipment for steering.
         if(mob instanceof net.minecraft.world.entity.Saddleable saddle&&d.nativeControl)saddle.equipSaddle(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.SADDLE),net.minecraft.sounds.SoundSource.NEUTRAL);
         active.put(p.getUUID(),new Active(p.getUUID(),id,mob));
