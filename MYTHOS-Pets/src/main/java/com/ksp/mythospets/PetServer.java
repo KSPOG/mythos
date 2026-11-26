@@ -154,18 +154,43 @@ final class PetServer {
         }
         return null;
     }
+    /** Minecraft yaw: +Z = 0, -X = +90, -Z = 180, +X = -90. */
+    private static void face(Mob mob,Vec3 direction){
+        if(direction.x*direction.x+direction.z*direction.z<1.0e-8)return;
+        float yaw=(float)Math.toDegrees(Math.atan2(-direction.x,direction.z));
+        mob.setYRot(yaw);
+        mob.setYBodyRot(yaw);
+        mob.setYHeadRot(yaw);
+        mob.setXRot(0);
+    }
+
     private void tick(TickEvent.ServerTickEvent.Post e){
         tick++;
         for(var id:List.copyOf(active.keySet())){
             var a=active.get(id);var p=e.getServer().getPlayerList().getPlayer(id);
             if(p==null||!p.isAlive()||p.isSpectator()||!a.entity.isAlive()||a.entity.level()!=p.level()||!owns(id,a.definition.id)){dismiss(id);continue;}
             var mob=a.entity;mob.setDeltaMovement(Vec3.ZERO);
-            if(tick%5==0&&mob.distanceToSqr(p)>9){
+            if(mob.distanceToSqr(p)>9){
                 var delta=p.position().subtract(mob.position());
-                var step=delta.normalize().scale(Math.min(.65,delta.length()));
+                // Preserve the old nominal speed (0.65 blocks per five ticks),
+                // but distribute movement over individual ticks.
+                var step=delta.normalize().scale(Math.min(.13,Math.max(0,delta.length()-3)));
                 if(delta.lengthSqr()>144||!safe(p.serverLevel(),mob,mob.position().add(step))){
-                    var feet=nearby(p,mob);if(feet!=null)mob.teleportTo(feet.x,feet.y,feet.z);
-                }else mob.move(MoverType.SELF,step);
+                    // Keep catch-up teleports on the original five-tick cadence.
+                    if(tick%5==0){
+                        var feet=nearby(p,mob);
+                        if(feet!=null){
+                            mob.teleportTo(feet.x,feet.y,feet.z);
+                            face(mob,p.position().subtract(mob.position()));
+                        }
+                    }
+                }else{
+                    var before=mob.position();
+                    face(mob,step);
+                    mob.move(MoverType.SELF,step);
+                    // Collision resolution can change the real movement vector.
+                    face(mob,mob.position().subtract(before));
+                }
             }
             if(tick>=a.nextAbility)ability(p,a);
         }
@@ -232,7 +257,7 @@ final class PetServer {
         if(!(type.create(p.serverLevel()) instanceof Mob mob))return fail(s,"Invalid pet entity.");
         var feet=nearby(p,mob);if(feet==null)return fail(s,"No safe pet spawn nearby.");
         dismiss(p.getUUID());
-        mob.moveTo(feet.x,feet.y,feet.z,p.getYRot(),0);mob.setNoAi(true);mob.setNoGravity(true);mob.setInvulnerable(true);mob.setSilent(true);mob.setPersistenceRequired();
+        mob.moveTo(feet.x,feet.y,feet.z,p.getYRot(),0);face(mob,p.position().subtract(mob.position()));mob.setNoAi(true);mob.setNoGravity(true);mob.setInvulnerable(true);mob.setSilent(true);mob.setPersistenceRequired();
         mob.addTag(TAG);mob.setCustomName(Component.literal(petName(p.getUUID(),d)));mob.setCustomNameVisible(true);
         var a=new Active(p.getUUID(),d,mob);a.nextAbility=tick+d.cooldown;active.put(p.getUUID(),a);
         if(!p.serverLevel().addFreshEntity(mob)){dismiss(p.getUUID());return fail(s,"Summon failed.");}
