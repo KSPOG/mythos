@@ -35,6 +35,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
     private float swing, amount, age, yaw, pitch;
     private float breath, blink, walkBob;
     private float wingOpen, wingDrive, wingRecovery;
+    private float liftHeight, flightTuck, landingFlex, flightPitch;
     private float performanceTime, performanceWeight, foreGesture, foreFollow, wristFollow, wingWrist, wingFinger;
     private float rearPose, roarPose, wingSpread, wingBeat, wingLag, crouch, rearReach, rearLook, rearClaw, rearTail;
     private static final float REAR_ANGLE=1.48F;
@@ -73,19 +74,36 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         performanceWeight=action==DragonEntity.NONE?0:envelope(t,DragonEntity.duration(action),9,12)*still;
         foreGesture=0;foreFollow=0;wristFollow=0;wingWrist=0;wingFinger=0;
         wingOpen=0;wingDrive=0;wingRecovery=0;
+        liftHeight=0;flightTuck=0;landingFlex=0;flightPitch=0;
         rearPose=0;roarPose=0;wingSpread=0;wingBeat=0;wingLag=0;crouch=0;rearReach=0;rearLook=0;rearClaw=0;rearTail=0;
         switch(action) {
             case DragonEntity.FLAP -> {
-                wingSpread=envelope(t,96,20,24)*still;
-                wingOpen=track(t,0,0,12,0.24F,24,1,65,1,78,0.5F,96,0)*still;
-                wingDrive=track(t,0,0,18,-0.8F,26,-1,34,1,42,-0.78F,50,-1,58,0.94F,68,-0.38F,80,0,96,0)*still;
-                wingRecovery=track(t,0,0,24,0.4F,37,-0.85F,50,0.5F,61,-0.85F,76,0.6F,96,0)*still;
-                float beat=envelope(t-18,58,6,12)*still;
-                wingBeat=beat*Mth.sin((t-10)*Mth.TWO_PI/16);
-                wingLag=beat*Mth.sin((t-13)*Mth.TWO_PI/16);
-                wingWrist=beat*Mth.sin((t-15)*Mth.TWO_PI/16);
-                wingFinger=beat*Mth.sin((t-17)*Mth.TWO_PI/16);
-                foreGesture=wingBeat*0.10F;foreFollow=wingLag*0.13F;wristFollow=wingWrist*0.09F;
+                // One continuous phase clock for all joints. Distal joints
+                // respond later in the same cycle rather than stopping at keys.
+                float open=smooth((t-4)/18)*smooth((128-t)/25);
+                float drive=smooth((t-12)/12)*smooth((113-t)/18);
+                float phase=(t-24)*Mth.TWO_PI/24;
+                wingOpen=open*still;
+                wingSpread=wingOpen;
+                wingDrive=drive*(-Mth.cos(phase)+0.10F*Mth.sin(2*phase))*0.90F*still;
+                wingRecovery=drive*Mth.sin(phase-0.55F)*0.68F*still;
+                wingBeat=wingDrive;
+                wingLag=-drive*Mth.cos(phase-0.44F)*still;
+                wingWrist=-drive*Mth.cos(phase-0.82F)*still;
+                wingFinger=-drive*Mth.cos(phase-1.16F)*still;
+                // Render-space lift only: keeps server movement and hitbox intact.
+                // Smooth takeoff, hover with tiny stroke-linked bob, flare and landing.
+                float hover=smooth((t-29)/23)*smooth((94-t)/18);
+                float height=0.48F*smooth((t-23)/29)*smooth((105-t)/29);
+                liftHeight=(height+0.025F*hover*Mth.sin(phase-0.6F))*still;
+                flightTuck=smooth((t-26)/17)*smooth((102-t)/20)*still;
+                landingFlex=smooth((t-103)/5)*smooth((124-t)/16)*still;
+                crouch=smooth(t/10)*smooth((24-t)/10)*still;
+                flightPitch=(0.09F*smooth((t-15)/10)*smooth((49-t)/20)
+                    -0.07F*smooth((t-80)/12)*smooth((110-t)/12))*still;
+                foreGesture=wingDrive*0.045F*flightTuck;
+                foreFollow=wingLag*0.08F*flightTuck;
+                wristFollow=wingWrist*0.08F*flightTuck;
             }
             case DragonEntity.REAR -> {
                 wingOpen=track(t,0,0,14,0.28F,34,1,52,0.8F,87,1,115,0.8F,140,0.25F,160,0)*still;
@@ -132,10 +150,10 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         if (anatomy == null) anatomy = Anatomy.load();
         Painter p = new Painter(stack, vertices, light, overlay, color, lod);
         stack.pushPose();
-        stack.translate(0, (breath*0.035F+walkBob)/16F*(1-rearPose), 0);
-        float tilt=rearPose*REAR_ANGLE;
+        stack.translate(0, (breath*0.035F+walkBob)/16F*(1-rearPose)-liftHeight, 0);
+        float tilt=rearPose*REAR_ANGLE+flightPitch;
         // Shift the hips forward over the hind feet; lower the pelvis during anticipation.
-        float hipDrop=0.85F*crouch+0.38F*rearPose;
+        float hipDrop=0.85F*crouch+0.38F*rearPose+0.65F*landingFlex;
         float hipShift=-rearPose*0.8F;
         p.translate(0,hipDrop,hipShift);
         // Raise chest about the hind hip; the rear feet remain in world-facing stance.
@@ -223,7 +241,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             if(i>=2){
                 // Solve in unrotated model coordinates. Target is the rest ankle
                 // at (6.85,0.35) relative to the original hip.
-                float weight=ease((rearPose+crouch)*8)*(1-ease(amount/0.25F));
+                float weight=ease((rearPose+crouch+landingFlex)*8)*(1-ease(amount/0.25F))*(1-flightTuck);
                 float ty=6.85F-hipDrop-(breath*0.035F+walkBob)*(1-rearPose),tz=0.35F-hipShift;
                 float l1=(float)Math.hypot(3.2,1),l2=(float)Math.hypot(3.65,-0.65);
                 float distance=Math.min((float)Math.hypot(ty,tz),l1+l2-0.001F);
@@ -235,6 +253,11 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 knee=Mth.lerp(weight,knee,solvedKnee);
                 ankle=-(stride+upper-tilt+knee)*weight;
             }
+            // Airborne feet tuck under the body, then extend before contact.
+            upper+=flightTuck*(i<2?0.45F:-0.36F);
+            knee+=flightTuck*(i<2?-0.72F:0.68F);
+            if(i<2){upper+=0.16F*(crouch+landingFlex);knee-=0.32F*(crouch+landingFlex);}
+            else ankle-=flightTuck*0.22F;
             stack.mulPose(Axis.XP.rotation(stride+upper));
             p.plate(0,0.8F,0,i<2?1.45F:1.7F,2.15F,i<2?1.6F:2.35F,FUR);
             p.taper(0,0,0,0,3.2F,i<2?-0.5F:1.0F,i<2?1.05F:1.35F,0.72F,FUR);
@@ -250,7 +273,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             }
             if(i<2){
                 p.translate(0,3.65F,-0.65F);
-                stack.mulPose(Axis.XP.rotation(rearClaw*0.48F+wristFollow+liftStep*0.26F));
+                stack.mulPose(Axis.XP.rotation(rearClaw*0.48F+wristFollow+liftStep*0.26F+flightTuck*0.25F));
                 stack.mulPose(Axis.ZP.rotation(side*(rearPose*0.12F+gesture*0.10F)));
                 p.translate(0,-3.65F,0.65F);
             }
@@ -281,7 +304,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             }
         stack.pushPose();
         p.translate(0,15.2F,7);
-        stack.mulPose(Axis.XP.rotation(tilt-rearPose*0.12F+rearTail*0.22F));
+        stack.mulPose(Axis.XP.rotation(tilt-rearPose*0.12F+rearTail*0.22F+flightTuck*0.16F));
         for(int i=0;i<12;i++){
             stack.mulPose(Axis.YP.rotation(Mth.sin(age*0.075F-i*0.48F)*(0.045F+amount*0.07F)+Mth.sin(swing*0.45F-i*0.32F)*amount*0.025F));
             stack.mulPose(Axis.XP.rotation(i==0?0.1F:-0.05F-rearTail*0.012F));
@@ -306,9 +329,10 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             float asym=0.045F*performanceWeight*Mth.sin(performanceTime*0.13F+side*0.8F);
             float stroke=wingDrive+asym;
             float recovery=wingRecovery;
-            p.membraneTension=Mth.clamp(open*0.55F+Math.max(0,stroke)*0.35F,0,1);
+            float pressure=0.5F*(stroke+(float)Math.sqrt(stroke*stroke+0.0025F));
+            p.membraneTension=Mth.clamp(open*0.55F+pressure*0.35F,0,1);
             p.membranePhase=age*0.19F+side*0.23F;
-            p.membraneFlutter=0.12F+Math.abs(stroke)*0.38F+Math.abs(recovery)*0.18F;
+            p.membraneFlutter=0.12F+stroke*stroke*0.30F+recovery*recovery*0.14F;
             // Open out from a genuinely swept, folded rest pose; pitch and roll
             // differ on the power and recovery strokes.
             stack.mulPose(Axis.YP.rotation(side*Mth.lerp(open,0.72F,-0.08F)));
