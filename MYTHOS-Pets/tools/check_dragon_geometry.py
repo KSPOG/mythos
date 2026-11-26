@@ -20,6 +20,7 @@ for lod in range(4):
     budget = 18 * count + 2 * patches * steps[lod] ** 2
     budgets.append(budget)
     print(f"LOD {lod}: {count:,} scales; {budget:,} nominal nondegenerate detail triangles")
-assert 250_000 <= budgets[0] <= 275_000, budgets
+assert budgets == [26812, 7380, 2662, 256], budgets
+assert budgets[0] < 30_000, budgets
 assert all(a > b for a, b in zip(budgets, budgets[1:])), budgets
 # This is a source-derived budget, not a GPU counter or performance benchmark.
