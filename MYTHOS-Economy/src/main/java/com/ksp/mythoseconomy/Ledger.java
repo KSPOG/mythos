@@ -18,6 +18,7 @@ public final class Ledger {
     public record Receipt(boolean success,String message,long sequence){}
     private static final class State {
         long sequence;
+        Map<String,Entry> merchantReceipts=new HashMap<>();
         Map<String,Long> balances=new HashMap<>();
         List<Entry> history=new ArrayList<>();
     }
@@ -36,6 +37,14 @@ public final class Ledger {
         if(s==null||s.sequence<0||s.balances==null||s.history==null||s.history.size()>1000)throw new IllegalArgumentException("Invalid ledger");
         for(var b:s.balances.entrySet()){
             if(!UUID.fromString(b.getKey()).toString().equals(b.getKey())||b.getValue()==null||b.getValue()<0||b.getValue()>MAX_BALANCE)throw new IllegalArgumentException("Invalid balance");
+        }
+        if(s.merchantReceipts==null)s.merchantReceipts=new HashMap<>();
+        for(var receipt:s.merchantReceipts.entrySet()){
+            UUID.fromString(receipt.getKey());var e=receipt.getValue();
+            if(e==null||e.sequence()<1||e.sequence()>s.sequence||e.amount()<1||e.amount()>MAX_BALANCE||!Set.of("MINT","BURN").contains(e.kind())||!validReason(e.reason()))throw new IllegalArgumentException("Invalid merchant receipt");
+            UUID.fromString(e.actor());
+            if(e.kind().equals("MINT")){if(e.from()!=null||e.to()==null)throw new IllegalArgumentException("Invalid mint receipt");UUID.fromString(e.to());}
+            else{if(e.to()!=null||e.from()==null)throw new IllegalArgumentException("Invalid burn receipt");UUID.fromString(e.from());}
         }
         long prev=s.sequence-s.history.size();
         if(prev<0)throw new IllegalArgumentException("Invalid history length");
@@ -63,7 +72,26 @@ public final class Ledger {
     public synchronized Receipt mint(UUID actor,UUID to,long amount,String reason){return change("MINT",actor,null,to,amount,reason);}
     public synchronized Receipt burn(UUID actor,UUID from,long amount,String reason){return change("BURN",actor,from,null,amount,reason);}
     private Receipt reject(String message){return new Receipt(false,message,state.sequence);}
+    public synchronized Entry merchantReceipt(UUID transaction){
+        if(locked)throw new IllegalStateException("Economy locked");
+        return state.merchantReceipts.get(transaction.toString());
+    }
+    public synchronized Receipt merchantChange(UUID transaction,UUID player,long amount,boolean credit,String reason){
+        if(transaction==null||player==null)return reject("Invalid merchant transaction");
+        if(locked)return reject("Economy storage locked");
+        var existing=state.merchantReceipts.get(transaction.toString());
+        String kind=credit?"MINT":"BURN";
+        if(existing!=null){
+            if(existing.kind().equals(kind)&&existing.amount()==amount&&existing.actor().equals(player.toString())&&existing.reason().equals(reason))
+                return new Receipt(true,"Already committed",existing.sequence());
+            return reject("Transaction ID conflict");
+        }
+        return change(kind,player,credit?null:player,credit?player:null,amount,reason,transaction);
+    }
     private Receipt change(String kind,UUID actor,UUID from,UUID to,long amount,String reason){
+        return change(kind,actor,from,to,amount,reason,null);
+    }
+    private Receipt change(String kind,UUID actor,UUID from,UUID to,long amount,String reason,UUID transaction){
         if(locked)return reject("Economy storage locked");
         if(actor==null||amount<=0||amount>MAX_BALANCE||!validReason(reason)||from!=null&&from.equals(to)||state.sequence==Long.MAX_VALUE)return reject("Invalid transaction");
         if(kind.equals("TRANSFER")&&(from==null||to==null)||kind.equals("MINT")&&to==null||kind.equals("BURN")&&from==null)return reject("Invalid accounts");
@@ -71,10 +99,11 @@ public final class Ledger {
         if(from!=null&&debit<amount)return reject("Insufficient gold");
         if(to!=null&&credit>MAX_BALANCE-amount)return reject("Balance limit exceeded");
         var next=new State();
-        next.sequence=state.sequence+1;next.balances.putAll(state.balances);next.history.addAll(state.history);
+        next.sequence=state.sequence+1;next.balances.putAll(state.balances);next.history.addAll(state.history);next.merchantReceipts.putAll(state.merchantReceipts);
         if(from!=null)next.balances.put(from.toString(),debit-amount);
         if(to!=null)next.balances.put(to.toString(),credit+amount);
         next.history.add(new Entry(next.sequence,System.currentTimeMillis(),kind,actor.toString(),from==null?null:from.toString(),to==null?null:to.toString(),amount,reason));
+        if(transaction!=null)next.merchantReceipts.put(transaction.toString(),next.history.get(next.history.size()-1));
         if(next.history.size()>1000)next.history.remove(0);
         try{
             persist(next);

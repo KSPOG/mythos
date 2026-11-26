@@ -28,7 +28,7 @@ public final class Economy {
         try{
             ledger=new Ledger(e.getServer().getWorldPath(LevelResource.ROOT).resolve("mythos-economy.json"),ex->LOG.error("Economy storage failure",ex));
             EconomyApi.attach(e.getServer(),ledger);
-            LOG.info("MYTHOS Economy 0.1.0 ready");
+            LOG.info("MYTHOS Economy 0.2.0 ready");
         }catch(Exception ex){LOG.error("MYTHOS Economy locked: cannot load ledger",ex);}
     }
     private void stop(ServerStoppingEvent e){EconomyApi.detach();ledger=null;}
