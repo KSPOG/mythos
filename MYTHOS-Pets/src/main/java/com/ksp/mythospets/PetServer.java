@@ -38,6 +38,7 @@ final class PetServer {
     private enum Ability { STRIKE, VENOM, SLOW, WEAKEN, HEAL, SHIELD, HASTE, LUCK, BURN, SCOUT }
     private record Definition(String id,String name,String mob,Source source,int price,Ability ability,int cooldown,float power,boolean locked){}
     private static final List<Definition> CATALOG=List.of(
+        new Definition("ember_dragon","Ember Dragon","blaze",Source.PREMIUM,0,Ability.BURN,120,3,false),
         new Definition("premium_mooncat","Celestial Mooncat","cat",Source.PREMIUM,0,Ability.HASTE,240,0,false),
         new Definition("premium_sunbird","Sunbird","parrot",Source.PREMIUM,0,Ability.HASTE,240,0,false),
         new Definition("wolf","Dire Wolf","wolf",Source.QUEST,0,Ability.STRIKE,60,4,false),
@@ -123,7 +124,7 @@ final class PetServer {
         if(e.getEntity() instanceof ServerPlayer p)dismiss(p.getUUID());
     }
     private void join(EntityJoinLevelEvent e){
-        if(!e.getLevel().isClientSide()&&(e.getEntity().getTags().contains(TAG)||e.getEntity() instanceof MooncatEntity)&&active.values().stream().noneMatch(a->a.entity==e.getEntity()&&owns(a.owner,a.definition.id)))e.setCanceled(true);
+        if(!e.getLevel().isClientSide()&&(e.getEntity().getTags().contains(TAG)||e.getEntity() instanceof MooncatEntity||e.getEntity() instanceof DragonEntity)&&active.values().stream().noneMatch(a->a.entity==e.getEntity()&&owns(a.owner,a.definition.id)))e.setCanceled(true);
     }
     private void mount(EntityMountEvent e){if(!e.getLevel().isClientSide()&&e.isMounting()&&e.getEntityBeingMounted().getTags().contains(TAG))e.setCanceled(true);}
     private static boolean eligible(ServerPlayer owner,LivingEntity target){
@@ -227,7 +228,7 @@ final class PetServer {
     private int summon(CommandSourceStack s,String id)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
         var p=s.getPlayerOrException();var d=def(id);
         if(d==null||d.locked||!owns(p.getUUID(),id)||!p.isAlive()||p.isSpectator())return fail(s,"Pet not available or owned.");
-        var type=d.id.equals("premium_mooncat") ? PetEntities.MOONCAT.get() : BuiltInRegistries.ENTITY_TYPE.get(ResourceLocation.withDefaultNamespace(d.mob));
+        var type=d.id.equals("ember_dragon") ? PetEntities.DRAGON.get() : d.id.equals("premium_mooncat") ? PetEntities.MOONCAT.get() : BuiltInRegistries.ENTITY_TYPE.get(ResourceLocation.withDefaultNamespace(d.mob));
         if(!(type.create(p.serverLevel()) instanceof Mob mob))return fail(s,"Invalid pet entity.");
         var feet=nearby(p,mob);if(feet==null)return fail(s,"No safe pet spawn nearby.");
         dismiss(p.getUUID());
