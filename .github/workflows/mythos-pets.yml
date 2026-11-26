@@ -71,7 +71,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-pets-0.5.4
+          name: mythos-pets-0.5.5
           path: |
             MYTHOS-Pets/build/libs/*.jar
             MYTHOS-Pets/README.md
