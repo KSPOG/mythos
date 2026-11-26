@@ -33,7 +33,8 @@ final class EquipmentRules {
         ROGUE("rogue","Nightblade","Dagger",0x795471,Stat.DEX,Stat.STR,Stat.ATK),
         CLERIC("cleric","Sanctified","Holy Scepter",0xD6B759,Stat.SPI,Stat.VIT,Stat.INT),
         NECROMANCER("necromancer","Graveborn","Soul Staff",0x578B86,Stat.INT,Stat.SPI,Stat.VIT),
-        HEXSLINGER("hexslinger","Hexweaver","Hex Caster",0xB65CD0,Stat.DEX,Stat.INT,Stat.ATK);
+        HEXSLINGER("hexslinger","Hexweaver","Hex Caster",0xB65CD0,Stat.DEX,Stat.INT,Stat.ATK),
+        SUMMONER("summoner","Spiritwarden","Summoning Staff",0x36B9C5,Stat.INT,Stat.SPI,Stat.VIT);
         final String id,label,weapon;final int color;final List<Stat> preferred;
         ClassSet(String id,String label,String weapon,int color,Stat... stats){this.id=id;this.label=label;this.weapon=weapon;this.color=color;preferred=List.of(stats);}
     }
@@ -61,7 +62,10 @@ final class EquipmentRules {
         SOUL_HARVEST("Soul Harvest","Wither target and heal","harvest"),
         ASH_CURSE("Ash Curse","Weakness and burning on target","curse"),
         RUNE_FRACTURE("Rune Fracture","Weakness and poison on target","fracture"),
-        DOOM_MARK("Doom Mark","Wither and slowness on target","doom");
+        DOOM_MARK("Doom Mark","Wither and slowness on target","doom"),
+        SPIRIT_BOND("Spirit Bond","Regeneration and resistance on hit","shelter"),
+        GUARDIAN_CALL("Guardian Call","Absorption on hit","absorption"),
+        CELESTIAL_PACT("Celestial Pact","Heal and regenerate on hit","renew");
         final String label,description,kind;
         Effect(String label,String description,String kind){this.label=label;this.description=description;this.kind=kind;}
     }
@@ -75,6 +79,7 @@ final class EquipmentRules {
             case ROGUE -> switch(t){case ADVENTURER->new Profile("Duskwalker","Whisperfang",Stat.DEX,Effect.SHADOWSTEP);case VETERAN->new Profile("Venomveil","Viper's Kiss",Stat.STR,Effect.VENOM_EDGE);case DRAGON->new Profile("Dragon Nightblade","Eclipse",Stat.ATK,Effect.ECLIPSE_VEIL);case TEMPERED->new Profile("Silent Veil","Silent Fang",Stat.DEX,Effect.SHADOWSTEP);case CHAMPION->new Profile("Phantom Court","Phantom Fang",Stat.STR,Effect.VENOM_EDGE);case ASCENDANT->new Profile("Eternal Shadow","Night's End",Stat.ATK,Effect.ECLIPSE_VEIL);};
             case CLERIC -> switch(t){case ADVENTURER->new Profile("Dawn Sanctified","Dawnlight",Stat.SPI,Effect.DAWN_MERCY);case VETERAN->new Profile("Silver Covenant","Mercy's Hand",Stat.VIT,Effect.SACRED_SHELTER);case DRAGON->new Profile("Dragon Sanctified","Seraph's Grace",Stat.SPI,Effect.SERAPHIC_RENEWAL);case TEMPERED->new Profile("Ivory Chapel","Ivory Light",Stat.SPI,Effect.DAWN_MERCY);case CHAMPION->new Profile("Radiant Covenant","Radiant Scepter",Stat.VIT,Effect.SACRED_SHELTER);case ASCENDANT->new Profile("Celestial Seraph","Divine Scepter",Stat.SPI,Effect.SERAPHIC_RENEWAL);};
             case NECROMANCER -> switch(t){case ADVENTURER->new Profile("Graveborn","Gravetouch",Stat.INT,Effect.GRAVE_CHILL);case VETERAN->new Profile("Bone Covenant","Marrowbinder",Stat.VIT,Effect.BONE_WARD);case DRAGON->new Profile("Dragon Graveborn","Soulreaper",Stat.SPI,Effect.SOUL_HARVEST);case TEMPERED->new Profile("Crypt Warden","Crypt Rod",Stat.INT,Effect.GRAVE_CHILL);case CHAMPION->new Profile("Ossuary Lord","Ossuary Staff",Stat.VIT,Effect.BONE_WARD);case ASCENDANT->new Profile("Eternal Lich","Death's Scepter",Stat.SPI,Effect.SOUL_HARVEST);};
+            case SUMMONER -> switch(t){case ADVENTURER->new Profile("Familiar Keeper","Apprentice's Calling",Stat.INT,Effect.SPIRIT_BOND);case TEMPERED->new Profile("Beastcaller","Beastcaller's Staff",Stat.SPI,Effect.SPIRIT_BOND);case VETERAN->new Profile("Spiritwarden","Spiritwarden Staff",Stat.INT,Effect.GUARDIAN_CALL);case CHAMPION->new Profile("Astral Binder","Astral Conduit",Stat.SPI,Effect.GUARDIAN_CALL);case DRAGON->new Profile("Dragoncaller","Dragoncaller Staff",Stat.INT,Effect.CELESTIAL_PACT);case ASCENDANT->new Profile("Celestial Architect","Staff of Creation",Stat.SPI,Effect.CELESTIAL_PACT);};
             case HEXSLINGER -> switch(t){case ADVENTURER->new Profile("Ash Hexweaver","Ashmark",Stat.DEX,Effect.ASH_CURSE);case VETERAN->new Profile("Runebound","Runebreaker",Stat.INT,Effect.RUNE_FRACTURE);case DRAGON->new Profile("Dragon Hexweaver","Doomsigil",Stat.ATK,Effect.DOOM_MARK);case TEMPERED->new Profile("Rune Outlaw","Rune Caster",Stat.DEX,Effect.ASH_CURSE);case CHAMPION->new Profile("Void Marshal","Void Caster",Stat.INT,Effect.RUNE_FRACTURE);case ASCENDANT->new Profile("Eternal Hex","Fate Caster",Stat.ATK,Effect.DOOM_MARK);};
         };
     }
@@ -82,7 +87,7 @@ final class EquipmentRules {
         SWORD(5,1.6F,false), GREATSWORD(10,0.9F,true), SHORTSWORD(3,1.9F,false),
         DAGGER(2,2.4F,false), AXE(7,1.2F,false), GREATAXE(12,0.8F,true),
         HAMMER(8,1.0F,false), GREAT_HAMMER(13,0.7F,true), MACE(6,1.3F,false),
-        STAFF(3,1.0F,true), WAND(1,1.8F,false), BOW(0,0,true), CROSSBOW(0,0,true), CASTER(2,1.5F,false), SHIELD(0,0,false);
+        STAFF(3,1.0F,true), WAND(1,1.8F,false), BOW(0,0,true), CROSSBOW(0,0,true), CASTER(2,1.5F,false), SHIELD(0,0,false), GRIMOIRE(1,1.2F,false), ORB(1,1.5F,false), LANTERN(1,1.2F,false), TOTEM(2,1.2F,false);
         final int damage;final float speed;final boolean twoHanded;
         WeaponKind(int damage,float speed,boolean twoHanded){this.damage=damage;this.speed=speed;this.twoHanded=twoHanded;}
     }
@@ -91,7 +96,7 @@ final class EquipmentRules {
             this(id,name,owner,tier,slot,slot==Slot.WEAPON?switch(owner){
                 case WARRIOR->WeaponKind.SWORD;case HEAVY_KNIGHT->WeaponKind.GREAT_HAMMER;
                 case RANGER->WeaponKind.BOW;case ROGUE->WeaponKind.DAGGER;
-                case MAGE,NECROMANCER,CLERIC->WeaponKind.STAFF;case HEXSLINGER->WeaponKind.CASTER;
+                case MAGE,NECROMANCER,CLERIC,SUMMONER->WeaponKind.STAFF;case HEXSLINGER->WeaponKind.CASTER;
             }:null,tier.level);
         }
         Profile profile(){return EquipmentRules.profile(owner,tier);}
@@ -224,6 +229,36 @@ final class EquipmentRules {
         add(out,ClassSet.CLERIC,WeaponKind.HAMMER,10,"Silver Bell");
         add(out,ClassSet.CLERIC,WeaponKind.HAMMER,30,"Solar Verdict");
         add(out,ClassSet.CLERIC,WeaponKind.HAMMER,50,"Heavenfall");
+        add(out,ClassSet.NECROMANCER,WeaponKind.GRIMOIRE,1,"Book of the Dead");
+        add(out,ClassSet.NECROMANCER,WeaponKind.GRIMOIRE,10,"Crypt Testament");
+        add(out,ClassSet.NECROMANCER,WeaponKind.GRIMOIRE,20,"Grimoire of Bones");
+        add(out,ClassSet.NECROMANCER,WeaponKind.GRIMOIRE,30,"Codex of the Damned");
+        add(out,ClassSet.NECROMANCER,WeaponKind.GRIMOIRE,40,"Draconic Death tome");
+        add(out,ClassSet.NECROMANCER,WeaponKind.GRIMOIRE,50,"Necronomicon");
+        add(out,ClassSet.SUMMONER,WeaponKind.WAND,1,"Familiar Whisper");
+        add(out,ClassSet.SUMMONER,WeaponKind.WAND,10,"Beast's Call");
+        add(out,ClassSet.SUMMONER,WeaponKind.WAND,20,"Spirit Needle");
+        add(out,ClassSet.SUMMONER,WeaponKind.WAND,30,"Astral Thread");
+        add(out,ClassSet.SUMMONER,WeaponKind.WAND,40,"Dragon Whisper");
+        add(out,ClassSet.SUMMONER,WeaponKind.WAND,50,"Creation Spark");
+        add(out,ClassSet.SUMMONER,WeaponKind.ORB,1,"Lesser Spirit Orb");
+        add(out,ClassSet.SUMMONER,WeaponKind.ORB,10,"Orb of Awakening");
+        add(out,ClassSet.SUMMONER,WeaponKind.ORB,20,"Elemental Core");
+        add(out,ClassSet.SUMMONER,WeaponKind.ORB,30,"Astral Heart");
+        add(out,ClassSet.SUMMONER,WeaponKind.ORB,40,"Dragon Soul");
+        add(out,ClassSet.SUMMONER,WeaponKind.ORB,50,"Celestial Nexus");
+        add(out,ClassSet.SUMMONER,WeaponKind.LANTERN,1,"Wisp Lantern");
+        add(out,ClassSet.SUMMONER,WeaponKind.LANTERN,10,"Keeper's Lantern");
+        add(out,ClassSet.SUMMONER,WeaponKind.LANTERN,20,"Spirit Beacon");
+        add(out,ClassSet.SUMMONER,WeaponKind.LANTERN,30,"Astral Beacon");
+        add(out,ClassSet.SUMMONER,WeaponKind.LANTERN,40,"Dragon Lantern");
+        add(out,ClassSet.SUMMONER,WeaponKind.LANTERN,50,"Eternal Beacon");
+        add(out,ClassSet.SUMMONER,WeaponKind.TOTEM,1,"Woodland Totem");
+        add(out,ClassSet.SUMMONER,WeaponKind.TOTEM,10,"Beast Totem");
+        add(out,ClassSet.SUMMONER,WeaponKind.TOTEM,20,"Guardian Totem");
+        add(out,ClassSet.SUMMONER,WeaponKind.TOTEM,30,"Astral Idol");
+        add(out,ClassSet.SUMMONER,WeaponKind.TOTEM,40,"Dragon Idol");
+        add(out,ClassSet.SUMMONER,WeaponKind.TOTEM,50,"Creation Totem");
         return List.copyOf(out);
     }
     private static void add(List<Definition> out,ClassSet owner,WeaponKind kind,int level,String name){
