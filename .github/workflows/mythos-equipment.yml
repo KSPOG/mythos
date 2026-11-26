@@ -54,7 +54,7 @@ jobs:
                       assert "assets/"+o["model"].replace(":","/models/")+".json" in names
               for n in names:
                   if n.startswith("assets/mythosequipment/textures/models/armor/") and n.endswith(".png"):
-                      assert struct.unpack(">II",z.read(n)[16:24])==(512,256)
+                      assert struct.unpack(">II",z.read(n)[16:24])==(1024,512)
               assert z.testzip() is None
           PY
       - uses: actions/upload-artifact@v4
