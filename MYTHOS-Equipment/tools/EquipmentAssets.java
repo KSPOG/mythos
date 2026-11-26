@@ -21,7 +21,9 @@ public final class EquipmentAssets {
             ImageIO.write(d.kind()!=null?atlas(d):icon(d),"PNG",tex.toFile());
             String model=d.kind()!=null?model(d,false):"{\"parent\":\"minecraft:item/generated\",\"textures\":{\"layer0\":\""+NS+":item/"+d.id()+"\"}}";
             write(root.resolve("models/item/"+d.id()+".json"),model);
-            if(d.kind()==WeaponKind.BOW||d.kind()==WeaponKind.CROSSBOW||d.kind()==WeaponKind.SHIELD){
+            if(d.kind()==WeaponKind.BOW){
+                for(int stage=0;stage<=3;stage++)write(root.resolve("models/item/"+d.id()+"_pull_"+stage+".json"),model(d,true,stage/3.0));
+            }else if(d.kind()==WeaponKind.CROSSBOW||d.kind()==WeaponKind.SHIELD){
                 write(root.resolve("models/item/"+d.id()+"_active.json"),model(d,true));
             }
         }
@@ -96,7 +98,8 @@ public final class EquipmentAssets {
             if(tier>0)gem(y+.08,.65);
         }
     }
-    private static String model(Definition d,boolean active){
+    private static String model(Definition d,boolean active){return model(d,active,active?1:0);}
+    private static String model(Definition d,boolean active,double draw){
         Mesh m=new Mesh();int tier=d.tier().ordinal();int variant=Math.floorMod(d.id().hashCode(),5);
         switch(d.kind()){
             case SWORD,GREATSWORD,SHORTSWORD,DAGGER -> {
@@ -140,8 +143,8 @@ public final class EquipmentAssets {
                 for(int side:new int[]{-1,1}){
                     for(int i=0;i<30;i++){
                         double t=i/30.0,u=(i+1)/30.0;
-                        double x=8+3.1*Math.sin(t*Math.PI/2)-1.2*Math.pow(t,6);
-                        double X=8+3.1*Math.sin(u*Math.PI/2)-1.2*Math.pow(u,6);
+                        double x=8+3.1*Math.sin(t*Math.PI/2)-1.2*Math.pow(t,6)+.65*draw*t*t;
+                        double X=8+3.1*Math.sin(u*Math.PI/2)-1.2*Math.pow(u,6)+.65*draw*u*u;
                         double y=8+side*(1.5+7.8*t),Y=8+side*(1.5+7.8*u);
                         double w=.56-.32*t;
                         m.box(Math.min(x,X)-w/2,Math.min(y,Y),7.5+t*.2,Math.max(x,X)+w/2,Math.max(y,Y)+.035,8.5-t*.2,6);
@@ -149,7 +152,7 @@ public final class EquipmentAssets {
                     }
                     for(int i=0;i<32;i++){
                         double t=i/32.0,u=(i+1)/32.0;
-                        double x=9.9+(active?2.4:0)*t,X=9.9+(active?2.4:0)*u;
+                        double x=9.9+.65*draw+2.4*draw*t,X=9.9+.65*draw+2.4*draw*u;
                         double y=8+side*9.3*(1-t),Y=8+side*9.3*(1-u);
                         m.box(Math.min(x,X)-.055,Math.min(y,Y)-.02,7.94,Math.max(x,X)+.055,Math.max(y,Y)+.02,8.06,1);
                     }
@@ -220,8 +223,15 @@ public final class EquipmentAssets {
         String texture=NS+":item/"+d.id();
         String overrides="";
         if(!active){
-            String pred=switch(d.kind()){case SHIELD->"\"blocking\":1";case BOW->"\"pulling\":1";case CROSSBOW->"\"pulling\":1";default->null;};
-            if(pred!=null)overrides=",\"overrides\":[{\"predicate\":{"+pred+"},\"model\":\""+NS+":item/"+d.id()+"_active\"}"+(d.kind()==WeaponKind.CROSSBOW?",{\"predicate\":{\"charged\":1},\"model\":\""+NS+":item/"+d.id()+"_active\"}":"")+"]";
+            if(d.kind()==WeaponKind.BOW){
+                StringJoiner stages=new StringJoiner(",","[","]");
+                double[] thresholds={0,.25,.55,.85};
+                for(int stage=0;stage<4;stage++)stages.add("{\"predicate\":{\"pulling\":1,\"pull\":"+thresholds[stage]+"},\"model\":\""+NS+":item/"+d.id()+"_pull_"+stage+"\"}");
+                overrides=",\"overrides\":"+stages;
+            }else{
+                String pred=switch(d.kind()){case SHIELD->"\"blocking\":1";case CROSSBOW->"\"pulling\":1";default->null;};
+                if(pred!=null)overrides=",\"overrides\":[{\"predicate\":{"+pred+"},\"model\":\""+NS+":item/"+d.id()+"_active\"}"+(d.kind()==WeaponKind.CROSSBOW?",{\"predicate\":{\"charged\":1},\"model\":\""+NS+":item/"+d.id()+"_active\"}":"")+"]";
+            }
         }
         boolean shield=d.kind()==WeaponKind.SHIELD;
         String third=shield?"[0,90,0]":d.kind()==WeaponKind.BOW?"[-80,260,-40]":d.kind()==WeaponKind.CROSSBOW?"[-90,0,0]":"[0,-90,35]";
