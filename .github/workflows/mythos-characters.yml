@@ -24,8 +24,9 @@ jobs:
       - name: Validate player mesh and LODs
         run: |
           mkdir -p build/mesh-check
-          javac -d build/mesh-check src/main/java/com/ksp/mythoscharacters/CharacterMesh.java tools/CharacterMeshCheck.java
+          javac -d build/mesh-check src/main/java/com/ksp/mythoscharacters/CharacterMesh.java tools/CharacterMeshCheck.java src/main/java/com/ksp/mythoscharacters/CharacterMotion.java tools/CharacterMotionCheck.java
           java -cp build/mesh-check com.ksp.mythoscharacters.CharacterMeshCheck
+          java -cp build/mesh-check com.ksp.mythoscharacters.CharacterMotionCheck
       - name: Forge wrapper
         run: |
           curl --fail --show-error --silent --location --retry 3 https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.5/forge-1.21.1-52.1.5-mdk.zip -o "${RUNNER_TEMP}/forge-mdk.zip"
@@ -38,17 +39,17 @@ jobs:
           python - <<'PY'
           import json, zipfile
           from pathlib import Path
-          jar = Path("build/libs/mythos-characters-0.1.4.jar")
+          jar = Path("build/libs/mythos-characters-0.1.5.jar")
           with zipfile.ZipFile(jar) as z:
               pack = json.loads(z.read("pack.mcmeta"))["pack"]
               assert pack["pack_format"] == 34
               assert pack["description"]
-              assert b'version="0.1.4"' in z.read("META-INF/mods.toml")
+              assert b'version="0.1.5"' in z.read("META-INF/mods.toml")
               assert z.testzip() is None
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-characters-0.1.4
+          name: mythos-characters-0.1.5
           path: |
             MYTHOS-Characters/build/libs/*.jar
             MYTHOS-Characters/README.md

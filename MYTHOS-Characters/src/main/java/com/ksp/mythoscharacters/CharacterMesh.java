@@ -54,7 +54,7 @@ final class CharacterMesh {
         }
         if(s.kind==0){x*=1.12F;z*=1.06F;}
         float inflate=overlay?(s.bone==0?.10F:.11F):0;
-        return new V(q.x+x+sn*inflate,q.y+(s.kind==0?1.05F:0),q.z+z-cs*inflate);
+        return new V(q.x+x+sn*inflate,q.y+(s.kind==0?1.05F:0)+(overlay?(t*2-1)*.08F:0),q.z+z-cs*inflate);
     }
     private static Vertex vertex(Shape s,float u,float t,boolean overlay){
         V p=position(s,u,t,overlay);
@@ -69,7 +69,7 @@ final class CharacterMesh {
         int face=Math.floorMod((int)Math.floor(theta),4);
         float f=theta-(float)Math.floor(theta);
         float x=switch(face){case 0->a.d+f*a.w;case 1->a.d+a.w+f*a.d;case 2->2*a.d+a.w+f*a.w;default->f*a.d;};
-        float height=(p.y-(s.kind==0?1.05F:0)-s.rings[0].y)/(s.rings[s.rings.length-1].y-s.rings[0].y);
+        float height=Math.max(0,Math.min(1,(p.y-(s.kind==0?1.05F:0)-s.rings[0].y)/(s.rings[s.rings.length-1].y-s.rings[0].y)));
         if(s.kind==3) return new Vertex(p,normal,(a.u+a.d+a.w*.5F)/64F,(a.v+a.d+a.h*.9F)/64F);
         // Keep samples within the face rectangle, preventing adjacent atlas islands bleeding.
         float faceStart=switch(face){case 0->a.d;case 1->a.d+a.w;case 2->2*a.d+a.w;default->0;};
@@ -104,7 +104,7 @@ final class CharacterMesh {
             Ring ring=s.rings[end==0?0:s.rings.length-1];
             V normal=new V(0,end==0?-1:1,0);
             float x0=a.u+a.d+(end==0?0:a.w),y0=a.v;
-            Vertex center=new Vertex(new V(ring.x,ring.y+(s.kind==0?1.05F:0),ring.z),normal,(x0+a.w*.5F)/64F,(y0+a.d*.5F)/64F);
+            Vertex center=new Vertex(new V(ring.x,ring.y+(s.kind==0?1.05F:0)+(overlay?(end==0?-.08F:.08F):0),ring.z),normal,(x0+a.w*.5F)/64F,(y0+a.d*.5F)/64F);
             for(int i=0;i<n;i++){
                 float u=i/(float)n,U=(i+1)/(float)n;
                 V p=position(s,u,end,overlay),q=position(s,U,end,overlay);
@@ -129,7 +129,7 @@ final class CharacterMesh {
         Atlas h=a(0,0,8,8,8),ho=a(32,0,8,8,8),body=a(16,16,8,12,4),bo=a(16,32,8,12,4);
         Shape[] shapes={
             shape(0,h,ho,0,r(-9.0F,0,.12F,.03F,.04F),r(-8.7F,0,.18F,1.24F,1.28F),r(-7.8F,0,.2F,2.05F,1.82F),r(-6.4F,0,.22F,2.24F,1.98F),r(-5.3F,0,.10F,2.15F,1.92F),r(-4.2F,0,-.05F,1.94F,1.73F),r(-3.1F,0,-.14F,1.47F,1.53F),r(-2.65F,0,-.03F,.79F,1.02F),r(-2.55F,0,.08F,.22F,.35F)),
-            shape(1,body,bo,1,r(-.45F,0,0,1.05F,1.12F),r(.35F,0,.08F,2.65F,1.48F),r(1.6F,0,.06F,3.55F,1.96F),r(3.6F,0,0,3.45F,2.03F),r(5.8F,0,.05F,2.92F,1.77F),r(8.2F,0,.11F,2.48F,1.65F),r(10.2F,0,.15F,2.93F,1.83F),r(12.1F,0,.1F,3.18F,1.79F)),
+            shape(1,body,bo,1,r(-.55F,0,0,1.30F,1.25F),r(.35F,0,.08F,3.05F,1.65F),r(1.6F,0,.06F,3.95F,2.13F),r(3.6F,0,0,3.73F,2.20F),r(5.8F,0,.05F,3.22F,1.94F),r(8.2F,0,.11F,2.92F,1.83F),r(10.2F,0,.15F,3.19F,1.98F),r(12.1F,0,.1F,3.28F,1.90F)),
             arm(2,arm,slim),arm(3,arm,slim),leg(4),leg(5)
         };
         List<Part> result=new ArrayList<>();
@@ -174,7 +174,7 @@ final class CharacterMesh {
         return List.copyOf(result);
     }
     private static Shape arm(int bone,int width,boolean slim){
-        int side=bone==2?-1:1;float x=side*(width/2F-1)-side*.85F,f=slim?.87F:1;
+        int side=bone==2?-1:1;float x=side*(width/2F-1)-side*1.15F,f=slim?.87F:1;
         Atlas a=bone==2?a(40,16,width,12,4):a(32,48,width,12,4);
         Atlas o=bone==2?a(40,32,width,12,4):a(48,48,width,12,4);
         return shape(bone,a,o,2,r(-2F,x,0,.40F,.53F),r(-1F,x,0,1.48F*f,1.49F),r(.8F,x,0,1.67F*f,1.53F),r(2.7F,x,-.08F,1.26F*f,1.31F),r(4.3F,x,.05F,.96F*f,1.06F),r(5.5F,x,.04F,1.03F*f,1.10F),r(7.0F,x,-.03F,.76F*f,.81F),r(8.0F,x,-.04F,.57F*f,.62F),r(9.2F,side*.2F,-.1F,.76F,.51F),r(9.8F,side*.2F,-.12F,.69F,.40F));
