@@ -43,9 +43,7 @@ public final class MythosEquipment {
         IEventBus bus=FMLJavaModLoadingContext.get().getModEventBus();
         MATERIALS.register(bus);ITEMS.register(bus);TABS.register(bus);
         MinecraftForge.EVENT_BUS.addListener(EquipmentPresentation::tooltip);
-        // Server logic is attached at server start, so the client need not load Classes.
-        MinecraftForge.EVENT_BUS.addListener(EquipmentLifecycle::start);
-        MinecraftForge.EVENT_BUS.addListener(EquipmentLifecycle::stop);
+        EquipmentLifecycle.register();
     }
     private static String key(ClassSet c,Tier t){return t.name().toLowerCase(Locale.ROOT)+"_"+c.id;}
     private static Item create(Definition d){
