@@ -34,14 +34,16 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
     private static final int[][] PALETTE = {{8,8},{24,8},{40,8},{56,8},{8,24},{24,24},{40,24},{56,24}};
     private float swing, amount, age, yaw, pitch;
     private float breath, blink, walkBob;
+    private float performanceTime, performanceWeight, foreGesture, foreFollow, wristFollow, wingWrist, wingFinger;
     private float rearPose, roarPose, wingSpread, wingBeat, wingLag, crouch, rearReach, rearLook, rearClaw, rearTail;
     private static final float REAR_ANGLE=1.48F;
     private static float track(float t,float... keys){
         if(t<=keys[0])return keys[1];
-        for(int i=2;i<keys.length;i+=2)if(t<=keys[i])return Mth.lerp(ease((t-keys[i-2])/(keys[i]-keys[i-2])),keys[i-1],keys[i+1]);
+        for(int i=2;i<keys.length;i+=2)if(t<=keys[i])return Mth.lerp(smooth((t-keys[i-2])/(keys[i]-keys[i-2])),keys[i-1],keys[i+1]);
         return keys[keys.length-1];
     }
 
+    private static float smooth(float t){t=Mth.clamp(t,0,1);return t*t*t*(t*(6*t-15)+10);}
     private static float ease(float t) { t=Mth.clamp(t,0,1); return t*t*(3-2*t); }
     private static float envelope(float t,float duration,float rise,float fall) {
         return ease(t/rise)*ease((duration-t)/fall);
@@ -66,6 +68,9 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         int action=entity.idleAction();
         float t=entity.idleElapsed()+Mth.clamp(ageInTicks-entity.tickCount,0,1);
         float still=1-ease(amount/0.25F);
+        performanceTime=t;
+        performanceWeight=action==DragonEntity.NONE?0:envelope(t,DragonEntity.duration(action),9,12)*still;
+        foreGesture=0;foreFollow=0;wristFollow=0;wingWrist=0;wingFinger=0;
         rearPose=0;roarPose=0;wingSpread=0;wingBeat=0;wingLag=0;crouch=0;rearReach=0;rearLook=0;rearClaw=0;rearTail=0;
         switch(action) {
             case DragonEntity.FLAP -> {
@@ -73,6 +78,9 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 float beat=envelope(t-10,44,5,8)*still;
                 wingBeat=beat*Mth.sin((t-10)*Mth.TWO_PI/16);
                 wingLag=beat*Mth.sin((t-13)*Mth.TWO_PI/16);
+                wingWrist=beat*Mth.sin((t-15)*Mth.TWO_PI/16);
+                wingFinger=beat*Mth.sin((t-17)*Mth.TWO_PI/16);
+                foreGesture=wingBeat*0.10F;foreFollow=wingLag*0.13F;wristFollow=wingWrist*0.09F;
             }
             case DragonEntity.REAR -> {
                 // Authored channels, staggered in time: gather, thrust, settle,
@@ -86,13 +94,23 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 wingSpread=track(t,0,0,12,0.2F,34,1,52,0.86F,85,1,113,0.85F,140,0.25F,160,0)*still;
                 wingBeat=(track(t,0,0,18,-0.5F,30,0.85F,43,-0.25F,57,0,112,-0.38F,132,0.5F,150,0)*still);
                 wingLag=track(t,0,0,21,-0.35F,34,0.7F,48,-0.2F,62,0,117,-0.25F,137,0.38F,155,0)*still;
+                foreGesture=track(t,0,0,14,0,32,0.65F,48,-0.20F,70,0.32F,93,-0.27F,113,0.15F,136,0.5F,153,0)*still;
+                foreFollow=track(t,0,0,18,0,36,-0.75F,53,0.14F,76,-0.44F,99,0.22F,119,-0.18F,142,0.28F,157,0)*still;
+                wristFollow=track(t,0,0,23,0,41,0.64F,58,-0.24F,81,0.53F,103,-0.19F,124,0.2F,147,-0.25F,160,0)*still;
+                wingWrist=track(t,0,0,24,-0.30F,39,0.65F,54,-0.16F,70,0,120,-0.22F,143,0.35F,160,0)*still;
+                wingFinger=track(t,0,0,27,-0.24F,43,0.56F,60,-0.12F,76,0,124,-0.18F,147,0.28F,160,0)*still;
             }
             case DragonEntity.ROAR -> {
                 rearPose=envelope(t,72,18,17)*0.82F*still;
                 roarPose=envelope(t-16,39,10,9)*still;
                 wingSpread=envelope(t,72,18,17)*still;
                 wingBeat=roarPose*0.16F*Mth.sin(t*0.24F);
-                wingLag=roarPose*0.12F*Mth.sin(t*0.24F-0.6F);
+                wingLag=roarPose*0.28F*Mth.sin(t*0.24F-0.6F);
+                wingWrist=roarPose*0.32F*Mth.sin(t*0.24F-1.0F);
+                wingFinger=roarPose*0.25F*Mth.sin(t*0.24F-1.5F);
+                foreGesture=roarPose*(0.24F+0.18F*Mth.sin(t*0.21F));
+                foreFollow=-roarPose*(0.48F+0.16F*Mth.sin(t*0.21F-0.6F));
+                wristFollow=roarPose*0.35F*Mth.sin(t*0.21F-1.1F);
             }
             default -> {}
         }
@@ -178,10 +196,17 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             float stride=Mth.cos(gait)*0.48F*amount;
             float liftStep=Math.max(0,Mth.sin(gait))*amount*(1-rearPose);
             stack.pushPose();
+            float side=i%2==0?-1:1;
+            float gesture=performanceWeight*rearPose*Mth.sin(performanceTime*0.16F+side*0.75F);
             p.translate(x,15.5F,z);
+            if(i<2){
+                p.translate(side*rearPose*0.18F,gesture*0.12F,-rearPose*0.16F);
+                stack.mulPose(Axis.ZP.rotation(side*(rearPose*0.16F+gesture*0.08F)));
+                stack.mulPose(Axis.YP.rotation(side*(rearPose*0.10F+gesture*0.06F)));
+            }
             // Hind legs cancel body pitch, while forelegs reach ahead and curl at the elbow.
-            float upper=i<2?rearPose*0.82F+rearReach*0.58F:0;
-            float knee=i<2?Math.max(0,-stride)*0.7F-rearPose*1.35F+rearReach*0.35F:Math.max(0,-stride)*0.7F;
+            float upper=i<2?rearPose*0.82F+rearReach*0.58F+foreGesture+gesture*0.13F:0;
+            float knee=i<2?Math.max(0,-stride)*0.7F-rearPose*1.35F+rearReach*0.35F+foreFollow+gesture*0.12F:Math.max(0,-stride)*0.7F;
             float ankle=0;
             knee-=liftStep*(i<2?0.58F:0.42F);
             if(i>=2){
@@ -214,13 +239,23 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             }
             if(i<2){
                 p.translate(0,3.65F,-0.65F);
-                stack.mulPose(Axis.XP.rotation(rearClaw*0.48F));
+                stack.mulPose(Axis.XP.rotation(rearClaw*0.48F+wristFollow+liftStep*0.26F));
+                stack.mulPose(Axis.ZP.rotation(side*(rearPose*0.12F+gesture*0.10F)));
                 p.translate(0,-3.65F,0.65F);
             }
             p.plate(0,4.0F,-0.85F,1.14F,0.65F,1.55F,FUR);
-            for(int toe=0;toe<3;toe++)p.plate((toe-1)*0.63F,4.25F,-1.65F,0.38F,0.36F,0.85F,FUR);
-            for(int claw=0;claw<3;claw++)
-                p.taper((claw-1)*0.63F,4.2F,-2.0F,(claw-1)*0.70F,4.65F,-2.75F,0.19F,0.02F,GOLD);
+            // Each digit has an independent base pivot and curls with distal follow-through.
+            for(int toe=0;toe<3;toe++){
+                float spread=(toe-1);
+                stack.pushPose();
+                p.translate(spread*0.63F,4.25F,-1.15F);
+                float curl=i<2?(rearClaw*0.40F+wristFollow*0.35F+gesture*0.12F):0;
+                stack.mulPose(Axis.YP.rotation(spread*(0.08F+rearPose*0.14F)));
+                stack.mulPose(Axis.XP.rotation(curl*(1-0.12F*Math.abs(spread))));
+                p.plate(0,0,-0.50F,0.38F,0.36F,0.85F,FUR);
+                p.taper(0,-0.05F,-0.85F,spread*0.07F,0.40F,-1.60F,0.19F,0.02F,GOLD);
+                stack.popPose();
+            }
             stack.popPose();
         }
 
@@ -255,37 +290,50 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         for(int side:SIDES){
             stack.pushPose();
             p.translate(side*2.15F,12.5F,-3.6F);
-            p.membraneTension=wingSpread*0.6F+Math.abs(wingBeat)*0.35F;
+            p.membraneTension=Mth.clamp(wingSpread*0.6F+Math.abs(wingBeat)*0.35F+Math.abs(wingWrist)*0.1F,0,1);
             p.membranePhase=age*0.22F+side*0.25F;
             float idle=Mth.sin(age*0.09F+side*0.4F)*0.025F;
             stack.mulPose(Axis.YP.rotation(side*(-0.55F+motion*0.40F+wingSpread*0.65F)));
             stack.mulPose(Axis.ZP.rotation(side*(-0.18F+idle+motion*0.31F*Mth.sin(phase)-wingSpread*0.30F+wingBeat*0.75F)));
             float[] root={0,0,0}, elbow={side*5,-3,-2};
+            float wristMotion=wingWrist*0.35F+0.04F*Mth.sin(age*0.12F+side*0.3F)*(1-motion);
+            float fingerMotion=wingFinger*0.42F;
             float flex=side*(-0.48F+motion*0.34F+motion*0.16F*Mth.sin(phase-0.8F)+wingSpread*0.48F+wingLag*0.22F);
             float lift=side*(0.12F+motion*0.22F*Mth.sin(phase-0.65F)+wingLag*0.48F);
-            float[] tip=wingPoint(side,elbow,11,-1,1,flex,lift);
-            float[] finger=wingPoint(side,elbow,13,3,8,flex,lift);
-            float[] rear=wingPoint(side,elbow,8,4,14,flex,lift);
-            float[] inner=wingPoint(side,elbow,2,5,12,flex,lift);
-            float[] notch1=wingPoint(side,elbow,7,2,4,flex,lift);
-            float[] notch2=wingPoint(side,elbow,6,3,8,flex,lift);
-            float[] notch3=wingPoint(side,elbow,2,4,8,flex,lift);
+            float[] wrist=wingPoint(side,elbow,5.2F,-0.55F,0.15F,flex,lift);
+            float[] tip=wingPoint(side,wrist,5.8F,-0.45F,0.85F,flex+side*wristMotion,lift+side*fingerMotion*0.55F);
+            float[] finger=wingPoint(side,wrist,7.8F,3.55F,7.85F,flex+side*wristMotion*0.8F,lift+side*fingerMotion);
+            float[] rear=wingPoint(side,wrist,2.8F,4.55F,13.85F,flex+side*wristMotion*0.55F,lift+side*fingerMotion*0.75F);
+            float[] inner=wingPoint(side,elbow,2,5,12,flex+side*wristMotion*0.25F,lift+side*fingerMotion*0.25F);
+            float[] notch1=wingNotch(elbow,tip,finger,0.63F);
+            float[] notch2=wingNotch(elbow,finger,rear,0.66F);
+            float[] notch3=wingNotch(elbow,rear,inner,0.70F);
             p.link(root,elbow,0.58F,0.40F,FUR);
-            p.link(elbow,tip,0.42F,0.025F,FUR);
-            p.link(elbow,finger,0.27F,0.025F,GOLD);
-            p.link(elbow,rear,0.23F,0.025F,FUR);
+            p.link(elbow,wrist,0.42F,0.28F,FUR);
+            p.link(wrist,tip,0.28F,0.025F,FUR);
+            p.link(wrist,finger,0.25F,0.025F,FUR);
+            p.link(wrist,rear,0.23F,0.025F,FUR);
             p.link(elbow,inner,0.20F,0.025F,FUR);
+            // Preserve the membrane fan topology and budget, attaching its outer
+            // fan to the animated wrist so the bones and fabric remain connected.
             p.membrane(root,elbow,inner);
-            p.membrane(elbow,tip,notch1);
-            p.membrane(elbow,notch1,finger);
-            p.membrane(elbow,finger,notch2);
-            p.membrane(elbow,notch2,rear);
-            p.membrane(elbow,rear,notch3);
-            p.membrane(elbow,notch3,inner);
+            p.membrane(elbow,wrist,inner);
+            p.membrane(wrist,tip,notch1);
+            p.membrane(wrist,notch1,finger);
+            p.membrane(wrist,finger,notch2);
+            p.membrane(wrist,notch2,rear);
+            p.membrane(wrist,rear,notch3);
+            p.membrane(wrist,notch3,inner);
             p.membrane(root,inner,new float[]{-side*0.8F,2.3F,10});
             stack.popPose();
         }
         stack.popPose();
+    }
+
+    private static float[] wingNotch(float[] pivot,float[] a,float[] b,float pull){
+        return new float[]{pivot[0]+((a[0]+b[0])*0.5F-pivot[0])*pull,
+            pivot[1]+((a[1]+b[1])*0.5F-pivot[1])*pull,
+            pivot[2]+((a[2]+b[2])*0.5F-pivot[2])*pull};
     }
 
     private static float[] wingPoint(int side,float[] pivot,float x,float y,float z,float yaw,float roll) {
