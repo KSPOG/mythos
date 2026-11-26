@@ -1,10 +1,10 @@
 name: MYTHOS-Mounts build
 on:
   pull_request:
-    paths: ['MYTHOS-Mounts/**', '.github/workflows/mythos-mounts.yml']
+    paths: ['MYTHOS-Mounts/**', 'MYTHOS-Economy/**', '.github/workflows/mythos-mounts.yml']
   push:
     branches: [main]
-    paths: ['MYTHOS-Mounts/**', '.github/workflows/mythos-mounts.yml']
+    paths: ['MYTHOS-Mounts/**', 'MYTHOS-Economy/**', '.github/workflows/mythos-mounts.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-mounts-0.1.0
+          name: mythos-mounts-0.2.0
           path: |
             MYTHOS-Mounts/build/libs/*.jar
             MYTHOS-Mounts/README.md
