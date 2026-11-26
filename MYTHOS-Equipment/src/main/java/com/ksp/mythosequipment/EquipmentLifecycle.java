@@ -15,6 +15,7 @@ final class EquipmentLifecycle {
         bus.addListener(SERVER::projectile);
         bus.addListener(SERVER::damage);
         bus.addListener(SERVER::tick);
+        bus.addListener(net.minecraftforge.eventbus.api.EventPriority.LOWEST,SERVER::hurt);
         bus.addListener(EquipmentLifecycle::stop);
     }
     private static void stop(ServerStoppingEvent e){SERVER.cleanup(e.getServer());}
