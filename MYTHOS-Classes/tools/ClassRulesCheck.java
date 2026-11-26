@@ -16,6 +16,13 @@ public final class ClassRulesCheck {
             if(total!=60)throw new AssertionError("unequal base stat budget: "+role);
         }
         if(ClassRules.START_POINTS!=5)throw new AssertionError("starting point budget");
-        System.out.println("Class identity and base stat checks passed");
+        if(ClassRules.MAX_LEVEL!=50||ClassRules.MAX_XP!=245000||ClassRules.threshold(2)!=200)throw new AssertionError("level cap or curve");
+        for(int l=2;l<=50;l++){
+            int xp=ClassRules.threshold(l);
+            if(ClassRules.level(xp)!=l||ClassRules.level(xp-1)!=l-1)throw new AssertionError("XP boundary");
+            if(ClassRules.levelPoints(xp)!=(l-1)*3)throw new AssertionError("level points");
+        }
+        if(ClassRules.level(0)!=1||ClassRules.levelPoints(0)!=0||ClassRules.levelPoints(245000)!=147)throw new AssertionError("progression");
+        System.out.println("Class identity, base stats and progression checks passed");
     }
 }
