@@ -49,4 +49,17 @@ class LedgerTest {
         var path=dir.resolve("gold.json");Files.writeString(path,"{\"balances\":null}");
         assertThrows(java.io.IOException.class,()->new Ledger(path,ex->{}));
     }
+    @Test void tokensAndAtomicCreaturePurchase()throws Exception{
+        var path=dir.resolve("tokens.json");var p=UUID.randomUUID();var shop=UUID.randomUUID();
+        var l=new Ledger(path,ex->fail(ex));assertTrue(l.mint(p,p,100,"gold").success());
+        assertTrue(l.adjust(p,p,"mount_token",50,true,"reward").success());
+        assertTrue(l.configureCreature(shop,"mount:traveller",new Ledger.CreatureOffer("mount_token",30,1,1,false)).success());
+        assertFalse(l.configureCreature(shop,"pet:cat",new Ledger.CreatureOffer("mount_token",1,1,1,false)).success());
+        assertFalse(l.purchaseCreature(shop,p,"mount:traveller","gold",30).success());
+        assertTrue(l.purchaseCreature(shop,p,"mount:traveller","mount_token",30).success());
+        var reload=new Ledger(path,ex->fail(ex));assertEquals(100,reload.balance(p));assertEquals(20,reload.balance(p,"mount_token"));
+        assertTrue(reload.ownsCreature(p,"mount:traveller"));assertEquals(0,reload.creatureOffers(shop).get("mount:traveller").stock());
+        assertFalse(reload.purchaseCreature(shop,p,"mount:traveller","mount_token",30).success());
+        assertTrue(reload.mint(p,p,1,"gold again").success());assertTrue(reload.ownsCreature(p,"mount:traveller"));
+    }
 }

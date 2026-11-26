@@ -28,7 +28,7 @@ public final class Economy {
         try{
             ledger=new Ledger(e.getServer().getWorldPath(LevelResource.ROOT).resolve("mythos-economy.json"),ex->LOG.error("Economy storage failure",ex));
             EconomyApi.attach(e.getServer(),ledger);
-            LOG.info("MYTHOS Economy 0.2.0 ready");
+            LOG.info("MYTHOS Economy 0.3.0 ready");
         }catch(Exception ex){LOG.error("MYTHOS Economy locked: cannot load ledger",ex);}
     }
     private void stop(ServerStoppingEvent e){EconomyApi.detach();ledger=null;}
@@ -36,14 +36,14 @@ public final class Economy {
     private int ok(CommandSourceStack s,String m){s.sendSuccess(()->Component.literal(m),false);return 1;}
     private boolean ready(){return ledger!=null&&ledger.available();}
     private static String gold(long value){return String.format(Locale.ROOT,"%,d Gold",value);}
-    private int balance(CommandSourceStack s,ServerPlayer p){return ready()?ok(s,p.getScoreboardName()+": "+gold(ledger.balance(p.getUUID()))):fail(s,"Economy unavailable.");}
+    private int balance(CommandSourceStack s,ServerPlayer p){return ready()?ok(s,p.getScoreboardName()+": "+gold(ledger.balance(p.getUUID()))+" | Mount Tokens: "+ledger.balance(p.getUUID(),"mount_token")+" | Pet Tokens: "+ledger.balance(p.getUUID(),"pet_token")):fail(s,"Economy unavailable.");}
     private int history(CommandSourceStack s,ServerPlayer p){
         if(!ready())return fail(s,"Economy unavailable.");
         var entries=ledger.recent(p.getUUID(),10);
         ok(s,"Recent transactions for "+p.getScoreboardName()+" (maximum 10)");
         for(var e:entries){
             boolean incoming=p.getUUID().toString().equals(e.to());
-            ok(s,"#"+e.sequence()+" "+(incoming?"+":"-")+gold(e.amount())+" | "+e.kind()+" | "+e.reason());
+            ok(s,"#"+e.sequence()+" "+(incoming?"+":"-")+e.amount()+" "+Ledger.currency(e)+" | "+e.kind()+" | "+e.reason());
         }
         return 1;
     }
@@ -69,6 +69,19 @@ public final class Economy {
         root.then(Commands.literal("history").executes(c->history(c.getSource(),c.getSource().getPlayerOrException())).then(Commands.argument("player",EntityArgument.player()).requires(s->s.hasPermission(2)).executes(c->history(c.getSource(),EntityArgument.getPlayer(c,"player")))));
         root.then(Commands.literal("pay").then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("amount",LongArgumentType.longArg(1,Ledger.MAX_BALANCE)).executes(c->pay(c.getSource(),c.getSource().getPlayerOrException(),EntityArgument.getPlayer(c,"player"),LongArgumentType.getLong(c,"amount"))))));
         for(boolean mint:new boolean[]{true,false})root.then(Commands.literal(mint?"grant":"take").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("amount",LongArgumentType.longArg(1,Ledger.MAX_BALANCE)).then(Commands.argument("reason",StringArgumentType.greedyString()).executes(c->admin(c.getSource(),EntityArgument.getPlayer(c,"player"),LongArgumentType.getLong(c,"amount"),StringArgumentType.getString(c,"reason"),mint))))));
+        root.then(Commands.literal("currencies").executes(c->ok(c.getSource(),"gold, mount_token, pet_token (tokens non-transferable)")));
+        for(boolean credit:new boolean[]{true,false}){
+            var reason=Commands.argument("reason",StringArgumentType.greedyString()).executes(c->{
+                var s=c.getSource();if(!ready())return fail(s,"Economy unavailable");
+                var p=EntityArgument.getPlayer(c,"player");String currency=StringArgumentType.getString(c,"currency");
+                UUID actor=s.getEntity() instanceof ServerPlayer a?a.getUUID():CONSOLE;
+                var receipt=ledger.adjust(actor,p.getUUID(),currency,LongArgumentType.getLong(c,"amount"),credit,StringArgumentType.getString(c,"reason"));
+                return receipt.success()?ok(s,"Transaction #"+receipt.sequence()+" | "+currency+" balance "+ledger.balance(p.getUUID(),currency)):fail(s,receipt.message());
+            });
+            var amount=Commands.argument("amount",LongArgumentType.longArg(1,Ledger.MAX_BALANCE)).then(reason);
+            var currency=Commands.argument("currency",StringArgumentType.word()).suggests((c,b)->SharedSuggestionProvider.suggest(Ledger.CURRENCIES,b)).then(amount);
+            root.then(Commands.literal(credit?"grant":"take").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(currency)));
+        }
         var node=e.getDispatcher().register(root);
         e.getDispatcher().register(Commands.literal("gold").executes(c->balance(c.getSource(),c.getSource().getPlayerOrException())));
         e.getDispatcher().register(Commands.literal("balance").executes(c->balance(c.getSource(),c.getSource().getPlayerOrException())));
