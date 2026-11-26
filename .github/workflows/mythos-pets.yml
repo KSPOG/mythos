@@ -48,6 +48,7 @@ jobs:
                   'assets/mythospets/textures/entity/mooncat.png',
                   'com/ksp/mythospets/PetClient.class',
                   'com/ksp/mythospets/MooncatMeshModel.class',
+                  'com/ksp/mythospets/MooncatEntity.class',
                   'com/ksp/mythospets/DragonMeshModel.class',
                   'com/ksp/mythospets/DragonEntity.class',
                   'assets/mythospets/textures/entity/ember_dragon.png',
@@ -64,7 +65,8 @@ jobs:
               for name in ('mooncat', 'ember_dragon'):
                   png = jar.read(f'assets/mythospets/textures/entity/{name}.png')
                   assert png[:8] == b'\x89PNG\r\n\x1a\n'
-                  assert struct.unpack('>II', png[16:24]) == ((4096, 4096) if name == 'ember_dragon' else (64, 64))
+                  dimensions = struct.unpack('>II', png[16:24])
+                  assert dimensions == (4096, 4096), f'{name}: expected 4096x4096, got {dimensions}'
               print(f'Validated self-contained pet assets in {jars[0]}')
           PY
       - uses: actions/upload-artifact@v4
