@@ -33,6 +33,12 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
     // Dragon-specific material atlas; ember surfaces use full packed light.
     private static final int[][] PALETTE = {{8,8},{24,8},{40,8},{56,8},{8,24},{24,24},{40,24},{56,24}};
     private float swing, amount, age, yaw, pitch;
+    private float rearPose, roarPose, wingSpread, wingBeat, wingLag;
+
+    private static float ease(float t) { t=Mth.clamp(t,0,1); return t*t*(3-2*t); }
+    private static float envelope(float t,float duration,float rise,float fall) {
+        return ease(t/rise)*ease((duration-t)/fall);
+    }
 
     @Override
     public void setupAnim(DragonEntity entity, float limbSwing, float limbSwingAmount,
@@ -45,6 +51,32 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         age = ageInTicks;
         yaw = Mth.clamp(netHeadYaw, -45, 45);
         pitch = Mth.clamp(headPitch, -30, 30);
+        int action=entity.idleAction();
+        float t=entity.idleElapsed()+Mth.clamp(ageInTicks-entity.tickCount,0,1);
+        float still=1-ease(amount/0.25F);
+        rearPose=0;roarPose=0;wingSpread=0;wingBeat=0;wingLag=0;
+        switch(action) {
+            case DragonEntity.FLAP -> {
+                wingSpread=envelope(t,64,12,14)*still;
+                float beat=envelope(t-10,44,5,8)*still;
+                wingBeat=beat*Mth.sin((t-10)*Mth.TWO_PI/16);
+                wingLag=beat*Mth.sin((t-13)*Mth.TWO_PI/16);
+            }
+            case DragonEntity.REAR -> {
+                rearPose=envelope(t,84,20,20)*still;
+                wingSpread=rearPose*0.72F;
+                wingBeat=rearPose*0.18F*Mth.sin(t*0.18F);
+                wingLag=rearPose*0.12F*Mth.sin(t*0.18F-0.6F);
+            }
+            case DragonEntity.ROAR -> {
+                rearPose=envelope(t,72,18,17)*0.82F*still;
+                roarPose=envelope(t-16,39,10,9)*still;
+                wingSpread=envelope(t,72,18,17)*still;
+                wingBeat=roarPose*0.16F*Mth.sin(t*0.24F);
+                wingLag=roarPose*0.12F*Mth.sin(t*0.24F-0.6F);
+            }
+            default -> {}
+        }
     }
 
     @Override
@@ -53,6 +85,10 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         Painter p = new Painter(stack, vertices, light, overlay, color, lod);
         stack.pushPose();
         stack.translate(0, Mth.sin(age * 0.12F) * 0.008F, 0);
+        // Raise chest about the hind hip; the rear feet remain in world-facing stance.
+        p.translate(0,15.5F,5);
+        stack.mulPose(Axis.XP.rotation(-rearPose*0.95F));
+        p.translate(0,-15.5F,-5);
         // Long reptilian torso, plated belly and curved neck.
         p.hull(anatomy.torso,FUR);
         p.scales(anatomy.torso,112,64);
@@ -69,7 +105,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.pushPose();
         p.translate(0,8,-9);
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
-        stack.mulPose(Axis.XP.rotationDegrees(pitch));
+        stack.mulPose(Axis.XP.rotationDegrees(pitch*(1-roarPose)+roarPose*18F));
         // Connected angular skull, wedge muzzle, raised cheek and crown ridges.
         p.hull(anatomy.skull,FUR);
         p.scales(anatomy.skull,40,32);
@@ -78,7 +114,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             p.plate(side*1.47F,0.22F,0.1F,0.46F,0.73F,1.6F,FUR);
         stack.pushPose();
         p.translate(0,0.85F,-0.6F);
-        stack.mulPose(Axis.XP.rotation(-0.025F+Mth.sin(age*0.08F)*0.012F));
+        stack.mulPose(Axis.XP.rotation(-0.025F+Mth.sin(age*0.08F)*0.012F+roarPose*0.70F));
         p.hull(anatomy.jaw,FUR);
         p.scales(anatomy.jaw,24,24);
         p.plate(0,0.03F,-2.6F,0.42F,0.05F,0.9F,MANE);
@@ -106,11 +142,11 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             float stride=Mth.cos(swing*0.8F+((i==0||i==3)?0:Mth.PI))*0.55F*amount;
             stack.pushPose();
             p.translate(x,15.5F,z);
-            stack.mulPose(Axis.XP.rotation(stride));
+            stack.mulPose(Axis.XP.rotation(stride+(i<2?rearPose*0.45F:rearPose*0.95F)));
             p.plate(0,0.8F,0,i<2?1.45F:1.7F,2.15F,i<2?1.6F:2.35F,FUR);
             p.taper(0,0,0,0,3.2F,i<2?-0.5F:1.0F,i<2?1.05F:1.35F,0.72F,FUR);
             p.translate(0,3.2F,i<2?-0.3F:1.0F);
-            stack.mulPose(Axis.XP.rotation(Math.max(0,-stride)*0.7F));
+            stack.mulPose(Axis.XP.rotation(Math.max(0,-stride)*0.7F+(i<2?-rearPose*0.8F:0)));
             p.plate(0,0,0,0.82F,0.85F,0.92F,FUR);
             p.taper(0,0,0,0,3.65F,-0.65F,0.70F,0.46F,FUR);
             p.plate(0,4.0F,-0.85F,1.14F,0.65F,1.55F,FUR);
@@ -131,6 +167,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             }
         stack.pushPose();
         p.translate(0,15.2F,7);
+        stack.mulPose(Axis.XP.rotation(rearPose*0.95F));
         for(int i=0;i<12;i++){
             stack.mulPose(Axis.YP.rotation(Mth.sin(age*0.09F-i*0.45F)*0.15F));
             stack.mulPose(Axis.XP.rotation(i==0?0.1F:-0.05F));
@@ -151,11 +188,11 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             stack.pushPose();
             p.translate(side*2.15F,12.5F,-3.6F);
             float idle=Mth.sin(age*0.09F)*0.025F;
-            stack.mulPose(Axis.YP.rotation(side*(-0.55F+motion*0.40F)));
-            stack.mulPose(Axis.ZP.rotation(side*(-0.18F+idle+motion*0.31F*Mth.sin(phase))));
+            stack.mulPose(Axis.YP.rotation(side*(-0.55F+motion*0.40F+wingSpread*0.65F)));
+            stack.mulPose(Axis.ZP.rotation(side*(-0.18F+idle+motion*0.31F*Mth.sin(phase)-wingSpread*0.30F+wingBeat*0.75F)));
             float[] root={0,0,0}, elbow={side*5,-3,-2};
-            float flex=side*(-0.48F+motion*0.34F+motion*0.16F*Mth.sin(phase-0.8F));
-            float lift=side*(0.12F+motion*0.22F*Mth.sin(phase-0.65F));
+            float flex=side*(-0.48F+motion*0.34F+motion*0.16F*Mth.sin(phase-0.8F)+wingSpread*0.48F+wingLag*0.22F);
+            float lift=side*(0.12F+motion*0.22F*Mth.sin(phase-0.65F)+wingLag*0.48F);
             float[] tip=wingPoint(side,elbow,11,-1,1,flex,lift);
             float[] finger=wingPoint(side,elbow,13,3,8,flex,lift);
             float[] rear=wingPoint(side,elbow,8,4,14,flex,lift);
