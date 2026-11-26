@@ -49,6 +49,7 @@ jobs:
                   'com/ksp/mythospets/DragonMeshModel.class',
                   'com/ksp/mythospets/DragonEntity.class',
                   'assets/mythospets/textures/entity/ember_dragon.png',
+                  'assets/mythospets/meshes/ember_dragon.anatomy',
                   'com/ksp/mythospets/PetEntities.class',
                   'com/ksp/mythospets/PetServer.class',
               }
@@ -61,12 +62,12 @@ jobs:
               for name in ('mooncat', 'ember_dragon'):
                   png = jar.read(f'assets/mythospets/textures/entity/{name}.png')
                   assert png[:8] == b'\x89PNG\r\n\x1a\n'
-                  assert struct.unpack('>II', png[16:24]) == (64, 64)
+                  assert struct.unpack('>II', png[16:24]) == ((2048, 2048) if name == 'ember_dragon' else (64, 64))
               print(f'Validated self-contained pet assets in {jars[0]}')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-pets-0.3.6
+          name: mythos-pets-0.4.0
           path: |
             MYTHOS-Pets/build/libs/*.jar
             MYTHOS-Pets/README.md
