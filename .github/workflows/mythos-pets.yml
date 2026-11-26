@@ -28,6 +28,11 @@ jobs:
           chmod +x gradlew
       - name: Check cinematic geometry budget
         run: python3 tools/check_dragon_geometry.py
+      - name: Test pet progression
+        run: |
+          mkdir -p build/progression-check
+          javac -d build/progression-check src/main/java/com/ksp/mythospets/PetProgression.java tools/PetProgressionCheck.java
+          java -cp build/progression-check com.ksp.mythospets.PetProgressionCheck
       - name: Compile mod
         run: ./gradlew --no-daemon build
       - name: Verify embedded pet resources
@@ -55,6 +60,7 @@ jobs:
                   'assets/mythospets/meshes/ember_dragon.anatomy',
                   'com/ksp/mythospets/PetEntities.class',
                   'com/ksp/mythospets/PetServer.class',
+                  'com/ksp/mythospets/PetProgression.class',
               }
               missing = required - set(jar.namelist())
               assert not missing, f'Missing embedded resources: {missing}'
@@ -71,7 +77,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-pets-0.5.5
+          name: mythos-pets-0.6.0
           path: |
             MYTHOS-Pets/build/libs/*.jar
             MYTHOS-Pets/README.md
