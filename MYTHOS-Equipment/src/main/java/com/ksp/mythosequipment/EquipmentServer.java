@@ -24,14 +24,15 @@ import java.util.*;
 import com.ksp.mythosequipment.EquipmentRules.*;
 
 final class EquipmentServer {
+    private final EquipmentEffects effects=new EquipmentEffects();
     private static final ResourceLocation BONUS=ResourceLocation.fromNamespaceAndPath(MythosEquipment.ID,"gear_bonus");
     private static final EquipmentSlot[] SLOTS={EquipmentSlot.MAINHAND,EquipmentSlot.OFFHAND,EquipmentSlot.HEAD,EquipmentSlot.CHEST,EquipmentSlot.LEGS,EquipmentSlot.FEET};
     private static final Map<Stat,Double> SCALE=Map.of(Stat.ATK,0.25,Stat.STR,0.15,Stat.DEF,0.25,Stat.VIT,0.5,Stat.DEX,0.002);
-    private static boolean allowed(ServerPlayer p,Definition d){
+    static boolean allowed(ServerPlayer p,Definition d){
         return d==null||ClassApi.canUse(p.getUUID(),List.of(d.owner().id))&&ClassApi.progression(p.getUUID()).map(v->v.level()>=d.tier().level).orElse(false);
     }
     private static boolean allowed(ServerPlayer p,ItemStack s){return allowed(p,MythosEquipment.definition(s));}
-    private static boolean fits(Definition d,EquipmentSlot slot){
+    static boolean fits(Definition d,EquipmentSlot slot){
         return switch(d.slot()){
             case WEAPON -> slot==EquipmentSlot.MAINHAND;
             case HEAD -> slot==EquipmentSlot.HEAD;
@@ -56,6 +57,13 @@ final class EquipmentServer {
     }
     @SubscribeEvent public void damage(LivingAttackEvent e){
         if(e.getSource().getEntity() instanceof ServerPlayer p&&!(e.getSource().getDirectEntity() instanceof Projectile)&&!allowed(p,p.getMainHandItem()))e.setCanceled(true);
+    }
+    void hurt(net.minecraftforge.event.entity.living.LivingHurtEvent e){
+        if(e.isCanceled()||e.getAmount()<=0||e.getEntity().level().isClientSide())return;
+        if(e.getSource().getEntity() instanceof ServerPlayer p&&allowed(p,p.getMainHandItem()))effects.hit(p,e.getEntity());
+    }
+    void logout(net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent e){
+        effects.forget(e.getEntity().getUUID());
     }
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent.Post e){
         for(ServerPlayer p:e.getServer().getPlayerList().getPlayers()){
@@ -98,7 +106,7 @@ final class EquipmentServer {
         modifier(p.getAttribute(Attributes.MOVEMENT_SPEED),val(values,Stat.DEX));
         if(p.getHealth()>p.getMaxHealth())p.setHealth(p.getMaxHealth());
     }
-    void cleanup(MinecraftServer server){for(ServerPlayer p:server.getPlayerList().getPlayers())apply(p,Map.of());}
+    void cleanup(MinecraftServer server){effects.clear();for(ServerPlayer p:server.getPlayerList().getPlayers())apply(p,Map.of());}
     void commands(RegisterCommandsEvent e){
         var root=Commands.literal("equipment");
         root.then(Commands.literal("list").executes(c->{
