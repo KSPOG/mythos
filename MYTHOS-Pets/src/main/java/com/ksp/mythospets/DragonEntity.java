@@ -37,7 +37,12 @@ public final class DragonEntity extends PathfinderMob {
 
     @Override public void tick(){
         super.tick();
-        if(level().isClientSide)return;
+        if(level().isClientSide){
+            // Body yaw is derived from the interpolated network entity yaw.
+            // No-AI companions cannot rely on vanilla AI body rotation.
+            setYBodyRot(getYRot());
+            return;
+        }
         double dx=getX()-previousX,dy=getY()-previousY,dz=getZ()-previousZ;
         boolean moving=!sampled||dx*dx+dy*dy+dz*dz>0.0004;
         previousX=getX();previousY=getY();previousZ=getZ();sampled=true;
