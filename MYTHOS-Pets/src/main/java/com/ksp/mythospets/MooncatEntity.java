@@ -13,6 +13,7 @@ public final class MooncatEntity extends PathfinderMob {
     private static final EntityDataAccessor<Integer> ACTION=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> START=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.INT);
     static final int BLESS_DURATION=40, BLESS_IMPACT=18;
+    static final int POUNCE_DURATION=30, POUNCE_IMPACT=13;
     private static final EntityDataAccessor<Integer> RECIPIENT=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.INT);
     private static final EntityDataAccessor<Boolean> HEALED=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.BOOLEAN);
     int recipient(){return entityData.get(RECIPIENT);}
