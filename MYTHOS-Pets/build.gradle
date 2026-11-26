@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 group = 'com.ksp.mythospets'
-version = '0.6.1'
+version = '0.6.2'
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 minecraft {
     mappings channel: 'official', version: '1.21.1'
