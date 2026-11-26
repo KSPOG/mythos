@@ -37,27 +37,45 @@ public final class PetClient {
             Vec3 up=right.cross(aim).normalize();
             var out=buffers.getBuffer(RenderType.lightning());
             float age=entity.tickCount+partialTick;
-            // Three translucent, animated volume shells. Unlike particles,
-            // the flame has continuous connected geometry along its full length.
-            for(int shell=0;shell<3;shell++){
-                int segments=18,sides=12;
-                for(int i=0;i<segments;i++)for(int j=0;j<sides;j++){
-                    flameVertex(out,stack,start,aim,right,up,length,age,shell,i/(float)segments,j/(float)sides);
-                    flameVertex(out,stack,start,aim,right,up,length,age,shell,(i+1)/(float)segments,j/(float)sides);
-                    flameVertex(out,stack,start,aim,right,up,length,age,shell,(i+1)/(float)segments,(j+1)/(float)sides);
-                    flameVertex(out,stack,start,aim,right,up,length,age,shell,i/(float)segments,(j+1)/(float)sides);
+            // Broken, overlapping flame tongues rather than concentric smooth tubes.
+            // Each tongue advects downstream and fades independently.
+            for(int k=0;k<36;k++){
+                float seed=k*2.399963F;
+                float phase=(age*(0.045F+0.009F*(k%5))+k*0.618034F)%1F;
+                double begin=phase*0.86;
+                double extent=Math.min(1-begin,0.16+0.18*(0.5+0.5*Math.sin(seed)));
+                if(extent<0.015)continue;
+                for(int i=0;i<12;i++)for(int j=0;j<6;j++){
+                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,i/12.0,j/6.0,k%3);
+                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,(i+1)/12.0,j/6.0,k%3);
+                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,(i+1)/12.0,(j+1)/6.0,k%3);
+                    tongue(out,stack,start,aim,right,up,length,age,seed,begin,extent,i/12.0,(j+1)/6.0,k%3);
                 }
             }
+            // Tight, irregular ignition root; the rest is a fragmented plume.
+            for(int i=0;i<10;i++)for(int j=0;j<8;j++){
+                tongue(out,stack,start,aim,right,up,length,age,0,0,0.26,i/10.0,j/8.0,0);
+                tongue(out,stack,start,aim,right,up,length,age,0,0,0.26,(i+1)/10.0,j/8.0,0);
+                tongue(out,stack,start,aim,right,up,length,age,0,0,0.26,(i+1)/10.0,(j+1)/8.0,0);
+                tongue(out,stack,start,aim,right,up,length,age,0,0,0.26,i/10.0,(j+1)/8.0,0);
+            }
         }
-        private static void flameVertex(VertexConsumer out,PoseStack stack,Vec3 start,Vec3 aim,Vec3 right,Vec3 up,float length,float age,int shell,float t,float u){
-            double angle=u*Math.PI*2;
-            double ripple=1+0.14*Math.sin(t*25-age*0.85+angle*3)+0.09*Math.sin(t*48-age*1.2-angle*5);
-            double radius=(0.065+t*length*0.16)*ripple*(shell==0?0.35:shell==1?0.68:1);
-            radius*=1-0.65*Math.pow(t,8);
-            Vec3 v=start.add(aim.scale(t*length)).add(right.scale(Math.cos(angle)*radius)).add(up.scale(Math.sin(angle)*radius));
-            int alpha=(int)((shell==0?190:shell==1?105:48)*(1-t*0.75)*(0.85+0.15*Math.sin(age*0.8-t*16)));
-            int red=255,green=shell==0?232:shell==1?125:45,blue=shell==0?125:shell==1?18:4;
-            out.addVertex(stack.last().pose(),(float)v.x,(float)v.y,(float)v.z).setColor(red,green,blue,Math.max(0,alpha));
+        private static void tongue(VertexConsumer out,PoseStack stack,Vec3 start,Vec3 aim,Vec3 right,Vec3 up,float length,float age,float seed,double begin,double extent,double f,double u,int layer){
+            double t=begin+extent*f,angle=u*Math.PI*2;
+            double spread=length*t*0.115;
+            double drift=seed+age*0.12+t*7;
+            double lateral=spread*(0.25+0.65*Math.sin(seed*1.7));
+            double envelope=Math.pow(Math.max(0,Math.sin(Math.PI*f)),0.7);
+            double ripple=0.75+0.25*Math.sin(angle*3+seed+t*30-age*0.8);
+            double radius=(0.035+spread*0.40)*envelope*ripple;
+            Vec3 v=start.add(aim.scale(t*length))
+                .add(right.scale(Math.cos(drift)*lateral+Math.cos(angle)*radius))
+                .add(up.scale(Math.sin(drift)*lateral+Math.sin(angle)*radius))
+                .add(0,0.15*t*t,0);
+            double heat=Math.max(0,1-t*1.4)*(layer==0?1:0.65);
+            int green=(int)(42+153*heat),blue=(int)(8+65*heat);
+            int alpha=(int)((layer==0?155:95)*envelope*Math.pow(1-t,0.55)*(0.75+0.25*Math.sin(seed+age*0.7)));
+            out.addVertex(stack.last().pose(),(float)v.x,(float)v.y,(float)v.z).setColor(255,green,blue,Mth.clamp(alpha,0,255));
         }
         @Override public ResourceLocation getTextureLocation(DragonEntity entity) {
             return ResourceLocation.fromNamespaceAndPath("mythospets", "textures/entity/ember_dragon.png");
