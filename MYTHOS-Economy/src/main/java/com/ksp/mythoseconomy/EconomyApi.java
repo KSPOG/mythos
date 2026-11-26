@@ -26,6 +26,10 @@ public final class EconomyApi {
     public static java.util.Map<String,Ledger.CreatureOffer> creatureOffers(MinecraftServer s,UUID shop){return require(s).creatureOffers(shop);}
     private static boolean saleAllowed(CreatureProvider p,String key){return p!=null&&p.available()&&p.catalog().stream().anyMatch(c->c.key().equals(key)&&c.shop());}
     public static Ledger.Receipt configureCreature(MinecraftServer s,UUID shop,String key,Ledger.CreatureOffer offer){var l=require(s);if(offer!=null&&!saleAllowed(provider(key),key))return new Ledger.Receipt(false,"Not available for shop purchase",-1);return l.configureCreature(shop,key,offer);}
+    public static Ledger.Receipt replaceCreatureOffers(MinecraftServer s,UUID shop,java.util.Map<String,Ledger.CreatureOffer> offers){
+        var l=require(s);if(offers==null||offers.keySet().stream().anyMatch(k->k==null||!saleAllowed(provider(k),k)))return new Ledger.Receipt(false,"Invalid or unavailable creature",-1);
+        return l.replaceCreatureOffers(shop,offers);
+    }
     public static Ledger.Receipt purchaseCreature(MinecraftServer s,UUID shop,UUID player,String key,String currency,long price){var l=require(s);var p=provider(key);if(!saleAllowed(p,key))return new Ledger.Receipt(false,"Creature unavailable",-1);if(p.legacyOwns(player,key))return new Ledger.Receipt(false,"Already owned",-1);return l.purchaseCreature(shop,player,key,currency,price);}
     public static long balance(MinecraftServer s,UUID player,String currency){return require(s).balance(player,currency);}
     public static Ledger.Receipt adjust(MinecraftServer s,UUID actor,UUID player,String currency,long amount,boolean credit,String reason){return require(s).adjust(actor,player,currency,amount,credit,reason);}
