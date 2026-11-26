@@ -55,7 +55,8 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         pounce=entity.idleAction()==MooncatEntity.POUNCE?envelope(t-4,16,4,8):0;
         gather=entity.idleAction()==MooncatEntity.POUNCE?envelope(t,9,4,3):0;
         swipe=entity.idleAction()==MooncatEntity.POUNCE?envelope(t-4,12,4,6):0;
-        bless=entity.idleAction()==MooncatEntity.BLESS?envelope(t,24,9,10):0;
+        bless=entity.idleAction()==MooncatEntity.BLESS?envelope(t,MooncatEntity.BLESS_DURATION,12,12):0;
+        if(bless>0){sit=Math.max(sit,bless*0.9F);amount*=1-bless;blink*=1-0.94F*bless;earFlick*=1-bless;}
     }
 
     @Override
@@ -63,7 +64,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         Painter p = new Painter(stack, vertices, light, overlay, color, lod);
         stack.pushPose();
         stack.translate(0, (breath*0.035F+Mth.cos(swing*1.6F)*amount*0.12F)/16F, 0);
-        p.translate(0,stretch*0.65F+sit*0.55F+gather*0.7F-pounce*1.8F,-pounce*1.2F);
+        p.translate(0,stretch*0.65F+sit*0.55F+gather*0.7F-pounce*1.8F-bless*0.35F,-pounce*1.2F);
         p.translate(0,16,3);stack.mulPose(Axis.XP.rotation(pounce*0.22F-gather*0.12F));p.translate(0,-16,-3);
         // Continuous anatomical torso with distinct rib cage, waist and pelvis.
         stack.pushPose();
@@ -78,7 +79,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         stack.pushPose();
         p.translate(0, 13.25F+stretch*1.6F,-4.65F-stretch*1.15F);
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
-        stack.mulPose(Axis.XP.rotationDegrees(pitch+stretch*16+groom*(18+12*Mth.sin(age*0.32F))-bless*18+pounce*9));
+        stack.mulPose(Axis.XP.rotationDegrees(pitch+stretch*16+groom*(18+12*Mth.sin(age*0.32F))-bless*32+pounce*9));
         // Domestic feline: broad rounded cranium, short flat muzzle, large
         // forward-facing almond eyes and upright triangular pinnae.
         p.shape(BODY,0,-0.65F,-0.25F,2.85F,2.55F,2.18F,FUR);
@@ -129,6 +130,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
             stack.popPose();
         }
         p.crescent();
+        if(bless>0.05F)p.shape(ACCENT,0,-1.55F,-2.29F,0.17F*bless,0.17F*bless,0.09F,EYE);
         stack.popPose();
 
         // Independent shoulder/hip, knee, and paw articulation.
