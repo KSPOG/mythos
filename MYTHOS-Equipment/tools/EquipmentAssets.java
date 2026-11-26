@@ -157,6 +157,14 @@ public final class EquipmentAssets {
                         m.box(Math.min(x,X)-.055,Math.min(y,Y)-.02,7.94,Math.max(x,X)+.055,Math.max(y,Y)+.02,8.06,1);
                     }
                 }
+                if(active){
+                    // Nock follows the string; shaft points forward along -X, just above the grip.
+                    double nock=9.9+3.05*draw;
+                    m.box(-3.2,8.9,7.27,nock,9.04,7.41,6);
+                    m.box(-4.0,8.78,7.15,-3.05,9.16,7.53,1);
+                    m.box(nock-1.55,8.66,7.25,nock-.15,9.28,7.43,4);
+                    m.box(nock-1.55,8.91,7.03,nock-.15,9.05,7.65,4);
+                }
                 m.box(7.3,6,7.35,8.7,6.45,8.65,2);m.box(7.3,9.55,7.35,8.7,10,8.65,2);
             }
             case CROSSBOW -> {
@@ -235,9 +243,10 @@ public final class EquipmentAssets {
         }
         boolean shield=d.kind()==WeaponKind.SHIELD;
         String third=shield?"[0,90,0]":d.kind()==WeaponKind.BOW?"[-80,260,-40]":d.kind()==WeaponKind.CROSSBOW?"[-90,0,0]":"[0,-90,35]";
-        String first=shield?(active?"[0,45,10]":"[0,90,0]"):d.kind()==WeaponKind.BOW?"[0,-90,25]":d.kind()==WeaponKind.CROSSBOW?"[0,0,0]":"[0,-90,25]";
-        double scale=d.kind().twoHanded?.74:.85;
-        String display=String.format(Locale.ROOT,"\"display\":{\"gui\":{\"rotation\":[25,-35,35],\"translation\":[0,-1,0],\"scale\":[0.90,0.90,0.90]},\"thirdperson_righthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"thirdperson_lefthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_righthand\":{\"rotation\":%s,\"translation\":[1,2,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_lefthand\":{\"rotation\":%s,\"translation\":[1,2,1],\"scale\":[%.2f,%.2f,%.2f]},\"ground\":{\"translation\":[0,3,0],\"scale\":[0.35,0.35,0.35]},\"fixed\":{\"scale\":[0.65,0.65,0.65]}}",third,scale,scale,scale,third,scale,scale,scale,first,scale,scale,scale,first,scale,scale,scale);
+        String first=shield?(active?"[0,45,10]":"[0,90,0]"):d.kind()==WeaponKind.BOW?(active?"[0,-90,0]":"[0,-90,15]"):d.kind()==WeaponKind.CROSSBOW?"[0,0,0]":"[0,-90,25]";
+        double scale=d.kind()==WeaponKind.BOW?.58:d.kind().twoHanded?.74:.85;
+        String firstTranslation=d.kind()==WeaponKind.BOW?(active?"[-5,3,-1]":"[0,2,1]"):"[1,2,1]";
+        String display=String.format(Locale.ROOT,"\"display\":{\"gui\":{\"rotation\":[25,-35,35],\"translation\":[0,-1,0],\"scale\":[0.90,0.90,0.90]},\"thirdperson_righthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"thirdperson_lefthand\":{\"rotation\":%s,\"translation\":[0,3,1],\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_righthand\":{\"rotation\":%s,\"translation\":%s,\"scale\":[%.2f,%.2f,%.2f]},\"firstperson_lefthand\":{\"rotation\":%s,\"translation\":%s,\"scale\":[%.2f,%.2f,%.2f]},\"ground\":{\"translation\":[0,3,0],\"scale\":[0.35,0.35,0.35]},\"fixed\":{\"scale\":[0.65,0.65,0.65]}}",third,scale,scale,scale,third,scale,scale,scale,first,firstTranslation,scale,scale,scale,first,firstTranslation,scale,scale,scale);
         return "{\"ambientocclusion\":false,\"textures\":{\"all\":\""+texture+"\",\"particle\":\""+texture+"\"},\"elements\":["+String.join(",",m.parts)+"],"+display+overrides+"}";
     }
     private static BufferedImage icon(Definition d){
