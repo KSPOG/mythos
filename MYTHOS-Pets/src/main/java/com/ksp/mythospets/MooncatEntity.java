@@ -12,21 +12,29 @@ public final class MooncatEntity extends PathfinderMob {
     static final int NONE=0, STRETCH=1, GROOM=2, POUNCE=3, BLESS=4;
     private static final EntityDataAccessor<Integer> ACTION=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> START=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.INT);
+    static final int BLESS_DURATION=40, BLESS_IMPACT=18;
+    private static final EntityDataAccessor<Integer> RECIPIENT=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Boolean> HEALED=SynchedEntityData.defineId(MooncatEntity.class,EntityDataSerializers.BOOLEAN);
+    int recipient(){return entityData.get(RECIPIENT);}
+    boolean healed(){return entityData.get(HEALED);}
+    void blessingRecipient(int id){entityData.set(RECIPIENT,id);}
+    void blessingImpact(){entityData.set(HEALED,true);}
     private int quiet,next=100,sequence;
     private double px,py,pz;
     private boolean sampled;
     @Override protected void defineSynchedData(SynchedEntityData.Builder builder){
-        super.defineSynchedData(builder);builder.define(ACTION,NONE);builder.define(START,0);
+        super.defineSynchedData(builder);builder.define(ACTION,NONE);builder.define(START,0);builder.define(RECIPIENT,-1);builder.define(HEALED,false);
     }
     int idleAction(){return entityData.get(ACTION);}
     int idleElapsed(){return Math.max(0,(int)level().getGameTime()-entityData.get(START));}
     void beginCombat(int action){
+        entityData.set(HEALED,false);
         entityData.set(START,(int)level().getGameTime());
         entityData.set(ACTION,action);
     }
     void endCombat(){
         if(idleAction()>=POUNCE)entityData.set(ACTION,NONE);
-        quiet=0;
+        entityData.set(RECIPIENT,-1);entityData.set(HEALED,false);quiet=0;
     }
     @Override public void tick(){
         super.tick();
