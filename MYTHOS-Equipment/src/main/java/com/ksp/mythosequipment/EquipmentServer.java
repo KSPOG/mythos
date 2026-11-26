@@ -29,7 +29,12 @@ final class EquipmentServer {
     private static final EquipmentSlot[] SLOTS={EquipmentSlot.MAINHAND,EquipmentSlot.OFFHAND,EquipmentSlot.HEAD,EquipmentSlot.CHEST,EquipmentSlot.LEGS,EquipmentSlot.FEET};
     private static final Map<Stat,Double> SCALE=Map.of(Stat.ATK,0.25,Stat.STR,0.15,Stat.DEF,0.25,Stat.VIT,0.5,Stat.DEX,0.002);
     static boolean allowed(ServerPlayer p,Definition d){
-        return d==null||ClassApi.canUse(p.getUUID(),List.of(d.owner().id))&&ClassApi.progression(p.getUUID()).map(v->v.level()>=d.level()).orElse(false);
+        if(d==null)return true;
+        if(!net.minecraftforge.fml.ModList.get().isLoaded("mythosclasses")){
+            // Local creative preview only. Never bypass class checks on a dedicated server.
+            return !p.getServer().isDedicatedServer()&&p.isCreative();
+        }
+        return ClassApi.canUse(p.getUUID(),List.of(d.owner().id))&&ClassApi.progression(p.getUUID()).map(v->v.level()>=d.level()).orElse(false);
     }
     private static boolean allowed(ServerPlayer p,ItemStack s){return allowed(p,MythosEquipment.definition(s));}
     static boolean fits(Definition d,EquipmentSlot slot){
