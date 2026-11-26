@@ -66,55 +66,69 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         stack.scale(1+breath*0.025F,1+breath*0.018F,1+stretch*0.12F);
         p.translate(0,-16,0);
         p.torso();
-        p.shape(DETAIL,0,15.5F,-3.4F,2.55F,2.9F,2.8F,MANE);
+        p.shape(DETAIL,0,15.5F,-3.4F,2.12F,2.55F,2.30F,MANE);
         p.shape(DETAIL,0,17.7F,0,2.15F,1.55F,4.0F,MANE);
         stack.popPose();
 
         stack.pushPose();
-        p.translate(0, 12.9F+stretch*1.6F,-5.0F-stretch*1.15F);
+        p.translate(0, 13.25F+stretch*1.6F,-4.65F-stretch*1.15F);
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
         stack.mulPose(Axis.XP.rotationDegrees(pitch+stretch*16+groom*(18+12*Mth.sin(age*0.32F))));
-        p.shape(BODY, 0, -0.8F, -0.3F, 2.65F, 2.45F, 2.85F, FUR);
-        p.shape(DETAIL, 0, 1.1F, -2.5F, 1.85F, 1.3F, 1.55F, MANE);
-        for (int side : SIDES) {
-            p.shape(DETAIL, side*1.65F, 0.25F, -1.2F, 1.15F, 1.35F, 1.65F, FUR);
-            p.shape(DETAIL, side*1.32F, -0.85F, -2.62F, 0.76F, 0.48F*blink, 0.40F, GOLD);
-            p.shape(SMALL, side*1.32F, -0.85F, -2.90F, 0.59F, 0.40F*blink, 0.25F, EYE);
-            p.shape(SMALL, side*1.32F, -0.85F, -3.11F, 0.13F, 0.33F*blink, 0.08F, FUR);
-            p.shape(SMALL, side*1.49F, -0.99F, -3.11F, 0.09F, 0.09F*blink, 0.07F, TIP);
-            p.shape(DETAIL, side*0.9F, 1.1F, -3.5F, 1.12F, 0.93F, 0.75F, MANE);
-            // Three individual tapered whiskers per cheek, close and medium LOD.
-            if (lod <= 1) for (int w=0; w<3; w++) {
+        // Domestic feline: broad rounded cranium, short flat muzzle, large
+        // forward-facing almond eyes and upright triangular pinnae.
+        p.shape(BODY,0,-0.65F,-0.25F,2.85F,2.55F,2.18F,FUR);
+        p.shape(DETAIL,0,0.96F,-1.72F,1.53F,0.86F,0.82F,MANE);
+        p.shape(DETAIL,0,1.50F,-1.83F,0.94F,0.43F,0.60F,MANE);
+        for(int side:SIDES){
+            p.shape(DETAIL,side*1.68F,0.25F,-0.72F,1.12F,1.34F,1.32F,FUR);
+            stack.pushPose();
+            p.translate(side*1.29F,-0.80F,-1.97F);
+            stack.mulPose(Axis.YP.rotationDegrees(-side*21F));
+            stack.mulPose(Axis.ZP.rotationDegrees(-side*12F));
+            p.almond(0,0,0,0.93F,0.55F*blink,0.19F,FUR);
+            p.almond(0,0,-0.14F,0.79F,0.43F*blink,0.13F,EYE);
+            p.almond(0,0,-0.24F,0.105F,0.38F*blink,0.035F,FUR);
+            p.shape(ACCENT,-0.20F,-0.12F*blink,-0.27F,0.075F,0.075F*blink,0.025F,TIP);
+            stack.popPose();
+            // Two small whisker pads rather than a protruding canine snout.
+            p.shape(DETAIL,side*0.65F,0.77F,-2.08F,0.78F,0.56F,0.58F,MANE);
+            if(lod<=1)for(int w=0;w<4;w++){
                 stack.pushPose();
-                p.translate(side*1.45F, 0.65F+w*0.38F, -3.55F);
-                stack.mulPose(Axis.ZP.rotationDegrees(side*(w-1)*13F));
-                stack.mulPose(Axis.YP.rotationDegrees(side*12F));
-                p.shape(ACCENT, side*1.45F, 0, 0, 1.65F, 0.045F, 0.045F, TIP);
+                p.translate(side*0.94F,0.55F+w*0.19F,-2.42F);
+                stack.mulPose(Axis.ZP.rotationDegrees(side*(w-1.5F)*9F));
+                stack.mulPose(Axis.YP.rotationDegrees(side*(9F+w*4F)));
+                p.shape(ACCENT,side*1.55F,0,0,1.70F,0.027F,0.027F,TIP);
                 stack.popPose();
             }
             stack.pushPose();
-            p.translate(side*1.75F, -2.35F, 0.2F);
-            stack.mulPose(Axis.ZP.rotationDegrees(side*(18F+earFlick*18F)));
-            p.ear(0,-0.1F,0,1.12F,2.95F,0.72F,FUR);
-            p.ear(0,-0.38F,-0.48F,0.72F,2.0F,0.22F,EAR);
-            p.ear(0,-2.5F,0.02F,0.23F,0.85F,0.22F,TIP);
+            p.translate(side*1.86F,-2.25F,0.05F);
+            stack.mulPose(Axis.ZP.rotationDegrees(side*(10F+earFlick*12F)));
+            p.ear(0,0,0,1.22F,2.24F,0.52F,FUR);
+            p.ear(0,-0.19F,-0.38F,0.79F,1.67F,0.15F,EAR);
+            stack.popPose();
+            // Small swept cheek ruff, not a canine mane.
+            if(lod<=1)for(int tuft=0;tuft<3;tuft++){
+                stack.pushPose();
+                p.translate(side*(2.18F-tuft*0.12F),0.36F+tuft*0.38F,0.42F);
+                stack.mulPose(Axis.ZP.rotationDegrees(-side*35F));
+                p.shape(ACCENT,side*0.30F,0.30F,0.24F,0.42F,0.70F,0.60F,FUR);
+                stack.popPose();
+            }
+        }
+        p.nose();
+        p.shape(ACCENT,0,1.02F,-2.56F,0.055F,0.24F,0.035F,FUR);
+        for(int side:SIDES){
+            stack.pushPose();p.translate(side*0.21F,1.23F,-2.46F);
+            stack.mulPose(Axis.ZP.rotationDegrees(side*16F));
+            p.shape(ACCENT,0,0,0,0.28F,0.045F,0.035F,FUR);
             stack.popPose();
         }
-        // Layered cheek fur, tapering towards the neck.
-        if (lod <= 1) for (int side : SIDES) for (int tuft=0; tuft<4; tuft++) {
-            stack.pushPose();
-            p.translate(side*(2.5F+tuft*0.08F), -0.15F+tuft*0.65F, 0.8F);
-            stack.mulPose(Axis.ZP.rotationDegrees(-side*30F));
-            p.shape(ACCENT, side*0.55F, 0.55F, 0.55F, 0.55F, 1.35F, 1.1F, MANE);
-            stack.popPose();
-        }
-        p.shape(SMALL, 0, 0.63F, -4.2F, 0.48F, 0.26F, 0.28F, EAR);
         p.crescent();
         stack.popPose();
 
         // Independent shoulder/hip, knee, and paw articulation.
         for (int i=0; i<4; i++) {
-            float x = i%2==0 ? -2.15F : 2.15F;
+            float x = (i%2==0?-1:1)*(i<2?1.62F:1.87F);
             float z = i<2 ? -3.4F : 5.1F;
             float phase = i*Mth.PI*0.5F;
             float stride = Mth.cos(swing*0.8F+phase)*0.55F*amount;
@@ -123,13 +137,13 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
             stack.pushPose();
             p.translate(x, 16.8F+sit*(i>=2?1.2F:0.15F), z);
             stack.mulPose(Axis.XP.rotation(stride+stretch*(i<2?-0.68F:0.12F)+sit*(i>=2?-0.50F:0)+grooming*0.85F));
-            p.shape(DETAIL, 0, 1.2F, 0, 1.13F, 2.35F, 1.15F, FUR);
+            p.shape(DETAIL,0,1.1F,0,i<2?0.78F:1.18F,2.35F,i<2?0.80F:1.35F,FUR);
             p.translate(0, 3.1F, 0);
             stack.mulPose(Axis.XP.rotation(Math.max(0, -stride)*0.7F-lift*0.48F+stretch*(i<2?0.42F:0)+sit*(i>=2?0.95F:0)-grooming*1.35F));
             p.shape(DETAIL, 0, 1.3F, 0, 0.67F, 1.8F, 0.72F, FUR);
-            p.shape(DETAIL, 0, 2.85F, -0.55F, 0.98F, 0.65F, 1.22F, TIP);
-            if (lod <= 1) for (int claw=0; claw<3; claw++)
-                p.shape(ACCENT, (claw-1)*0.48F, 3.15F, -1.85F, 0.15F, 0.19F, 0.42F, GOLD);
+            p.shape(DETAIL, 0, 2.85F, -0.55F, 0.82F, 0.65F, 0.94F, TIP);
+            if(lod<=1)for(int toe=0;toe<3;toe++)
+                p.shape(ACCENT,(toe-1)*0.43F,2.98F,-1.24F,0.27F,0.29F,0.38F,TIP);
             stack.popPose();
         }
 
@@ -155,14 +169,34 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
                 .setUv(mat%4*0.25F+0.003F+0.244F*u,mat/4*0.25F+0.003F+0.244F*v)
                 .setOverlay(overlay).setLight(mat==EYE?0xF000F0:light).setNormal(pose,nx,ny,nz);
         }
+        void almond(float x,float y,float z,float w,float h,float depth,int mat){
+            int n=lod==0?32:lod==1?24:12;
+            for(int i=0;i<n;i++){
+                float a=i*Mth.TWO_PI/n,b=(i+1)*Mth.TWO_PI/n;
+                emit(x,y,z-depth,0,0,-1,mat,0.5F,0.5F);
+                almondEdge(x,y,z,w,h,mat,b);
+                almondEdge(x,y,z,w,h,mat,a);
+                emit(x,y,z-depth,0,0,-1,mat,0.5F,0.5F);
+            }
+        }
+        void almondEdge(float x,float y,float z,float w,float h,int mat,float a){
+            float cs=Mth.cos(a),sn=Mth.sin(a);
+            emit(x+w*cs,y+h*sn*(0.45F+0.55F*Math.abs(sn)),z,0,0,-1,mat,0.5F+cs*0.45F,0.5F+sn*0.45F);
+        }
+        void nose(){
+            emit(-0.40F,0.48F,-2.62F,0,0,-1,EAR,0,0);
+            emit(0,0.86F,-2.68F,0,0,-1,EAR,0.5F,1);
+            emit(0.40F,0.48F,-2.62F,0,0,-1,EAR,1,0);
+            emit(0,0.40F,-2.66F,0,0,-1,EAR,0.5F,0);
+        }
         void torso(){
-            float[][] profile={{-7,15.0F,0.04F,0.04F},{-5.8F,15.5F,1.5F,1.8F},{-3.7F,15.8F,2.65F,2.8F},{-1.5F,16,2.65F,2.65F},{1.5F,16.1F,2.05F,2.25F},{3.5F,16.3F,2.1F,2.15F},{5.3F,16.1F,2.65F,2.55F},{7.4F,16,1.6F,1.8F},{8.2F,16,0.04F,0.04F}};
+            float[][] profile={{-7,15.0F,0.04F,0.04F},{-5.8F,15.5F,1.5F,1.8F},{-3.7F,15.8F,2.25F,2.55F},{-1.5F,16,2.40F,2.55F},{1.5F,16.1F,2.05F,2.25F},{3.5F,16.3F,2.1F,2.15F},{5.3F,15.75F,2.50F,2.75F},{7.4F,16,1.6F,1.8F},{8.2F,16,0.04F,0.04F}};
             int rows=new int[]{96,48,24,12}[lod],cols=new int[]{96,48,24,12}[lod];
             for(int i=0;i<rows;i++)for(int j=0;j<cols;j++){
                 torsoVertex(profile,i/(float)rows,j/(float)cols);
-                torsoVertex(profile,(i+1)/(float)rows,j/(float)cols);
-                torsoVertex(profile,(i+1)/(float)rows,(j+1)/(float)cols);
                 torsoVertex(profile,i/(float)rows,(j+1)/(float)cols);
+                torsoVertex(profile,(i+1)/(float)rows,(j+1)/(float)cols);
+                torsoVertex(profile,(i+1)/(float)rows,j/(float)cols);
             }
         }
         void torsoVertex(float[][] p,float t,float u){
@@ -196,7 +230,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         }
         void crescentVertex(float a,int inner){
             float r=inner==0?0.48F:0.48F-0.22F*Mth.sin((a+1.15F)/4.8F*Mth.PI);
-            emit(r*Mth.cos(a),-1.85F+r*Mth.sin(a),-2.78F,0,0,-1,EYE,0.5F,0.5F);
+            emit(r*Mth.cos(a),-2.10F+r*Mth.sin(a),-2.10F,0,0,-1,EYE,0.5F,0.5F);
         }
         void tail(float age,float motion,float sit){
             int rows=new int[]{80,48,24,12}[lod],cols=new int[]{32,20,12,8}[lod];
@@ -209,10 +243,10 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         }
         void tailVertex(float age,float motion,float sit,float t,float u){
             float x=(0.65F+motion*0.6F)*t*Mth.sin(age*0.08F-t*5)+sit*3.8F*t*t;
-            float y=15.8F-5.2F*Mth.sin(t*1.8F)+sit*3*t;
-            float z=7+10.5F*t-sit*5*t*t;
+            float y=15.8F-9.0F*Mth.sin(t*1.65F)+sit*5*t;
+            float z=7+7.5F*t-2.8F*t*t-sit*4*t*t;
             float angle=u*Mth.TWO_PI,cs=Mth.cos(angle),sn=Mth.sin(angle);
-            float r=0.83F*(1-t)+0.045F;
+            float r=0.69F*(1-0.80F*t)*Mth.sqrt(Math.max(0.001F,1-t*t))+0.018F;
             emit(x+r*cs,y+r*sn,z,cs,sn,0,t>0.78F?TIP:FUR,u,t);
         }
 
