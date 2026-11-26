@@ -52,22 +52,29 @@ final class CharacterMesh {
         }else if(s.kind==1&&cs>0){
             z-=.22F*(gauss(x,q.y,-1.42F,2.5F,.95F,1.25F)+gauss(x,q.y,1.42F,2.5F,.95F,1.25F))*cs;
         }
+        if(s.kind==0){x*=1.12F;z*=1.06F;}
         float inflate=overlay?(s.bone==0?.10F:.11F):0;
-        return new V(q.x+x+sn*inflate,q.y,q.z+z-cs*inflate);
+        return new V(q.x+x+sn*inflate,q.y+(s.kind==0?1.05F:0),q.z+z-cs*inflate);
     }
     private static Vertex vertex(Shape s,float u,float t,boolean overlay){
         V p=position(s,u,t,overlay);
         float e=.0005F;
         V du=position(s,u+e,t,overlay).sub(position(s,u-e,t,overlay));
         V dt=position(s,u,Math.min(1,t+e),overlay).sub(position(s,u,Math.max(0,t-e),overlay));
-        V normal=dt.cross(du).unit();
+        V normal=du.cross(dt).unit();
         // Continuous mapping around the original front/right/back/left skin rectangles.
         Atlas a=overlay?s.overlay:s.base;
         float theta=u*4+.5F;
         int face=Math.floorMod((int)Math.floor(theta),4);
         float f=theta-(float)Math.floor(theta);
         float x=switch(face){case 0->a.d+f*a.w;case 1->a.d+a.w+f*a.d;case 2->2*a.d+a.w+f*a.w;default->f*a.d;};
-        return new Vertex(p,normal,(a.u+x)/64F,(a.v+a.d+t*a.h)/64F);
+        float height=(p.y-(s.kind==0?1.05F:0)-s.rings[0].y)/(s.rings[s.rings.length-1].y-s.rings[0].y);
+        if(s.kind==3) return new Vertex(p,normal,(a.u+a.d+a.w*.5F)/64F,(a.v+a.d+a.h*.9F)/64F);
+        // Keep samples within the face rectangle, preventing adjacent atlas islands bleeding.
+        float faceStart=switch(face){case 0->a.d;case 1->a.d+a.w;case 2->2*a.d+a.w;default->0;};
+        float faceWidth=(face==0||face==2)?a.w:a.d;
+        x=faceStart+.5F+f*(faceWidth-1);
+        return new Vertex(p,normal,(a.u+x)/64F,(a.v+a.d+.5F+height*(a.h-1))/64F);
     }
     private static void add(List<Quad> out,Vertex a,Vertex b,Vertex c,Vertex d){
         V face=b.position.sub(a.position).cross(c.position.sub(a.position));
@@ -96,13 +103,17 @@ final class CharacterMesh {
             Ring ring=s.rings[end==0?0:s.rings.length-1];
             V normal=new V(0,end==0?-1:1,0);
             float x0=a.u+a.d+(end==0?0:a.w),y0=a.v;
-            Vertex center=new Vertex(new V(ring.x,ring.y,ring.z),normal,(x0+a.w*.5F)/64F,(y0+a.d*.5F)/64F);
+            Vertex center=new Vertex(new V(ring.x,ring.y+(s.kind==0?1.05F:0),ring.z),normal,(x0+a.w*.5F)/64F,(y0+a.d*.5F)/64F);
             for(int i=0;i<n;i++){
                 float u=i/(float)n,U=(i+1)/(float)n;
                 V p=position(s,u,end,overlay),q=position(s,U,end,overlay);
                 Vertex p1=new Vertex(p,normal,(x0+a.w*(.5F+.5F*(float)Math.sin(u*Math.PI*2)))/64F,(y0+a.d*(.5F-.5F*(float)Math.cos(u*Math.PI*2)))/64F);
                 Vertex p2=new Vertex(q,normal,(x0+a.w*(.5F+.5F*(float)Math.sin(U*Math.PI*2)))/64F,(y0+a.d*(.5F-.5F*(float)Math.cos(U*Math.PI*2)))/64F);
-                add(out,center,p1,p2,p2);
+                if(s.kind==3){
+                float uu=(a.u+a.d+a.w*.5F)/64F,vv=(a.v+a.d+a.h*.9F)/64F;
+                center=new Vertex(center.position,normal,uu,vv);p1=new Vertex(p,normal,uu,vv);p2=new Vertex(q,normal,uu,vv);
+            }
+            add(out,center,p1,p2,p2);
             }
         }
         return out;
@@ -117,7 +128,7 @@ final class CharacterMesh {
         Atlas h=a(0,0,8,8,8),ho=a(32,0,8,8,8),body=a(16,16,8,12,4),bo=a(16,32,8,12,4);
         Shape[] shapes={
             shape(0,h,ho,0,r(-9.0F,0,.12F,.03F,.04F),r(-8.7F,0,.18F,1.24F,1.28F),r(-7.8F,0,.2F,2.05F,1.82F),r(-6.4F,0,.22F,2.24F,1.98F),r(-5.3F,0,.10F,2.15F,1.92F),r(-4.2F,0,-.05F,1.94F,1.73F),r(-3.1F,0,-.14F,1.47F,1.53F),r(-2.65F,0,-.03F,.79F,1.02F),r(-2.55F,0,.08F,.22F,.35F)),
-            shape(1,body,bo,1,r(-.45F,0,0,1.05F,1.12F),r(.35F,0,.08F,2.65F,1.48F),r(1.6F,0,.06F,3.55F,1.96F),r(3.6F,0,0,3.45F,2.03F),r(5.8F,0,.05F,2.92F,1.77F),r(8.2F,0,.11F,2.48F,1.65F),r(10.2F,0,.15F,2.93F,1.83F),r(12F,0,.1F,2.65F,1.67F)),
+            shape(1,body,bo,1,r(-.45F,0,0,1.05F,1.12F),r(.35F,0,.08F,2.65F,1.48F),r(1.6F,0,.06F,3.55F,1.96F),r(3.6F,0,0,3.45F,2.03F),r(5.8F,0,.05F,2.92F,1.77F),r(8.2F,0,.11F,2.48F,1.65F),r(10.2F,0,.15F,2.93F,1.83F),r(12.1F,0,.1F,3.18F,1.79F)),
             arm(2,arm,slim),arm(3,arm,slim),leg(4),leg(5)
         };
         List<Part> result=new ArrayList<>();
@@ -135,9 +146,9 @@ final class CharacterMesh {
             List<Quad> base=loft(s,n,rows,false);
             if(s.bone==0){
                 int small=Math.max(8,(n/16)*4);
-                append(base,shape(0,h,ho,2,r(-3.15F,0,.15F,.80F,.86F),r(-1.25F,0,.12F,.92F,.9F),r(.45F,0,.1F,1.08F,1.0F)),small,rows/2,false);
+                append(base,shape(0,h,ho,2,r(-2.1F,0,.15F,1.04F,1.04F),r(-.8F,0,.12F,1.10F,1.04F),r(.65F,0,.1F,1.28F,1.12F)),small,rows/2,false);
                 for(int side:new int[]{-1,1}){
-                    append(base,shape(0,h,ho,2,r(-6.1F,side*1.99F,.27F,.12F,.16F),r(-5.8F,side*2.13F,.26F,.34F,.43F),r(-4.9F,side*2.14F,.30F,.29F,.37F),r(-4.65F,side*2.02F,.28F,.12F,.13F)),small,rows/2,false);
+                    append(base,shape(0,h,ho,2,r(-5.05F,side*2.24F,.27F,.12F,.16F),r(-4.75F,side*2.38F,.26F,.34F,.43F),r(-3.85F,side*2.39F,.30F,.29F,.37F),r(-3.60F,side*2.27F,.28F,.12F,.13F)),small,rows/2,false);
                 }
             }
             if(s.bone==2||s.bone==3){
@@ -146,9 +157,9 @@ final class CharacterMesh {
                 // Individual fingers, slightly curled into a relaxed weapon-ready grip.
                 for(int i=0;i<4;i++){
                     float x=cx+(i-1.5F)*.35F,y=9.6F+(i==0||i==3?-.16F:0);
-                    append(base,shape(s.bone,s.base,s.overlay,2,r(y,x,-.12F,.18F,.24F),r(y+.6F,x,-.18F,.17F,.21F),r(y+1.0F,x,-.40F,.14F,.17F),r(y+1.12F,x,-.48F,.05F,.08F)),small,rows/3,false);
+                    append(base,shape(s.bone,s.base,s.overlay,3,r(y,x,-.12F,.18F,.24F),r(y+.6F,x,-.18F,.17F,.21F),r(y+1.0F,x,-.40F,.14F,.17F),r(y+1.12F,x,-.48F,.05F,.08F)),small,rows/3,false);
                 }
-                append(base,shape(s.bone,s.base,s.overlay,2,r(8.25F,cx-side*.55F,-.37F,.26F,.25F),r(8.85F,cx-side*.82F,-.55F,.23F,.22F),r(9.45F,cx-side*.65F,-.71F,.14F,.15F),r(9.60F,cx-side*.58F,-.72F,.04F,.05F)),small,rows/3,false);
+                append(base,shape(s.bone,s.base,s.overlay,3,r(8.25F,cx-side*.55F,-.37F,.26F,.25F),r(8.85F,cx-side*.82F,-.55F,.23F,.22F),r(9.45F,cx-side*.65F,-.71F,.14F,.15F),r(9.60F,cx-side*.58F,-.72F,.04F,.05F)),small,rows/3,false);
             }
             result.add(new Part(s.bone,false,List.copyOf(base)));
             // Only a skin-conforming shell; do not duplicate fingers/ears.
@@ -162,14 +173,14 @@ final class CharacterMesh {
         return List.copyOf(result);
     }
     private static Shape arm(int bone,int width,boolean slim){
-        int side=bone==2?-1:1;float x=side*(width/2F-1),f=slim?.87F:1;
+        int side=bone==2?-1:1;float x=side*(width/2F-1)-side*.85F,f=slim?.87F:1;
         Atlas a=bone==2?a(40,16,width,12,4):a(32,48,width,12,4);
         Atlas o=bone==2?a(40,32,width,12,4):a(48,48,width,12,4);
-        return shape(bone,a,o,2,r(-2F,x,0,.40F,.53F),r(-1F,x,0,1.22F*f,1.36F),r(.8F,x,0,1.43F*f,1.42F),r(2.7F,x,-.08F,1.26F*f,1.31F),r(4.3F,x,.05F,.96F*f,1.06F),r(5.5F,x,.04F,1.03F*f,1.10F),r(7.0F,x,-.03F,.76F*f,.81F),r(8.0F,x,-.04F,.57F*f,.62F),r(9.2F,side*.2F,-.1F,.76F,.51F),r(9.8F,side*.2F,-.12F,.69F,.40F));
+        return shape(bone,a,o,2,r(-2F,x,0,.40F,.53F),r(-1F,x,0,1.48F*f,1.49F),r(.8F,x,0,1.67F*f,1.53F),r(2.7F,x,-.08F,1.26F*f,1.31F),r(4.3F,x,.05F,.96F*f,1.06F),r(5.5F,x,.04F,1.03F*f,1.10F),r(7.0F,x,-.03F,.76F*f,.81F),r(8.0F,x,-.04F,.57F*f,.62F),r(9.2F,side*.2F,-.1F,.76F,.51F),r(9.8F,side*.2F,-.12F,.69F,.40F));
     }
     private static Shape leg(int bone){
         Atlas a=bone==4?a(0,16,4,12,4):a(16,48,4,12,4);
         Atlas o=bone==4?a(0,32,4,12,4):a(0,48,4,12,4);
-        return shape(bone,a,o,2,r(0,0,0,1.52F,1.73F),r(1.3F,0,0,1.58F,1.72F),r(3.6F,0,-.12F,1.32F,1.48F),r(5.5F,0,-.20F,.99F,1.04F),r(6.5F,0,.08F,1.12F,1.21F),r(8.2F,0,.22F,1.12F,1.19F),r(10F,0,.08F,.69F,.76F),r(10.8F,0,-.34F,.75F,1.12F),r(11.5F,0,-.80F,.97F,1.73F),r(12F,0,-.80F,.92F,1.63F));
+        return shape(bone,a,o,2,r(-.55F,0,0,1.64F,1.73F),r(1.3F,0,0,1.58F,1.72F),r(3.6F,0,-.12F,1.32F,1.48F),r(5.5F,0,-.20F,.99F,1.04F),r(6.5F,0,.08F,1.12F,1.21F),r(8.2F,0,.22F,1.12F,1.19F),r(10F,0,.08F,.69F,.76F),r(10.8F,0,-.34F,.75F,1.12F),r(11.5F,0,-.80F,.97F,1.73F),r(12F,0,-.80F,.92F,1.63F));
     }
 }
