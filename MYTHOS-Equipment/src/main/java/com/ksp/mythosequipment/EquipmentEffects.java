@@ -11,7 +11,7 @@ import com.ksp.mythosequipment.EquipmentRules.*;
 
 /** Signature procs are evaluated only on accepted hostile damage. */
 final class EquipmentEffects {
-    private static final EquipmentSlot[] SLOTS={EquipmentSlot.MAINHAND,EquipmentSlot.HEAD,EquipmentSlot.CHEST,EquipmentSlot.LEGS,EquipmentSlot.FEET};
+    private static final EquipmentSlot[] SLOTS={EquipmentSlot.MAINHAND,EquipmentSlot.OFFHAND,EquipmentSlot.HEAD,EquipmentSlot.CHEST,EquipmentSlot.LEGS,EquipmentSlot.FEET};
     private final Map<UUID,Long> cooldown=new HashMap<>();
     void clear(){cooldown.clear();}
     void forget(UUID player){cooldown.remove(player);}
@@ -24,7 +24,7 @@ final class EquipmentEffects {
         // At most one proc per hit, regardless of how many matching pieces are worn.
         for(EquipmentSlot slot:SLOTS){
             var stack=player.getItemBySlot(slot);var d=MythosEquipment.definition(stack);
-            if(d==null||!EquipmentServer.allowed(player,d)||!EquipmentServer.fits(d,slot))continue;
+            if(d==null||(slot==EquipmentSlot.OFFHAND&&EquipmentServer.twoHanded(player))||!EquipmentServer.allowed(player,d)||!EquipmentServer.fits(d,slot))continue;
             var roll=GearRolls.read(stack,d);
             if(roll.isEmpty()||!roll.get().rarity().hasEffect())continue;
             Rarity candidate=roll.get().rarity();
