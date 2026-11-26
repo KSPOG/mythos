@@ -8,7 +8,7 @@ import com.ksp.mythosequipment.EquipmentRules.Rarity;
 final class EquipmentPresentation {
     static int color(Rarity r){return switch(r){
         case COMMON->0xAAAAAA;case UNCOMMON->0x55FF55;case RARE->0x5599FF;
-        case EPIC->0xBB55FF;case LEGENDARY->0xFFAA00;case GODLIKE->0xFF5555;
+        case EPIC->0xBB55FF;case LEGENDARY->0xFFAA00;case MYTHICAL->0xFF5555;
     };}
     static void tooltip(ItemTooltipEvent event){
         var d=MythosEquipment.definition(event.getItemStack());if(d==null)return;
