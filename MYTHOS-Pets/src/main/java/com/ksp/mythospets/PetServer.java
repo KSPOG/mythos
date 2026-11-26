@@ -20,6 +20,9 @@ import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -68,7 +71,7 @@ final class PetServer {
     );
     private static String description(Definition d){
         return switch(d.id){
-            case "ember_dragon" -> "Flame Breath (6 damage, 6s cooldown) | Ember Guard (5s Resistance I + Fire Resistance at <=70% health, 12s cooldown)";
+            case "ember_dragon" -> "Flame Breath (3 x 2 raw damage, 7-block cone, 6s cooldown) | Ember Guard (5s Resistance I + Fire Resistance at <=70% health, 12s cooldown)";
             case "premium_mooncat" -> "Lunar Pounce (4 damage, Slowness I, 5s cooldown) | Moon Blessing (heal 4 + 5s Speed I at <=70% health, 12s cooldown)";
             default -> d.ability.name()+" | cooldown "+d.cooldown+" ticks";
         };
@@ -80,6 +83,7 @@ final class PetServer {
         final UUID owner; final Definition definition; final Mob entity;
         UUID target; long targetUntil,nextAbility;
         UUID castTarget; int cast; long impactAt,finishAt,nextSupport; boolean impacted;
+        int landingTicks; Vec3 flightVelocity=Vec3.ZERO;
         Active(UUID owner,Definition definition,Mob entity){this.owner=owner;this.definition=definition;this.entity=entity;}
     }
     private Store store=new Store();
@@ -185,6 +189,7 @@ final class PetServer {
             var mob=a.entity;mob.setDeltaMovement(Vec3.ZERO);
             boolean custom=mob instanceof DragonEntity||mob instanceof MooncatEntity;
             if(custom&&combat(p,a))continue;
+            if(mob instanceof DragonEntity dragon&&dragon.flight()>0&&land(p,a,dragon))continue;
             if(mob.distanceToSqr(p)>9){
                 var delta=p.position().subtract(mob.position());
                 // Preserve the old nominal speed (0.65 blocks per five ticks),
@@ -232,63 +237,132 @@ final class PetServer {
         if(a.entity instanceof DragonEntity d)d.beginCombat(action==BREATH?DragonEntity.BREATH:DragonEntity.GUARD);
         if(a.entity instanceof MooncatEntity m)m.beginCombat(action==POUNCE?MooncatEntity.POUNCE:MooncatEntity.BLESS);
     }
-    /** Exclusive cast lifecycle: target validated at windup and again at impact. */
+    private boolean fly(ServerPlayer p,Active a,DragonEntity dragon,LivingEntity target,boolean casting){
+        var level=p.serverLevel();
+        double phase=tick*0.035+(dragon.getId()%31)*0.2;
+        Vec3 offset=new Vec3(Math.cos(phase)*3.4,0,Math.sin(phase)*3.4);
+        Vec3 desired=target.position().add(offset).add(0,3.0+0.12*Math.sin(tick*0.15),0);
+        // Low ceilings: choose a lower collision-free hover point, not a wall teleport.
+        while(desired.y>target.getY()+0.7&&!safe(level,dragon,desired))desired=desired.add(0,-0.5,0);
+        Vec3 delta=desired.subtract(dragon.position());
+        double speed=casting?0.085:0.23;
+        Vec3 requested=delta.length()<0.06?Vec3.ZERO:delta.normalize().scale(Math.min(speed,delta.length()));
+        a.flightVelocity=a.flightVelocity.scale(0.72).add(requested.scale(0.28));
+        Vec3 step=a.flightVelocity;
+        Vec3 dest=dragon.position().add(step);
+        if(safe(level,dragon,dest))dragon.move(MoverType.SELF,step);
+        else{
+            Vec3 vertical=new Vec3(0,Math.max(0,step.y),0);
+            if(vertical.lengthSqr()>0.00001&&safe(level,dragon,dragon.position().add(vertical)))dragon.move(MoverType.SELF,vertical);
+            a.flightVelocity=Vec3.ZERO;
+        }
+        dragon.flight(Math.min(20,dragon.flight()+1));a.landingTicks=0;
+        face(dragon,target.position().subtract(dragon.position()));
+        return dragon.getY()>=target.getY()+1.2;
+    }
+    private boolean land(ServerPlayer p,Active a,DragonEntity dragon){
+        var level=p.serverLevel();
+        if(!level.noCollision(dragon,dragon.getBoundingBox().move(0,-0.12,0))){
+            dragon.flight(0);a.flightVelocity=Vec3.ZERO;a.landingTicks=0;return false;
+        }
+        // Descend locally without snapping to the owner. If the floor is absent,
+        // return to normal catch-up logic after a bounded descent.
+        if(++a.landingTicks>100||dragon.getY()<level.getMinBuildHeight()+2){
+            dragon.flight(0);a.flightVelocity=Vec3.ZERO;a.landingTicks=0;return false;
+        }
+        double drop=Math.min(0.15,0.035+a.landingTicks*0.008);
+        Vec3 step=new Vec3(0,-drop,0);
+        if(safe(level,dragon,dragon.position().add(step)))dragon.move(MoverType.SELF,step);
+        else{
+            dragon.move(MoverType.SELF,new Vec3(0,-0.025,0));
+            if(!level.noCollision(dragon,dragon.getBoundingBox().move(0,-0.12,0))){
+                dragon.flight(0);a.flightVelocity=Vec3.ZERO;a.landingTicks=0;return false;
+            }
+        }
+        dragon.flight(Math.max(4,dragon.flight()-1));return true;
+    }
+    private void breathTick(ServerPlayer p,Active a,DragonEntity dragon,LivingEntity target){
+        var level=p.serverLevel();
+        Vec3 origin=dragon.mouth(),aim=target.getBoundingBox().getCenter().subtract(origin).normalize();
+        if(aim.lengthSqr()<0.0001){dragon.stream(Vec3.ZERO,0);return;}
+        Vec3 end=origin.add(aim.scale(7));
+        var hit=level.clip(new ClipContext(origin,end,ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,dragon));
+        double length=hit.getType()==HitResult.Type.MISS?7:origin.distanceTo(hit.getLocation());
+        dragon.stream(aim,(float)length);
+        long elapsed=tick-a.impactAt;
+        if(elapsed==0)level.playSound(null,dragon.getX(),dragon.getY(),dragon.getZ(),SoundEvents.BLAZE_SHOOT,SoundSource.NEUTRAL,1.0F,0.65F);
+        if(elapsed%3==0){
+            Vec3 q=origin.add(aim.scale(length*0.8));
+            level.sendParticles(ParticleTypes.SMALL_FLAME,q.x,q.y,q.z,5,0.25,0.25,0.25,0.025);
+            level.sendParticles(ParticleTypes.SMOKE,q.x,q.y,q.z,2,0.2,0.2,0.2,0.025);
+        }
+        // Three pulses separated by eleven ticks respect vanilla hit immunity.
+        if(elapsed!=0&&elapsed!=11&&elapsed!=22)return;
+        AABB search=new AABB(origin,end).inflate(2.2);
+        for(LivingEntity enemy:level.getEntitiesOfClass(LivingEntity.class,search,e->eligible(p,e)
+            &&(e==target||e instanceof Mob mob&&mob.getTarget()==p))){
+            Vec3 point=enemy.getBoundingBox().getCenter(),v=point.subtract(origin);
+            double along=v.dot(aim),radius=0.20+Math.max(0,along)*0.24;
+            if(along<0||along>length||v.subtract(aim.scale(along)).lengthSqr()>radius*radius)continue;
+            if(level.clip(new ClipContext(origin,point,ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,dragon)).getType()!=HitResult.Type.MISS)continue;
+            if(enemy.hurt(level.damageSources().mobAttack(dragon),2))enemy.igniteForSeconds(3);
+        }
+    }
+    /** Exclusive cast lifecycle: validate hostile target, range and line of sight. */
     private boolean combat(ServerPlayer p,Active a){
         boolean dragon=a.entity instanceof DragonEntity;
         if(a.cast!=0){
             boolean support=a.cast==GUARD||a.cast==BLESS;
-            LivingEntity target=combatTarget(p,a,a.castTarget,support?8:dragon?6:2.6);
-            if(!a.impacted&&target==null){
-                finishCast(a);return false;
-            }
+            LivingEntity target=combatTarget(p,a,a.castTarget,support?8:dragon?7:2.6);
             if(tick>=a.finishAt){finishCast(a);return false;}
-            if(target!=null)face(a.entity,target.position().subtract(a.entity.position()));
+            if((!a.impacted||a.cast==BREATH)&&target==null){finishCast(a);return false;}
+            if(target!=null){
+                if(a.entity instanceof DragonEntity d)fly(p,a,d,target,true);
+                else face(a.entity,target.position().subtract(a.entity.position()));
+            }
+            if(a.cast==BREATH&&a.entity instanceof DragonEntity d){
+                if(tick>=a.impactAt&&tick<=a.impactAt+23&&target!=null){
+                    a.impacted=true;breathTick(p,a,d,target);
+                }else d.stream(Vec3.ZERO,0);
+                return true;
+            }
             if(!a.impacted&&tick>=a.impactAt){
-                a.impacted=true;
-                if(target!=null)impact(p,a,target);
+                a.impacted=true;if(target!=null)impact(p,a,target);
             }
             return true;
         }
         LivingEntity target=engagedTarget(p,a,a.target);
         if(target==null)return false;
         face(a.entity,target.position().subtract(a.entity.position()));
-        // Support retains its local casting requirements, but owner distance
-        // is irrelevant once the owner has established a valid engagement.
+        if(a.entity instanceof DragonEntity d){
+            boolean airborne=fly(p,a,d,target,false);
+            if(!airborne)return true;
+        }
         if(tick>=a.nextSupport&&p.getHealth()<=p.getMaxHealth()*0.70F
             &&combatTarget(p,a,a.target,8)!=null){
             a.nextSupport=tick+240;
             startCast(a,target,dragon?GUARD:BLESS,10,24);return true;
         }
-        double range=dragon?6:2.6;
+        double range=dragon?7:2.6;
         if(a.entity.distanceToSqr(target)>range*range){
-            // Pursue the engaged target, never the owner, while combat is active.
-            var delta=target.position().subtract(a.entity.position());
-            var step=delta.normalize().scale(Math.min(0.16,Math.max(0,delta.length()-range+0.15)));
-            var dest=a.entity.position().add(step);
-            if(safe(p.serverLevel(),a.entity,dest)){
-                var before=a.entity.position();a.entity.move(MoverType.SELF,step);
-                face(a.entity,a.entity.position().subtract(before));
+            if(!dragon){
+                var delta=target.position().subtract(a.entity.position());
+                var step=delta.normalize().scale(Math.min(0.16,Math.max(0,delta.length()-range+0.15)));
+                if(safe(p.serverLevel(),a.entity,a.entity.position().add(step))){
+                    var before=a.entity.position();a.entity.move(MoverType.SELF,step);
+                    face(a.entity,a.entity.position().subtract(before));
+                }
             }
             return true;
         }
-        // Remain with the enemy through cooldowns; no owner-follow teleport.
         if(tick<a.nextAbility||!a.entity.hasLineOfSight(target))return true;
         a.nextAbility=tick+(dragon?120:100);
-        startCast(a,target,dragon?BREATH:POUNCE,dragon?12:8,dragon?30:20);
+        startCast(a,target,dragon?BREATH:POUNCE,dragon?10:8,dragon?44:20);
         return true;
     }
     private void impact(ServerPlayer p,Active a,LivingEntity target){
         var level=p.serverLevel();
         switch(a.cast){
-            case BREATH -> {
-                if(target.hurt(level.damageSources().mobAttack(a.entity),6))target.igniteForSeconds(3);
-                Vec3 from=a.entity.getEyePosition(),to=target.getEyePosition();
-                for(int i=1;i<=12;i++){
-                    Vec3 q=from.lerp(to,i/12.0);
-                    level.sendParticles(ParticleTypes.FLAME,q.x,q.y,q.z,3,0.10,0.10,0.10,0.015);
-                }
-                level.playSound(null,a.entity.getX(),a.entity.getY(),a.entity.getZ(),SoundEvents.BLAZE_SHOOT,SoundSource.NEUTRAL,0.75F,0.8F);
-            }
             case POUNCE -> {
                 if(target.hurt(level.damageSources().mobAttack(a.entity),4))
                     target.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,60,0));
