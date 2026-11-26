@@ -30,7 +30,7 @@ public final class DragonEntity extends PathfinderMob {
     }
 
     static int duration(int action) {
-        return switch(action){case FLAP->64;case REAR->84;case ROAR->72;default->0;};
+        return switch(action){case FLAP->64;case REAR->120;case ROAR->72;default->0;};
     }
     int idleAction(){return entityData.get(IDLE);}
     int idleElapsed(){return Math.max(0,(int)level().getGameTime()-entityData.get(START));}
