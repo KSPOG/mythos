@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="mythospets"
-version="0.3.3"
+version="0.3.4"
 displayName="MYTHOS Pets"
 description='''Client/server custom entities and server-authoritative combat companions.'''
 [[dependencies.mythospets]]
