@@ -18,7 +18,10 @@ final class EquipmentPresentation {
             var r=roll.get();
             lines.add(Component.literal(r.rarity().label()).withStyle(style->style.withColor(color(r.rarity())).withBold(true)));
             r.stats().forEach((stat,value)->lines.add(Component.literal("+"+value+" "+stat.name()).withStyle(ChatFormatting.GREEN)));
+            if(r.rarity().hasEffect())lines.add(Component.literal(d.effect().label+": "+d.effect().description+" (10s shared cooldown)").withStyle(ChatFormatting.LIGHT_PURPLE));
+            else lines.add(Component.literal("Signature effect unlocks at Rare").withStyle(ChatFormatting.DARK_GRAY));
         }else lines.add(Component.literal("Unrolled — generated on server").withStyle(ChatFormatting.GRAY));
+        lines.add(Component.literal("Set: "+d.profile().name()).withStyle(ChatFormatting.GRAY));
         lines.add(Component.literal("Class: "+d.owner().id.replace('_',' ')).withStyle(ChatFormatting.GOLD));
         lines.add(Component.literal("Required level: "+d.tier().level).withStyle(ChatFormatting.GRAY));
     }
