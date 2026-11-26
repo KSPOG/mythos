@@ -18,14 +18,17 @@ public final class DragonTexture {
         for(int y=0;y<SIZE;y++)for(int x=0;x<SIZE;x++){
             int material=(y/TILE%2)*4+x/TILE;
             int u=x%TILE,v=y%TILE;
-            double noise=hash(x,y)*11;
+            double noise=hash(x,y)*7+Math.sin(u*0.012)*Math.sin(v*0.018)*4;
             double shade;
             if(material==0||material==1||material==6){
-                int row=v/22;
-                double fx=((u+(row%2)*13)%26)/26.0,fy=(v%22)/22.0;
+                double warpedY=v+3*Math.sin(u*0.038)+2*Math.sin(u*0.093);
+                int row=(int)Math.floor(warpedY/22);
+                double warpedX=u+(row&1)*13+3*Math.sin(v*0.064);
+                double fx=warpedX/26-Math.floor(warpedX/26),fy=warpedY/22-Math.floor(warpedY/22);
                 double edge=Math.min(Math.min(fx,1-fx),Math.min(fy,1-fy));
                 double ridge=Math.sin(Math.PI*fx)*Math.sin(Math.PI*fy);
-                shade=edge<0.075?-20:ridge*30-8;
+                double mottling=hash((int)Math.floor(warpedX/26),row)*17-8;
+                shade=(edge<0.075?-18:ridge*23-6)+mottling;
                 if(material==1)shade+=Math.sin(v*0.16)*9;
             }else if(material==2){
                 shade=Math.sin(u*0.16+Math.sin(v*0.021)*2)*12+Math.sin(v*0.075)*8;
