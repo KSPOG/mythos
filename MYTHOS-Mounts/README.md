@@ -6,3 +6,6 @@ Economy is a separate mount-gold balance for testing; not MYTHOS RPG gold. Shop 
 
 ## 0.2.0
 Requires Economy 0.3.0, Merchants 0.3.0 for Stable Master purchases. Old mount gold preserved only as inactive legacy data, not converted. Existing unlocked mounts remain valid. /mount buy and credit removed. /mount shop lists eligible IDs; prices set per NPC via /merchant mount add traveller gold 5000 10. Owner permission 4: /mount premium grant <online player> <id>, revoke, catalog, list <online player>. Premium variants premium_celestial_steed and premium_royal_camel have existing ordinary movement speeds and vanilla entity visuals; no payment integration. Existing locked bosses remain locked. Back up economy and mount files together. Live gameplay validation required.
+
+## 0.2.1 — Royal Warhorse
+Royal Warhorse now uses a deterministic black coat, no markings, native golden horse armor, gold bold nameplate, and 1.10 scale with existing spawn collision checks. Native saddle, movement speed, price and ownership remain unchanged. Dismiss and resummon after updating. No resource pack required. CI and in-game visual verification required.
