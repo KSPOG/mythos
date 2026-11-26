@@ -1,6 +1,10 @@
 package com.ksp.mythosmerchants;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.LongArgumentType;
+import com.mojang.brigadier.arguments.BoolArgumentType;
+import com.ksp.mythoseconomy.EconomyApi;
+import com.ksp.mythoseconomy.Ledger;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.*;
@@ -85,7 +89,7 @@ public final class Merchants {
         return s.getLevel().getEntitiesOfClass(Villager.class,new AABB(s.getPosition(),s.getPosition()).inflate(8),Merchants::managed).stream()
             .min(Comparator.comparingDouble(v->v.position().distanceToSqr(s.getPosition()))).orElse(null);
     }
-    private void open(ServerPlayer p,Villager v){gold.open(p,v);}
+    private void open(ServerPlayer p,Villager v){if(CreatureShops.kind(v).isEmpty())gold.open(p,v);else CreatureShops.open(p,v);}
     private void interact(PlayerInteractEvent.EntityInteract e){
         if(e.getEntity() instanceof ServerPlayer p&&e.getTarget() instanceof Villager v&&managed(v)){
             e.setCanceled(true);open(p,v);
@@ -119,6 +123,7 @@ public final class Merchants {
         var v=nearest(s);if(v==null)return fail(s,"No managed merchant within 8 blocks.");
         switch(action){
             case "info" -> {
+                if(!CreatureShops.kind(v).isEmpty())return creatureInfo(s,v);
                 s.sendSuccess(()->Component.literal(gold.info(v)),false);
                 s.sendSuccess(()->Component.literal(v.getDisplayName().getString()+" | "+v.getUUID()+" | "+v.getTags()),false);
                 return 1;
@@ -128,6 +133,28 @@ public final class Merchants {
         }
         return ok(s,"Merchant "+action+" complete.");
     }
+    private int creatureInfo(CommandSourceStack s,Villager v){
+        if(!EconomyApi.available(s.getServer()))return fail(s,"Economy unavailable");
+        var offers=EconomyApi.creatureOffers(s.getServer(),v.getUUID());
+        ok(s,v.getDisplayName().getString()+" | "+v.getUUID());
+        offers.forEach((key,o)->ok(s,key+" | "+o.price()+" "+o.currency()+" | "+(o.unlimited()?"Unlimited":o.stock()+"/"+o.max())));
+        return 1;
+    }
+    private int creatureEdit(CommandSourceStack s,String kind,String id,String action,String currency,long price,int stock,boolean unlimited){
+        var v=nearest(s);if(v==null||!CreatureShops.kind(v).equals(kind))return fail(s,"Stand near the matching merchant");
+        var server=s.getServer();if(!EconomyApi.available(server))return fail(s,"Economy unavailable");
+        String key=kind+":"+id;var old=EconomyApi.creatureOffers(server,v.getUUID()).get(key);
+        Ledger.CreatureOffer offer;
+        switch(action){
+            case "add" -> offer=new Ledger.CreatureOffer(currency,price,stock,stock,unlimited);
+            case "price" -> {if(old==null)return fail(s,"Offer missing");offer=new Ledger.CreatureOffer(old.currency(),price,old.stock(),old.max(),old.unlimited());}
+            case "stock" -> {if(old==null)return fail(s,"Offer missing");offer=new Ledger.CreatureOffer(old.currency(),old.price(),stock,Math.max(stock,old.max()),old.unlimited());}
+            case "remove" -> offer=null;
+            default -> {return fail(s,"Invalid action");}
+        }
+        var result=EconomyApi.configureCreature(server,v.getUUID(),key,offer);
+        return result.success()?ok(s,result.message()):fail(s,result.message());
+    }
     private void commands(RegisterCommandsEvent e){
         var root=Commands.literal("merchant").requires(s->s.hasPermission(2));
         root.executes(c->ok(c.getSource(),"Use /merchant types, create, info, offer, remove, restock, rename. Edit nearest merchant within 8 blocks."));
@@ -135,6 +162,7 @@ public final class Merchants {
         root.then(Commands.literal("create").then(Commands.argument("type",StringArgumentType.word()).suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggest(SHOPS.stream().map(Shop::id),b)).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->create(c.getSource(),StringArgumentType.getString(c,"type"),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"name")))))));
         var unlimitedArg=Commands.argument("unlimited",com.mojang.brigadier.arguments.BoolArgumentType.bool()).executes(c->{
             var v=nearest(c.getSource());if(v==null)return fail(c.getSource(),"No nearby merchant");
+            if(!CreatureShops.kind(v).isEmpty())return fail(c.getSource(),"Use /merchant mount or pet add");
             return ok(c.getSource(),gold.configure(v,StringArgumentType.getString(c,"item"),
                 com.mojang.brigadier.arguments.LongArgumentType.getLong(c,"buy"),
                 com.mojang.brigadier.arguments.LongArgumentType.getLong(c,"sell"),
@@ -153,6 +181,23 @@ public final class Merchants {
         root.then(Commands.literal("pending").requires(s->s.hasPermission(4)).executes(c->ok(c.getSource(),gold.pending())));
         root.then(Commands.literal("resolve").requires(s->s.hasPermission(4)).then(Commands.argument("transaction",StringArgumentType.word()).then(Commands.argument("inventoryApplied",com.mojang.brigadier.arguments.BoolArgumentType.bool()).executes(c->ok(c.getSource(),gold.resolve(c.getSource().getServer(),StringArgumentType.getString(c,"transaction"),com.mojang.brigadier.arguments.BoolArgumentType.getBool(c,"inventoryApplied")))))));
         root.then(Commands.literal("rename").then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->change(c.getSource(),"rename",0,StringArgumentType.getString(c,"name")))));
+        for(String kind:List.of("mount","pet")){
+            var category=Commands.literal(kind);
+            var stock=Commands.argument("stock",IntegerArgumentType.integer(0,1000000))
+                .executes(c->creatureEdit(c.getSource(),kind,StringArgumentType.getString(c,"id"),"add",StringArgumentType.getString(c,"currency"),LongArgumentType.getLong(c,"price"),IntegerArgumentType.getInteger(c,"stock"),false))
+                .then(Commands.argument("unlimited",BoolArgumentType.bool()).executes(c->creatureEdit(c.getSource(),kind,StringArgumentType.getString(c,"id"),"add",StringArgumentType.getString(c,"currency"),LongArgumentType.getLong(c,"price"),IntegerArgumentType.getInteger(c,"stock"),BoolArgumentType.getBool(c,"unlimited"))));
+            var price=Commands.argument("price",LongArgumentType.longArg(1,Ledger.MAX_BALANCE)).then(stock);
+            var currency=Commands.argument("currency",StringArgumentType.word()).suggests((c,b)->SharedSuggestionProvider.suggest(List.of("gold",kind+"_token"),b)).then(price);
+            category.then(Commands.literal("add").then(Commands.argument("id",StringArgumentType.word()).then(currency)));
+            var priceEdit=Commands.argument("price",LongArgumentType.longArg(1,Ledger.MAX_BALANCE)).executes(c->creatureEdit(c.getSource(),kind,StringArgumentType.getString(c,"id"),"price","",LongArgumentType.getLong(c,"price"),0,false));
+            category.then(Commands.literal("price").then(Commands.argument("id",StringArgumentType.word()).then(priceEdit)));
+            var stockEdit=Commands.argument("stock",IntegerArgumentType.integer(0,1000000)).executes(c->creatureEdit(c.getSource(),kind,StringArgumentType.getString(c,"id"),"stock","",0,IntegerArgumentType.getInteger(c,"stock"),false));
+            category.then(Commands.literal("stock").then(Commands.argument("id",StringArgumentType.word()).then(stockEdit)));
+            category.then(Commands.literal("remove").then(Commands.argument("id",StringArgumentType.word()).executes(c->creatureEdit(c.getSource(),kind,StringArgumentType.getString(c,"id"),"remove","",0,0,false))));
+            category.then(Commands.literal("catalog").executes(c->{if(!EconomyApi.available(c.getSource().getServer()))return fail(c.getSource(),"Economy unavailable");return ok(c.getSource(),String.join(", ",EconomyApi.creatures(c.getSource().getServer(),kind).stream().filter(EconomyApi.Creature::shop).map(x->x.key().substring(kind.length()+1)).toList()));}));
+            root.then(category);
+        }
+        root.then(Commands.literal("edit").executes(c->change(c.getSource(),"info",0,"")));
         e.getDispatcher().register(root);
     }
 }
