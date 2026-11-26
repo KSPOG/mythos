@@ -29,27 +29,35 @@ final class EquipmentServer {
     private static final EquipmentSlot[] SLOTS={EquipmentSlot.MAINHAND,EquipmentSlot.OFFHAND,EquipmentSlot.HEAD,EquipmentSlot.CHEST,EquipmentSlot.LEGS,EquipmentSlot.FEET};
     private static final Map<Stat,Double> SCALE=Map.of(Stat.ATK,0.25,Stat.STR,0.15,Stat.DEF,0.25,Stat.VIT,0.5,Stat.DEX,0.002);
     static boolean allowed(ServerPlayer p,Definition d){
-        return d==null||ClassApi.canUse(p.getUUID(),List.of(d.owner().id))&&ClassApi.progression(p.getUUID()).map(v->v.level()>=d.tier().level).orElse(false);
+        return d==null||ClassApi.canUse(p.getUUID(),List.of(d.owner().id))&&ClassApi.progression(p.getUUID()).map(v->v.level()>=d.level()).orElse(false);
     }
     private static boolean allowed(ServerPlayer p,ItemStack s){return allowed(p,MythosEquipment.definition(s));}
     static boolean fits(Definition d,EquipmentSlot slot){
         return switch(d.slot()){
             case WEAPON -> slot==EquipmentSlot.MAINHAND;
+            case SHIELD -> slot==EquipmentSlot.OFFHAND;
             case HEAD -> slot==EquipmentSlot.HEAD;
             case CHEST -> slot==EquipmentSlot.CHEST;
             case LEGS -> slot==EquipmentSlot.LEGS;
             case FEET -> slot==EquipmentSlot.FEET;
         };
     }
+    static boolean twoHanded(ServerPlayer p){
+        Definition d=MythosEquipment.definition(p.getMainHandItem());
+        return d!=null&&d.kind()!=null&&d.kind().twoHanded;
+    }
+    private static boolean blockedOffhand(ServerPlayer p,ItemStack stack){
+        return twoHanded(p)&&stack.getItem() instanceof net.minecraft.world.item.ShieldItem;
+    }
     private static void deny(ServerPlayer p){p.displayClientMessage(Component.literal("This MYTHOS item requires its assigned class and level."),true);}
     @SubscribeEvent public void attack(AttackEntityEvent e){
         if(e.getEntity() instanceof ServerPlayer p&&!allowed(p,p.getMainHandItem())){e.setCanceled(true);deny(p);}
     }
     @SubscribeEvent public void use(PlayerInteractEvent.RightClickItem e){
-        if(e.getEntity() instanceof ServerPlayer p&&!allowed(p,e.getItemStack())){e.setCanceled(true);deny(p);}
+        if(e.getEntity() instanceof ServerPlayer p&&(!allowed(p,e.getItemStack())||blockedOffhand(p,e.getItemStack()))){e.setCanceled(true);deny(p);}
     }
     @SubscribeEvent public void block(PlayerInteractEvent.RightClickBlock e){
-        if(e.getEntity() instanceof ServerPlayer p&&!allowed(p,e.getItemStack())){e.setCanceled(true);deny(p);}
+        if(e.getEntity() instanceof ServerPlayer p&&(!allowed(p,e.getItemStack())||blockedOffhand(p,e.getItemStack()))){e.setCanceled(true);deny(p);}
     }
     @SubscribeEvent public void projectile(EntityJoinLevelEvent e){
         if(e.getLevel().isClientSide()||e.loadedFromDisk()||!(e.getEntity() instanceof Projectile projectile)||!(projectile.getOwner() instanceof ServerPlayer p))return;
@@ -74,8 +82,9 @@ final class EquipmentServer {
             var totals=new EnumMap<Stat,Integer>(Stat.class);
             for(EquipmentSlot slot:SLOTS){
                 ItemStack stack=p.getItemBySlot(slot);Definition d=MythosEquipment.definition(stack);
-                if(d==null)continue;
-                if(!allowed(p,d)||!fits(d,slot)){
+                boolean conflict=slot==EquipmentSlot.OFFHAND&&blockedOffhand(p,stack);
+                if(d==null&&!conflict)continue;
+                if(conflict||!allowed(p,d)||!fits(d,slot)){
                     if(p.isUsingItem())p.stopUsingItem();
                     p.setItemSlot(slot,ItemStack.EMPTY);
                     boolean moved=false;
