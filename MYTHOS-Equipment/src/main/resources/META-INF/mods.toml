@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="mythosequipment"
-version="0.1.0"
+version="0.1.1"
 displayName="MYTHOS Equipment"
 description='''Client/server class equipment with persistent randomized item stats.'''
 [[dependencies.mythosequipment]]
