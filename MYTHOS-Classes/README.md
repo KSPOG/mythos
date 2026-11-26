@@ -1,4 +1,4 @@
-# MYTHOS Classes 0.1.2
+# MYTHOS Classes 0.1.3
 
 Server-only Forge 1.21.1 / 52.1.5 / Java 21 mod. No custom registries, client code or network channels. Vanilla client compatibility intended, pending runtime validation. Install JAR on server only.
 
@@ -35,3 +35,6 @@ Independent MYTHOS XP, level 1–50, cumulative threshold 100*(L-1)*L; maximum 2
 - /class xp grant <player> <amount> (permission 2)
 
 ClassApi.progression(UUID) and ClassApi.grantXp(UUID,int) support future quests/dungeons. API returns actual award, level changes and points; caller handles notification for external grants. No client networking, no modifications to vanilla XP or attributes. CI tests progression boundaries; runtime death attribution, persistence and vanilla client compatibility still require verification.
+
+## Level nameplates (0.1.3)
+Players with a selected class display their MYTHOS level as a gray suffix: Player [Lv. 50]. Vanilla scoreboard teams provide overhead nameplates and tab-list formatting without any required client mod. Refresh on login, class assignment/clear and local level-up; reconcile external API rewards every 20 server ticks. Unassigned players have no suffix. Reserved owned teams are mythos_lv_1 through mythos_lv_50, with explicit display-name ownership marker. Startup/shutdown remove only owned level teams. Players already in another scoreboard team are left untouched to avoid overwriting rank/clan membership; their level suffix is not displayed until a compatible team integration is developed. Vanilla supports only one scoreboard team per player. Chat formatting is not independently overridden. Runtime nameplate/tab rendering and other scoreboard integrations require testing.
