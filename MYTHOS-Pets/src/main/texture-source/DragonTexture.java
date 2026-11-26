@@ -31,7 +31,11 @@ public final class DragonTexture {
                 shade=(edge<0.075?-18:ridge*23-6)+mottling;
                 if(material==1)shade+=Math.sin(v*0.16)*9;
             }else if(material==2){
-                shade=Math.sin(u*0.16+Math.sin(v*0.021)*2)*12+Math.sin(v*0.075)*8;
+                // Continuous longitudinal grain, dark volcanic root and worn ivory tip.
+                double t=v/(double)(TILE-1);
+                double grain=Math.sin(u*0.075+0.55*Math.sin(v*0.008))*3.5
+                    +Math.sin(u*0.021+0.20*Math.sin(v*0.016))*5;
+                shade=-48+64*Math.pow(t,0.8)+grain+Math.sin(v*0.035)*1.8;
             }else if(material==7||material==3){
                 shade=Math.sin(u*0.018+Math.sin(v*0.012)*3)*12+Math.sin(v*0.06)*5;
                 if(material==7){double vein=Math.abs(Math.sin(u*0.033+v*0.009+Math.sin(v*0.017)*0.65));shade-=Math.max(0,0.09-vein)*160;}
