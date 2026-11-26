@@ -33,8 +33,13 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
     // Dragon-specific material atlas; ember surfaces use full packed light.
     private static final int[][] PALETTE = {{8,8},{24,8},{40,8},{56,8},{8,24},{24,24},{40,24},{56,24}};
     private float swing, amount, age, yaw, pitch;
-    private float rearPose, roarPose, wingSpread, wingBeat, wingLag, crouch;
-    private static final float REAR_ANGLE=1.43F;
+    private float rearPose, roarPose, wingSpread, wingBeat, wingLag, crouch, rearReach, rearLook, rearClaw, rearTail;
+    private static final float REAR_ANGLE=1.48F;
+    private static float track(float t,float... keys){
+        if(t<=keys[0])return keys[1];
+        for(int i=2;i<keys.length;i+=2)if(t<=keys[i])return Mth.lerp(ease((t-keys[i-2])/(keys[i]-keys[i-2])),keys[i-1],keys[i+1]);
+        return keys[keys.length-1];
+    }
 
     private static float ease(float t) { t=Mth.clamp(t,0,1); return t*t*(3-2*t); }
     private static float envelope(float t,float duration,float rise,float fall) {
@@ -55,7 +60,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         int action=entity.idleAction();
         float t=entity.idleElapsed()+Mth.clamp(ageInTicks-entity.tickCount,0,1);
         float still=1-ease(amount/0.25F);
-        rearPose=0;roarPose=0;wingSpread=0;wingBeat=0;wingLag=0;crouch=0;
+        rearPose=0;roarPose=0;wingSpread=0;wingBeat=0;wingLag=0;crouch=0;rearReach=0;rearLook=0;rearClaw=0;rearTail=0;
         switch(action) {
             case DragonEntity.FLAP -> {
                 wingSpread=envelope(t,64,12,14)*still;
@@ -64,11 +69,17 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 wingLag=beat*Mth.sin((t-13)*Mth.TWO_PI/16);
             }
             case DragonEntity.REAR -> {
-                rearPose=envelope(t-10,110,22,25)*still;
-                crouch=(envelope(t,18,7,9)+envelope(t-100,20,9,10))*still;
-                wingSpread=rearPose*0.92F;
-                wingBeat=rearPose*0.18F*Mth.sin(t*0.18F);
-                wingLag=rearPose*0.12F*Mth.sin(t*0.18F-0.6F);
+                // Authored channels, staggered in time: gather, thrust, settle,
+                // display, controlled descent, impact and recovery.
+                rearPose=track(t,0,0,16,0,34,1,42,0.94F,54,1,102,1,112,0.92F,138,0,160,0)*still;
+                crouch=track(t,0,0,12,1,23,0,126,0,140,1,160,0)*still;
+                rearReach=track(t,0,0,14,0,30,1,48,0.44F,78,0.67F,104,0.42F,130,1,145,0,160,0)*still;
+                rearLook=track(t,0,0,14,-12,34,-18,54,9,80,-7,110,4,140,0,160,0)*still;
+                rearClaw=track(t,0,0,30,1,55,0.25F,86,0.8F,118,0.25F,144,0,160,0)*still;
+                rearTail=track(t,0,0,15,0.6F,36,1,100,0.8F,140,0,160,0)*still;
+                wingSpread=track(t,0,0,12,0.2F,34,1,52,0.86F,85,1,113,0.85F,140,0.25F,160,0)*still;
+                wingBeat=(track(t,0,0,18,-0.5F,30,0.85F,43,-0.25F,57,0,112,-0.38F,132,0.5F,150,0)*still);
+                wingLag=track(t,0,0,21,-0.35F,34,0.7F,48,-0.2F,62,0,117,-0.25F,137,0.38F,155,0)*still;
             }
             case DragonEntity.ROAR -> {
                 rearPose=envelope(t,72,18,17)*0.82F*still;
@@ -89,8 +100,9 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.translate(0, Mth.sin(age * 0.12F) * 0.008F*(1-rearPose), 0);
         float tilt=rearPose*REAR_ANGLE;
         // Shift the hips forward over the hind feet; lower the pelvis during anticipation.
-        float hipDrop=0.85F*crouch;
-        p.translate(0,hipDrop,-rearPose*0.8F);
+        float hipDrop=0.85F*crouch+0.38F*rearPose;
+        float hipShift=-rearPose*0.8F;
+        p.translate(0,hipDrop,hipShift);
         // Raise chest about the hind hip; the rear feet remain in world-facing stance.
         p.translate(0,15.5F,5);
         stack.mulPose(Axis.XP.rotation(-tilt));
@@ -111,7 +123,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.pushPose();
         p.translate(0,8,-9);
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
-        stack.mulPose(Axis.XP.rotationDegrees(pitch*(1-rearPose)+rearPose*42F-roarPose*18F));
+        stack.mulPose(Axis.XP.rotationDegrees(pitch*(1-rearPose)+rearPose*62F-roarPose*18F+rearLook));
         // Connected angular skull, wedge muzzle, raised cheek and crown ridges.
         p.hull(anatomy.skull,FUR);
         p.scales(anatomy.skull,40,32);
@@ -149,18 +161,40 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             stack.pushPose();
             p.translate(x,15.5F,z);
             // Hind legs cancel body pitch, while forelegs reach ahead and curl at the elbow.
-            float upper=i<2?rearPose*1.05F:tilt-rearPose*0.26F+crouch*0.27F;
+            float upper=i<2?rearPose*0.82F+rearReach*0.58F:0;
+            float knee=i<2?Math.max(0,-stride)*0.7F-rearPose*1.35F+rearReach*0.35F:Math.max(0,-stride)*0.7F;
+            float ankle=0;
+            if(i>=2){
+                // Solve in unrotated model coordinates. Target is the rest ankle
+                // at (6.85,0.35) relative to the original hip.
+                float weight=Mth.clamp(rearPose+crouch,0,1);
+                float ty=6.85F-hipDrop,tz=0.35F-hipShift;
+                float l1=(float)Math.hypot(3.2,1),l2=(float)Math.hypot(3.65,-0.65);
+                float distance=Math.min((float)Math.hypot(ty,tz),l1+l2-0.001F);
+                float bend=-(float)Math.acos(Mth.clamp((distance*distance-l1*l1-l2*l2)/(2*l1*l2),-1,1));
+                float first=(float)(Math.atan2(tz,ty)-Math.atan2(l2*Math.sin(bend),l1+l2*Math.cos(bend)));
+                float worldUpper=first-(float)Math.atan2(1,3.2);
+                float solvedKnee=bend+(float)Math.atan2(1,3.2)-(float)Math.atan2(-0.65,3.65);
+                upper=tilt+Mth.lerp(weight,stride,worldUpper)-stride;
+                knee=Mth.lerp(weight,knee,solvedKnee);
+                ankle=-(stride+upper-tilt+knee)*weight;
+            }
             stack.mulPose(Axis.XP.rotation(stride+upper));
             p.plate(0,0.8F,0,i<2?1.45F:1.7F,2.15F,i<2?1.6F:2.35F,FUR);
             p.taper(0,0,0,0,3.2F,i<2?-0.5F:1.0F,i<2?1.05F:1.35F,0.72F,FUR);
             p.translate(0,3.2F,i<2?-0.3F:1.0F);
-            stack.mulPose(Axis.XP.rotation(Math.max(0,-stride)*0.7F+(i<2?-rearPose*1.35F:rearPose*0.52F-crouch*0.54F)));
+            stack.mulPose(Axis.XP.rotation(knee));
             p.plate(0,0,0,0.82F,0.85F,0.92F,FUR);
             p.taper(0,0,0,0,3.65F,-0.65F,0.70F,0.46F,FUR);
             // Counter-rotate hind paws independently of knee bend.
             if(i>=2){
                 p.translate(0,3.65F,-0.65F);
-                stack.mulPose(Axis.XP.rotation(-rearPose*0.26F+crouch*0.27F));
+                stack.mulPose(Axis.XP.rotation(ankle));
+                p.translate(0,-3.65F,0.65F);
+            }
+            if(i<2){
+                p.translate(0,3.65F,-0.65F);
+                stack.mulPose(Axis.XP.rotation(rearClaw*0.48F));
                 p.translate(0,-3.65F,0.65F);
             }
             p.plate(0,4.0F,-0.85F,1.14F,0.65F,1.55F,FUR);
@@ -181,10 +215,10 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             }
         stack.pushPose();
         p.translate(0,15.2F,7);
-        stack.mulPose(Axis.XP.rotation(tilt-rearPose*0.12F));
+        stack.mulPose(Axis.XP.rotation(tilt-rearPose*0.12F+rearTail*0.22F));
         for(int i=0;i<12;i++){
             stack.mulPose(Axis.YP.rotation(Mth.sin(age*0.09F-i*0.45F)*0.15F));
-            stack.mulPose(Axis.XP.rotation(i==0?0.1F:-0.05F));
+            stack.mulPose(Axis.XP.rotation(i==0?0.1F:-0.05F-rearTail*0.012F));
             float radius=1.45F-i*0.105F;
             p.taper(0,0,-0.12F,0,0,2.4F,radius,radius-0.105F,FUR);
             p.taper(0,-radius,0.6F,0,-radius*1.8F,1.5F,0.25F,0.02F,GOLD);
