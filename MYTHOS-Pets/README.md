@@ -64,3 +64,6 @@ Replaces overlapping torso ellipsoids with a continuous spline profile, tapered 
 
 ## 0.5.0 — Feline anatomy correction
 Mooncat has a broad rounded skull, substantially shorter muzzle, separate whisker pads, triangular nose, almond-shaped eyes, shorter upright ears, reduced cheek ruff, narrower forequarters, pronounced rear haunches, rounded paws and a more upright tapered tail. Existing 4K materials and idle performances remain. Corrected torso face winding. The shape requires in-game visual validation; no ownership IDs, dragon code or other mods changed.
+
+### Following movement correction (0.5.0)
+Shared pet controller updates entity, body and head yaw from horizontal travel, including collision-adjusted displacement. Normal following advances at up to 0.13 blocks per tick instead of 0.65 every five ticks; catch-up teleport cadence is unchanged. Custom client entities align body yaw to interpolated entity yaw. Existing ownership and abilities are unchanged. Runtime turning and walking animation validation is required.
