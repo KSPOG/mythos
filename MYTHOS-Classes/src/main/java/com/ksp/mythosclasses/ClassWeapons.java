@@ -17,10 +17,10 @@ final class ClassWeapons {
             if(!id.isEmpty())try{
                 Weapon w=Weapon.valueOf(id);
                 if(switch(w){
-                    case STAFF -> stack.is(Items.BLAZE_ROD);
+                    case STAFF -> stack.is(Items.BLAZE_ROD)||stack.is(Items.STICK);
                     case DAGGER -> stack.is(Items.IRON_SWORD);
-                    case HOLY_FOCUS -> stack.is(Items.AMETHYST_SHARD);
-                    case DARK_FOCUS -> stack.is(Items.ECHO_SHARD);
+                    case HOLY_FOCUS -> stack.is(Items.AMETHYST_SHARD)||stack.is(Items.MACE);
+                    case DARK_FOCUS -> stack.is(Items.ECHO_SHARD)||stack.is(Items.BLAZE_ROD);
                     default -> false;
                 })return w;
             }catch(IllegalArgumentException ignored){}
