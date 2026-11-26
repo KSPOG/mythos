@@ -1,4 +1,4 @@
-# MYTHOS Equipment 0.1.1
+# MYTHOS Equipment 0.1.2
 
 Forge 1.21.1 / 52.1.5 / Java 21. Equipment JAR on client AND server; MYTHOS Classes 0.1.4 on server. Stacked PR depends on Classes PR #63.
 
@@ -18,3 +18,6 @@ CI checks the catalog, all rarity roll ranges, generated assets and compile. Cli
 
 ## Named sets and signature effects (0.1.1)
 24 named sets, three per class; each has a named signature weapon and four named armor pieces. All 120 registry IDs remain unchanged. Set-specific stat focus increases random selection weighting, preserving existing valid rolls, tier ranges and guaranteed stats. The signature effect is shared by each set's five items; only Rare or higher activates it. One effect per player per 200 game ticks on qualifying hostile damage, highest eligible equipped rarity wins, weapon then armor order breaks ties. No stacking and no full-set requirement. Rare through Mythical scale duration (3/4/5/6 seconds), heal (2/3/4/5 HP), burn (2/3/4/5 seconds); Mythical upgrades applicable potion amplifiers. Cooldown resets on server restart, not on swapping items. Effects are implemented with vanilla buffs/debuffs, not dedicated magic projectiles or custom animations. Some sets share underlying effect types with distinct names. Previous CI failed due to ambiguous Tier import; explicit import added. Runtime effect timing, PvP exclusion and equip validation still need testing.
+
+## 0.1.2 visual and weapon expansion
+240 registered items (135 weapons, 9 shields, 96 armor pieces), preserving original IDs. Expanded sword, greatsword, shortsword, dagger, axe, greataxe, hammer, mace, staff, wand and crossbow families. Original weapons now have category-specific speed and damage. Shields are real ShieldItems, Warrior/Heavy Knight/Cleric, offhand only; server rejects shields alongside two-handed custom weapons. Weapon models use detailed segmented cuboids and a 256x256 material atlas; armor icons 128x128 and wearable textures 512x256 with corrected vanilla UV mapping. This is detailed Minecraft JSON geometry, not arbitrary polygon meshes. Wearable armor still uses vanilla geometry. Magical weapons remain melee foundations, added weapons reuse class/tier signature effects, and custom arrows, dual wielding, projectile render overrides, full custom armor meshes and runtime visual validation are not yet implemented.
