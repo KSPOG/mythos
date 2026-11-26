@@ -37,18 +37,29 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import zipfile
-          jar=next(Path("build/libs").glob("mythos-equipment-0.1.1.jar"))
+          import zipfile, json, struct
+          jar=next(Path("build/libs").glob("mythos-equipment-0.1.2.jar"))
           with zipfile.ZipFile(jar) as z:
               names=z.namelist()
-              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/item/") and n.endswith(".png")])==120
+              assert len([n for n in names if n.startswith("assets/mythosequipment/textures/item/") and n.endswith(".png")])==240
               assert len([n for n in names if n.startswith("assets/mythosequipment/textures/models/armor/") and n.endswith(".png")])==48
               assert not any(n.startswith("com/ksp/mythosclasses/") for n in names)
+              models=[n for n in names if n.startswith("assets/mythosequipment/models/item/") and n.endswith(".json")]
+              meshes=[json.loads(z.read(n)) for n in models]
+              assert sum(bool(m.get("elements")) for m in meshes)>=144
+              for m in meshes:
+                  for e in m.get("elements",[]):
+                      assert all(-16<=a<=b<=32 for a,b in zip(e["from"],e["to"]))
+                  for o in m.get("overrides",[]):
+                      assert "assets/"+o["model"].replace(":","/models/")+".json" in names
+              for n in names:
+                  if n.startswith("assets/mythosequipment/textures/models/armor/") and n.endswith(".png"):
+                      assert struct.unpack(">II",z.read(n)[16:24])==(512,256)
               assert z.testzip() is None
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-equipment-0.1.1
+          name: mythos-equipment-0.1.2
           path: |
             MYTHOS-Equipment/build/libs/*.jar
             MYTHOS-Equipment/README.md
