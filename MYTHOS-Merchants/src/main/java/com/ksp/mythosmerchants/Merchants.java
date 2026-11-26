@@ -54,13 +54,13 @@ public final class Merchants {
         new Shop("dungeon","Dungeon Merchant",VillagerProfession.NONE,List.of()),
         new Shop("raid","Raid Merchant",VillagerProfession.NONE,List.of())
     );
-    private record Session(ServerPlayer player,Villager villager){}
-    private final Map<UUID,Session> sessions=new HashMap<>();
+    private final GoldShops gold=new GoldShops();
     public Merchants(){
         var bus=MinecraftForge.EVENT_BUS;
+        bus.addListener((net.minecraftforge.event.server.ServerStartedEvent e)->gold.start(e.getServer()));
         bus.addListener(this::commands);bus.addListener(this::interact);
         bus.addListener(this::specific);bus.addListener(this::join);
-        bus.addListener(this::tick);bus.addListener(this::stop);
+
     }
     private static boolean managed(Villager v){return v.getTags().contains(TAG);}
     private static void protect(Villager v){
@@ -69,9 +69,6 @@ public final class Merchants {
     }
     private void join(EntityJoinLevelEvent e){
         if(!e.getLevel().isClientSide()&&e.getEntity() instanceof Villager v&&managed(v))protect(v);
-    }
-    private static MerchantOffer offer(Item payment,int price,Item result,int amount,int stock){
-        return new MerchantOffer(new ItemCost(payment,price),new ItemStack(result,amount),stock,0,0f);
     }
     private int fail(CommandSourceStack s,String message){s.sendFailure(Component.literal(message));return 0;}
     private int ok(CommandSourceStack s,String message){s.sendSuccess(()->Component.literal(message),false);return 1;}
@@ -88,20 +85,7 @@ public final class Merchants {
         return s.getLevel().getEntitiesOfClass(Villager.class,new AABB(s.getPosition(),s.getPosition()).inflate(8),Merchants::managed).stream()
             .min(Comparator.comparingDouble(v->v.position().distanceToSqr(s.getPosition()))).orElse(null);
     }
-    private void close(Villager v){
-        var customer=v.getTradingPlayer();
-        if(customer instanceof ServerPlayer p){p.closeContainer();sessions.remove(p.getUUID());}
-        v.setTradingPlayer(null);
-    }
-    private void open(ServerPlayer p,Villager v){
-        if(p.isSpectator()||!p.isAlive()||!v.isAlive()||p.level()!=v.level()||p.distanceToSqr(v)>RANGE_SQ)return;
-        if(v.getTradingPlayer()!=null&&v.getTradingPlayer()!=p){p.sendSystemMessage(Component.literal("This merchant is serving another customer."));return;}
-        if(v.getOffers().isEmpty()){p.sendSystemMessage(Component.literal("This shop is not open yet."));return;}
-        p.closeContainer();
-        var old=sessions.remove(p.getUUID());if(old!=null&&old.villager.getTradingPlayer()==p)old.villager.setTradingPlayer(null);
-        v.setTradingPlayer(p);v.openTradingScreen(p,v.getDisplayName(),1);
-        if(p.containerMenu instanceof MerchantMenu)sessions.put(p.getUUID(),new Session(p,v));else v.setTradingPlayer(null);
-    }
+    private void open(ServerPlayer p,Villager v){gold.open(p,v);}
     private void interact(PlayerInteractEvent.EntityInteract e){
         if(e.getEntity() instanceof ServerPlayer p&&e.getTarget() instanceof Villager v&&managed(v)){
             e.setCanceled(true);open(p,v);
@@ -112,16 +96,6 @@ public final class Merchants {
             e.setCanceled(true);open(p,v);
         }
     }
-    private void tick(TickEvent.ServerTickEvent.Pre e){
-        for(var id:List.copyOf(sessions.keySet())){
-            var s=sessions.get(id);var p=s.player;var v=s.villager;
-            if(!p.isAlive()||p.isSpectator()||p.hasDisconnected()||!v.isAlive()||p.level()!=v.level()||p.distanceToSqr(v)>RANGE_SQ||v.getTradingPlayer()!=p||!(p.containerMenu instanceof MerchantMenu)){
-                if(v.getTradingPlayer()==p){if(p.containerMenu instanceof MerchantMenu)p.closeContainer();v.setTradingPlayer(null);}
-                sessions.remove(id);
-            }
-        }
-    }
-    private void stop(ServerStoppingEvent e){for(var s:List.copyOf(sessions.values()))close(s.villager);sessions.clear();}
     private int create(CommandSourceStack s,String type,String id,String name){
         var shop=shop(type);
         if(shop==null||!validId(id)||!validName(name))return fail(s,"Invalid shop type, ID or name.");
@@ -137,53 +111,47 @@ public final class Merchants {
         v.setCustomName(Component.literal(name));protect(v);
         v.setVillagerData(v.getVillagerData().setProfession(shop.profession));
         var offers=v.getOffers();offers.clear();
-        for(var product:shop.products)offers.add(offer(Items.EMERALD,product.price,product.item,product.amount,64));
+        // Gold stock starts empty; owner configures every product and price explicitly.
         if(!level.addFreshEntity(v)){v.discard();return fail(s,"Spawn rejected.");}
         return ok(s,"Created "+name+" ("+id+") with "+offers.size()+" offers. UUID "+v.getUUID());
-    }
-    private int add(CommandSourceStack s,String paymentId,int price,String resultId,int amount,int stock){
-        var v=nearest(s);if(v==null)return fail(s,"No managed merchant within 8 blocks.");
-        var payment=item(paymentId);var result=item(resultId);
-        if(payment==null||result==null||price>new ItemStack(payment).getMaxStackSize()||amount>new ItemStack(result).getMaxStackSize())return fail(s,"Invalid item or quantity.");
-        if(v.getOffers().size()>=MAX_OFFERS)return fail(s,"Offer limit reached.");
-        close(v);v.getOffers().add(offer(payment,price,result,amount,stock));return ok(s,"Offer added to "+v.getDisplayName().getString());
     }
     private int change(CommandSourceStack s,String action,int index,String name){
         var v=nearest(s);if(v==null)return fail(s,"No managed merchant within 8 blocks.");
         switch(action){
             case "info" -> {
+                s.sendSuccess(()->Component.literal(gold.info(v)),false);
                 s.sendSuccess(()->Component.literal(v.getDisplayName().getString()+" | "+v.getUUID()+" | "+v.getTags()),false);
-                for(int i=0;i<v.getOffers().size();i++){var o=v.getOffers().get(i);String line=(i+1)+": "+o.getCostA().getCount()+" "+o.getCostA().getHoverName().getString()+" -> "+o.getResult().getCount()+" "+o.getResult().getHoverName().getString()+" | remaining "+Math.max(0,o.getMaxUses()-o.getUses());s.sendSuccess(()->Component.literal(line),false);}
                 return 1;
             }
-            case "rename" -> {if(!validName(name))return fail(s,"Invalid name.");close(v);v.setCustomName(Component.literal(name));}
-            case "remove" -> {if(index<1||index>v.getOffers().size())return fail(s,"Invalid offer number.");close(v);v.getOffers().remove(index-1);}
-            case "clear" -> {close(v);v.getOffers().clear();}
-            case "restock" -> {close(v);for(var o:v.getOffers())o.resetUses();}
-            case "delete" -> {close(v);v.discard();}
+            case "rename" -> {if(!validName(name))return fail(s,"Invalid name.");v.setCustomName(Component.literal(name));}
             default -> {return fail(s,"Invalid action.");}
         }
         return ok(s,"Merchant "+action+" complete.");
     }
     private void commands(RegisterCommandsEvent e){
         var root=Commands.literal("merchant").requires(s->s.hasPermission(2));
-        root.executes(c->ok(c.getSource(),"Use /merchant types, create, info, add, remove, restock, clear, rename, delete. Edit nearest merchant within 8 blocks."));
+        root.executes(c->ok(c.getSource(),"Use /merchant types, create, info, offer, remove, restock, rename. Edit nearest merchant within 8 blocks."));
         root.then(Commands.literal("types").executes(c->ok(c.getSource(),String.join(", ",SHOPS.stream().map(Shop::id).toList()))));
         root.then(Commands.literal("create").then(Commands.argument("type",StringArgumentType.word()).suggests((c,b)->net.minecraft.commands.SharedSuggestionProvider.suggest(SHOPS.stream().map(Shop::id),b)).then(Commands.argument("id",StringArgumentType.word()).then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->create(c.getSource(),StringArgumentType.getString(c,"type"),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"name")))))));
-        var stockArg=Commands.argument("stock",IntegerArgumentType.integer(1,MAX_STOCK))
-            .executes(c->add(c.getSource(),
-                StringArgumentType.getString(c,"payment"),
-                IntegerArgumentType.getInteger(c,"price"),
-                StringArgumentType.getString(c,"item"),
-                IntegerArgumentType.getInteger(c,"amount"),
-                IntegerArgumentType.getInteger(c,"stock")));
-        var amountArg=Commands.argument("amount",IntegerArgumentType.integer(1,64)).then(stockArg);
-        var itemArg=Commands.argument("item",StringArgumentType.string()).then(amountArg);
-        var priceArg=Commands.argument("price",IntegerArgumentType.integer(1,64)).then(itemArg);
-        var paymentArg=Commands.argument("payment",StringArgumentType.string()).then(priceArg);
-        root.then(Commands.literal("add").then(paymentArg));
-        for(String action:List.of("info","clear","restock","delete"))root.then(Commands.literal(action).executes(c->change(c.getSource(),action,0,"")));
-        root.then(Commands.literal("remove").then(Commands.argument("index",IntegerArgumentType.integer(1,MAX_OFFERS)).executes(c->change(c.getSource(),"remove",IntegerArgumentType.getInteger(c,"index"),""))));
+        var unlimitedArg=Commands.argument("unlimited",com.mojang.brigadier.arguments.BoolArgumentType.bool()).executes(c->{
+            var v=nearest(c.getSource());if(v==null)return fail(c.getSource(),"No nearby merchant");
+            return ok(c.getSource(),gold.configure(v,StringArgumentType.getString(c,"item"),
+                com.mojang.brigadier.arguments.LongArgumentType.getLong(c,"buy"),
+                com.mojang.brigadier.arguments.LongArgumentType.getLong(c,"sell"),
+                IntegerArgumentType.getInteger(c,"stock"),IntegerArgumentType.getInteger(c,"max"),
+                com.mojang.brigadier.arguments.BoolArgumentType.getBool(c,"unlimited")));
+        });
+        var maxArg=Commands.argument("max",IntegerArgumentType.integer(0,GoldShops.MAX_STOCK)).then(unlimitedArg);
+        var stockArg=Commands.argument("stock",IntegerArgumentType.integer(0,GoldShops.MAX_STOCK)).then(maxArg);
+        var sellArg=Commands.argument("sell",com.mojang.brigadier.arguments.LongArgumentType.longArg(0,GoldShops.MAX_PRICE)).then(stockArg);
+        var buyArg=Commands.argument("buy",com.mojang.brigadier.arguments.LongArgumentType.longArg(0,GoldShops.MAX_PRICE)).then(sellArg);
+        root.then(Commands.literal("offer").then(Commands.argument("item",StringArgumentType.string()).then(buyArg)));
+        root.then(Commands.literal("info").executes(c->change(c.getSource(),"info",0,"")));
+        root.then(Commands.literal("remove").then(Commands.argument("item",StringArgumentType.string()).executes(c->{var v=nearest(c.getSource());return v==null?fail(c.getSource(),"No nearby merchant"):ok(c.getSource(),gold.remove(v,StringArgumentType.getString(c,"item")));})));
+        root.then(Commands.literal("restock").executes(c->{var v=nearest(c.getSource());return v==null?fail(c.getSource(),"No nearby merchant"):ok(c.getSource(),gold.restock(v,0,true));})
+            .then(Commands.argument("seconds",com.mojang.brigadier.arguments.LongArgumentType.longArg(0,31536000)).executes(c->{var v=nearest(c.getSource());return v==null?fail(c.getSource(),"No nearby merchant"):ok(c.getSource(),gold.restock(v,com.mojang.brigadier.arguments.LongArgumentType.getLong(c,"seconds"),false));})));
+        root.then(Commands.literal("pending").requires(s->s.hasPermission(4)).executes(c->ok(c.getSource(),gold.pending())));
+        root.then(Commands.literal("resolve").requires(s->s.hasPermission(4)).then(Commands.argument("transaction",StringArgumentType.word()).then(Commands.argument("inventoryApplied",com.mojang.brigadier.arguments.BoolArgumentType.bool()).executes(c->ok(c.getSource(),gold.resolve(c.getSource().getServer(),StringArgumentType.getString(c,"transaction"),com.mojang.brigadier.arguments.BoolArgumentType.getBool(c,"inventoryApplied")))))));
         root.then(Commands.literal("rename").then(Commands.argument("name",StringArgumentType.greedyString()).executes(c->change(c.getSource(),"rename",0,StringArgumentType.getString(c,"name")))));
         e.getDispatcher().register(root);
     }

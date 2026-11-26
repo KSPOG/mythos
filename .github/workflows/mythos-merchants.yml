@@ -1,10 +1,10 @@
 name: MYTHOS-Merchants build
 on:
   pull_request:
-    paths: ['MYTHOS-Merchants/**', '.github/workflows/mythos-merchants.yml']
+    paths: ['MYTHOS-Merchants/**', 'MYTHOS-Economy/**', '.github/workflows/mythos-merchants.yml']
   push:
     branches: [main]
-    paths: ['MYTHOS-Merchants/**', '.github/workflows/mythos-merchants.yml']
+    paths: ['MYTHOS-Merchants/**', 'MYTHOS-Economy/**', '.github/workflows/mythos-merchants.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-merchants-0.1.0
+          name: mythos-merchants-0.2.0
           path: |
             MYTHOS-Merchants/build/libs/*.jar
             MYTHOS-Merchants/README.md

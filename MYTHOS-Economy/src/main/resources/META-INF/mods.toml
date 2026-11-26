@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="mythoseconomy"
-version="0.1.0"
+version="0.2.0"
 displayName="MYTHOS Economy"
 displayTest="IGNORE_ALL_VERSION"
 description='''Shared server-authoritative gold ledger.'''

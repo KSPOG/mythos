@@ -34,6 +34,17 @@ class LedgerTest {
         var reload=new Ledger(path,ex->fail(ex));
         assertEquals(Ledger.MAX_BALANCE,reload.balance(a));assertEquals(1,reload.balance(b));
     }
+    @Test void merchantReceiptsSurviveReloadAndRejectConflicts() throws Exception {
+        var path=dir.resolve("merchant.json");var p=UUID.randomUUID();var tx=UUID.randomUUID();
+        var l=new Ledger(path,ex->fail(ex));
+        assertTrue(l.mint(p,p,100,"initial").success());
+        assertTrue(l.merchantChange(tx,p,30,false,"shop purchase").success());
+        var reload=new Ledger(path,ex->fail(ex));
+        assertTrue(reload.merchantChange(tx,p,30,false,"shop purchase").success());
+        assertFalse(reload.merchantChange(tx,p,31,false,"shop purchase").success());
+        assertEquals(70,reload.balance(p));
+        assertNotNull(reload.merchantReceipt(tx));
+    }
     @Test void invalidStorageRejected() throws Exception {
         var path=dir.resolve("gold.json");Files.writeString(path,"{\"balances\":null}");
         assertThrows(java.io.IOException.class,()->new Ledger(path,ex->{}));

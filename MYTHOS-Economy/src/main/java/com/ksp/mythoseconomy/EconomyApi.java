@@ -17,6 +17,8 @@ public final class EconomyApi {
         return ledger;
     }
     public static boolean available(MinecraftServer s){return s!=null&&s.isSameThread()&&server==s&&ledger!=null&&ledger.available();}
+    public static Ledger.Entry merchantReceipt(MinecraftServer s,UUID transaction){return require(s).merchantReceipt(transaction);}
+    public static Ledger.Receipt merchantChange(MinecraftServer s,UUID transaction,UUID player,long amount,boolean credit,String reason){return require(s).merchantChange(transaction,player,amount,credit,reason);}
     public static long balance(MinecraftServer s,UUID player){return require(s).balance(player);}
     public static Ledger.Receipt transfer(MinecraftServer s,UUID from,UUID to,long amount,String reason){return require(s).transfer(from,to,amount,reason);}
     public static Ledger.Receipt debit(MinecraftServer s,UUID actor,UUID player,long amount,String reason){return require(s).burn(actor,player,amount,reason);}
