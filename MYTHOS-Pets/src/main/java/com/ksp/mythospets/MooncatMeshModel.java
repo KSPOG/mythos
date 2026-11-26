@@ -29,7 +29,8 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
     private static final int FUR = 0, MANE = 1, GOLD = 2, EAR = 3, EYE = 4, TIP = 5;
     // Coordinates sample the existing embedded Mooncat palette.
     private static final int[][] PALETTE = {{8,8},{8,24},{24,35},{5,35},{40,9},{25,52}};
-    private float swing, amount, age, yaw, pitch, breath, blink, stretch, sit, groom, earFlick, pounce, bless, gather, swipe;
+    private float swing, amount, age, yaw, pitch, breath, blink, stretch, sit, groom, earFlick, pounce, bless, gather, swipe, extension, landing, recoil, attackRoll;
+    private static float track(float t,float... k){if(t<=k[0])return k[1];for(int i=2;i<k.length;i+=2)if(t<=k[i])return Mth.lerp(smooth((t-k[i-2])/(k[i]-k[i-2])),k[i-1],k[i+1]);return k[k.length-1];}
     private static float smooth(float t){t=Mth.clamp(t,0,1);return t*t*t*(t*(6*t-15)+10);}
     private static float envelope(float t,float length,float rise,float fall){return smooth(t/rise)*smooth((length-t)/fall);}
 
@@ -52,9 +53,18 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         stretch=entity.idleAction()==MooncatEntity.STRETCH?envelope(t,100,26,32)*still:0;
         sit=entity.idleAction()==MooncatEntity.GROOM?envelope(t,140,25,30)*still:0;
         groom=sit*envelope(t-25,80,15,15);
-        pounce=entity.idleAction()==MooncatEntity.POUNCE?envelope(t-4,16,4,8):0;
-        gather=entity.idleAction()==MooncatEntity.POUNCE?envelope(t,9,4,3):0;
-        swipe=entity.idleAction()==MooncatEntity.POUNCE?envelope(t-4,12,4,6):0;
+        pounce=gather=swipe=extension=landing=recoil=attackRoll=0;
+        if(entity.idleAction()==MooncatEntity.POUNCE){
+            amount*=1-envelope(t,30,3,5);
+            gather=track(t,0,0,6,1,9,0.65F,12,0,30,0);
+            pounce=track(t,0,0,7,0,10,0.85F,13,1,17,0.35F,20,0,30,0);
+            extension=track(t,0,0,7,-0.35F,11,1,14,0.8F,18,0.25F,24,0,30,0);
+            swipe=track(t,0,0,8,0,11,0.4F,13,1,16,-0.45F,21,0,30,0);
+            landing=track(t,0,0,15,0,19,1,24,0.25F,30,0);
+            recoil=track(t,0,0,13,0,16,1,23,0,30,0);
+            attackRoll=track(t,0,0,8,-0.08F,13,0.20F,17,-0.09F,25,0,30,0);
+            blink*=1-0.35F*gather;earFlick*=1-gather;
+        }
         bless=entity.idleAction()==MooncatEntity.BLESS?envelope(t,MooncatEntity.BLESS_DURATION,12,12):0;
         if(bless>0){sit=Math.max(sit,bless*0.9F);amount*=1-bless;blink*=1-0.94F*bless;earFlick*=1-bless;}
     }
@@ -64,12 +74,12 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         Painter p = new Painter(stack, vertices, light, overlay, color, lod);
         stack.pushPose();
         stack.translate(0, (breath*0.035F+Mth.cos(swing*1.6F)*amount*0.12F)/16F, 0);
-        p.translate(0,stretch*0.65F+sit*0.55F+gather*0.7F-pounce*1.8F-bless*0.35F,-pounce*1.2F);
-        p.translate(0,16,3);stack.mulPose(Axis.XP.rotation(pounce*0.22F-gather*0.12F));p.translate(0,-16,-3);
+        p.translate(0,stretch*0.65F+sit*0.55F+gather*2.0F-pounce*3.8F+landing*1.25F-bless*0.35F, gather*0.9F-extension*1.8F);
+        p.translate(0,16,3);stack.mulPose(Axis.XP.rotation(pounce*0.27F-gather*0.16F-landing*0.15F));stack.mulPose(Axis.ZP.rotation(attackRoll));p.translate(0,-16,-3);
         // Continuous anatomical torso with distinct rib cage, waist and pelvis.
         stack.pushPose();
         p.translate(0,16,0);
-        stack.scale(1+breath*0.025F,1+breath*0.018F,1+stretch*0.12F);
+        stack.scale(1+breath*0.025F,1+breath*0.018F,1+stretch*0.12F+extension*0.16F-gather*0.12F);
         p.translate(0,-16,0);
         p.torso();
         p.shape(DETAIL,0,15.5F,-3.4F,2.12F,2.55F,2.30F,MANE);
@@ -79,7 +89,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         stack.pushPose();
         p.translate(0, 13.25F+stretch*1.6F,-4.65F-stretch*1.15F);
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
-        stack.mulPose(Axis.XP.rotationDegrees(pitch+stretch*16+groom*(18+12*Mth.sin(age*0.32F))-bless*32+pounce*9));
+        stack.mulPose(Axis.XP.rotationDegrees(pitch+stretch*16+groom*(18+12*Mth.sin(age*0.32F))-bless*32+pounce*9+gather*13-recoil*10));
         // Domestic feline: broad rounded cranium, short flat muzzle, large
         // forward-facing almond eyes and upright triangular pinnae.
         p.shape(BODY,0,-0.65F,-0.25F,2.85F,2.55F,2.18F,FUR);
@@ -108,7 +118,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
             }
             stack.pushPose();
             p.translate(side*1.86F,-2.25F,0.05F);
-            stack.mulPose(Axis.ZP.rotationDegrees(side*(10F+earFlick*12F)));
+            stack.mulPose(Axis.ZP.rotationDegrees(side*(10F+earFlick*12F+gather*24F+recoil*9F)));
             p.ear(0,0,0,1.22F,2.24F,0.52F,FUR);
             p.ear(0,-0.19F,-0.38F,0.79F,1.67F,0.15F,EAR);
             stack.popPose();
@@ -141,13 +151,14 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
             float stride = Mth.cos(swing*0.8F+phase)*0.55F*amount;
             float lift=Math.max(0,Mth.sin(swing*0.8F+phase))*amount;
             float grooming=i==0?groom:0;
-            float attack=i==0?swipe:i==1?swipe*0.65F:-pounce*0.5F;
+            float attack=i==0?swipe:i==1?extension*0.8F:-extension*0.8F;
             stack.pushPose();
             p.translate(x, 16.8F+sit*(i>=2?1.2F:0.15F), z);
-            stack.mulPose(Axis.XP.rotation(stride+stretch*(i<2?-0.68F:0.12F)+sit*(i>=2?-0.50F:0)+grooming*0.85F-attack*0.85F+gather*0.2F));
+            if(i==0)stack.mulPose(Axis.ZP.rotation(swipe*0.48F));
+            stack.mulPose(Axis.XP.rotation(stride+stretch*(i<2?-0.68F:0.12F)+sit*(i>=2?-0.50F:0)+grooming*0.85F-attack*1.25F+gather*(i<2?0.45F:0.85F)-landing*0.35F));
             p.shape(DETAIL,0,1.1F,0,i<2?0.78F:1.18F,2.35F,i<2?0.80F:1.35F,FUR);
             p.translate(0, 3.1F, 0);
-            stack.mulPose(Axis.XP.rotation(Math.max(0, -stride)*0.7F-lift*0.48F+stretch*(i<2?0.42F:0)+sit*(i>=2?0.95F:0)-grooming*1.35F+attack*0.45F+gather*0.45F));
+            stack.mulPose(Axis.XP.rotation(Math.max(0, -stride)*0.7F-lift*0.48F+stretch*(i<2?0.42F:0)+sit*(i>=2?0.95F:0)-grooming*1.35F+attack*0.65F+gather*0.85F+landing*0.7F));
             p.shape(DETAIL, 0, 1.3F, 0, 0.67F, 1.8F, 0.72F, FUR);
             p.shape(DETAIL, 0, 2.85F, -0.55F, 0.82F, 0.65F, 0.94F, TIP);
             if(lod<=1)for(int toe=0;toe<3;toe++)
@@ -156,7 +167,7 @@ final class MooncatMeshModel extends EntityModel<MooncatEntity> {
         }
 
         // A continuous tapered tail, with a traveling wave and curled seated pose.
-        p.tail(age,amount+pounce*0.6F,sit);
+        p.tail(age,amount+pounce*0.85F+recoil*0.5F,sit);
         stack.popPose();
     }
 
