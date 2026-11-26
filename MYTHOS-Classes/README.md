@@ -1,4 +1,4 @@
-# MYTHOS Classes 0.1.3
+# MYTHOS Classes 0.1.4
 
 Server-only Forge 1.21.1 / 52.1.5 / Java 21 mod. No custom registries, client code or network channels. Vanilla client compatibility intended, pending runtime validation. Install JAR on server only.
 
@@ -9,7 +9,7 @@ Server-only Forge 1.21.1 / 52.1.5 / Java 21 mod. No custom registries, client co
 - /class set <player> <id> (permission 2)
 - /class clear <player> (permission 2)
 
-IDs: warrior, heavy_knight, ranger, mage, rogue, cleric, necromancer.
+IDs: warrior, heavy_knight, ranger, mage, rogue, cleric, necromancer, hexslinger.
 
 Class identity persists in world/mythos-classes.json with atomic writes. No weapon assignments, restrictions on vanilla items, placeholder weapons or combat abilities.
 
@@ -38,3 +38,6 @@ ClassApi.progression(UUID) and ClassApi.grantXp(UUID,int) support future quests/
 
 ## Level nameplates (0.1.3)
 Players with a selected class display their MYTHOS level as a gray suffix: Player [Lv. 50]. Vanilla scoreboard teams provide overhead nameplates and tab-list formatting without any required client mod. Refresh on login, class assignment/clear and local level-up; reconcile external API rewards every 20 server ticks. Unassigned players have no suffix. Reserved owned teams are mythos_lv_1 through mythos_lv_50, with explicit display-name ownership marker. Startup/shutdown remove only owned level teams. Players already in another scoreboard team are left untouched to avoid overwriting rank/clan membership; their level suffix is not displayed until a compatible team integration is developed. Vanilla supports only one scoreboard team per player. Chat formatting is not independently overridden. Runtime nameplate/tab rendering and other scoreboard integrations require testing.
+
+## Hexslinger (0.1.4)
+Eighth class, intended as a hybrid ranged/magic damage dealer. Base stats STR 6, DEF 6, VIT 9, DEX 17, INT 16, SPI 6 (total 60). Same level cap and allocation rules as other classes. Weapon assignments and combat mechanics remain deferred.
