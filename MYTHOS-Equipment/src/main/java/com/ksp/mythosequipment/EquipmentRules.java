@@ -7,7 +7,7 @@ final class EquipmentRules {
     enum Stat { ATK, STR, DEF, VIT, DEX, INT, SPI }
     enum Slot { WEAPON, HEAD, CHEST, LEGS, FEET, SHIELD }
     enum Tier {
-        ADVENTURER(1,1,3), VETERAN(20,3,7), DRAGON(40,6,12);
+        ADVENTURER(1,1,3), TEMPERED(10,2,5), VETERAN(20,3,7), CHAMPION(30,4,9), DRAGON(40,6,12), ASCENDANT(50,9,16);
         final int level,min,max;
         Tier(int level,int min,int max){this.level=level;this.min=min;this.max=max;}
     }
@@ -68,14 +68,14 @@ final class EquipmentRules {
     record Profile(String name,String weapon,Stat focus,Effect effect){}
     static Profile profile(ClassSet c,Tier t){
         return switch(c){
-            case WARRIOR -> switch(t){case ADVENTURER->new Profile("Iron Vanguard","Oathbreaker",Stat.STR,Effect.BATTLE_FURY);case VETERAN->new Profile("Crimson Legion","Bloodcleaver",Stat.ATK,Effect.BLOOD_PRICE);case DRAGON->new Profile("Dragon Vanguard","Wyrmbane",Stat.STR,Effect.DRAGONFIRE);};
-            case HEAVY_KNIGHT -> switch(t){case ADVENTURER->new Profile("Stone Bastion","Stonebreaker",Stat.DEF,Effect.STONE_GUARD);case VETERAN->new Profile("Iron Citadel","Siegebreaker",Stat.VIT,Effect.CITADEL_BULWARK);case DRAGON->new Profile("Dragon Bastion","Titanfall",Stat.DEF,Effect.TITAN_GUARD);};
-            case RANGER -> switch(t){case ADVENTURER->new Profile("Wildwood Pathfinder","Thornstring",Stat.DEX,Effect.THORN_SNARE);case VETERAN->new Profile("Stormwatch","Galeheart",Stat.ATK,Effect.WINDRUNNER);case DRAGON->new Profile("Dragon Pathfinder","Skyfang",Stat.DEX,Effect.SKY_HUNTER);};
-            case MAGE -> switch(t){case ADVENTURER->new Profile("Ember Arcanist","Cinderstaff",Stat.INT,Effect.EMBER_BRAND);case VETERAN->new Profile("Frostweave","Winterheart",Stat.SPI,Effect.FROSTBIND);case DRAGON->new Profile("Dragon Arcanist","Starfall",Stat.INT,Effect.ASTRAL_SURGE);};
-            case ROGUE -> switch(t){case ADVENTURER->new Profile("Duskwalker","Whisperfang",Stat.DEX,Effect.SHADOWSTEP);case VETERAN->new Profile("Venomveil","Viper's Kiss",Stat.STR,Effect.VENOM_EDGE);case DRAGON->new Profile("Dragon Nightblade","Eclipse",Stat.ATK,Effect.ECLIPSE_VEIL);};
-            case CLERIC -> switch(t){case ADVENTURER->new Profile("Dawn Sanctified","Dawnlight",Stat.SPI,Effect.DAWN_MERCY);case VETERAN->new Profile("Silver Covenant","Mercy's Hand",Stat.VIT,Effect.SACRED_SHELTER);case DRAGON->new Profile("Dragon Sanctified","Seraph's Grace",Stat.SPI,Effect.SERAPHIC_RENEWAL);};
-            case NECROMANCER -> switch(t){case ADVENTURER->new Profile("Graveborn","Gravetouch",Stat.INT,Effect.GRAVE_CHILL);case VETERAN->new Profile("Bone Covenant","Marrowbinder",Stat.VIT,Effect.BONE_WARD);case DRAGON->new Profile("Dragon Graveborn","Soulreaper",Stat.SPI,Effect.SOUL_HARVEST);};
-            case HEXSLINGER -> switch(t){case ADVENTURER->new Profile("Ash Hexweaver","Ashmark",Stat.DEX,Effect.ASH_CURSE);case VETERAN->new Profile("Runebound","Runebreaker",Stat.INT,Effect.RUNE_FRACTURE);case DRAGON->new Profile("Dragon Hexweaver","Doomsigil",Stat.ATK,Effect.DOOM_MARK);};
+            case WARRIOR -> switch(t){case ADVENTURER->new Profile("Iron Vanguard","Oathbreaker",Stat.STR,Effect.BATTLE_FURY);case VETERAN->new Profile("Crimson Legion","Bloodcleaver",Stat.ATK,Effect.BLOOD_PRICE);case DRAGON->new Profile("Dragon Vanguard","Wyrmbane",Stat.STR,Effect.DRAGONFIRE);case TEMPERED->new Profile("Steel Vanguard","Iron Oath",Stat.STR,Effect.BATTLE_FURY);case CHAMPION->new Profile("Royal Legion","Crown's Wrath",Stat.ATK,Effect.BLOOD_PRICE);case ASCENDANT->new Profile("Eternal Conqueror","Emperor's Verdict",Stat.STR,Effect.DRAGONFIRE);};
+            case HEAVY_KNIGHT -> switch(t){case ADVENTURER->new Profile("Stone Bastion","Stonebreaker",Stat.DEF,Effect.STONE_GUARD);case VETERAN->new Profile("Iron Citadel","Siegebreaker",Stat.VIT,Effect.CITADEL_BULWARK);case DRAGON->new Profile("Dragon Bastion","Titanfall",Stat.DEF,Effect.TITAN_GUARD);case TEMPERED->new Profile("Granite Ward","Granite Maul",Stat.DEF,Effect.STONE_GUARD);case CHAMPION->new Profile("Royal Fortress","Citadel Maul",Stat.VIT,Effect.CITADEL_BULWARK);case ASCENDANT->new Profile("Immortal Aegis","Atlas",Stat.DEF,Effect.TITAN_GUARD);};
+            case RANGER -> switch(t){case ADVENTURER->new Profile("Wildwood Pathfinder","Thornstring",Stat.DEX,Effect.THORN_SNARE);case VETERAN->new Profile("Stormwatch","Galeheart",Stat.ATK,Effect.WINDRUNNER);case DRAGON->new Profile("Dragon Pathfinder","Skyfang",Stat.DEX,Effect.SKY_HUNTER);case TEMPERED->new Profile("Greenwarden","Briarshot",Stat.DEX,Effect.THORN_SNARE);case CHAMPION->new Profile("Tempest Hunter","Thunderstring",Stat.ATK,Effect.WINDRUNNER);case ASCENDANT->new Profile("Celestial Huntsman","Heavenpiercer",Stat.DEX,Effect.SKY_HUNTER);};
+            case MAGE -> switch(t){case ADVENTURER->new Profile("Ember Arcanist","Cinderstaff",Stat.INT,Effect.EMBER_BRAND);case VETERAN->new Profile("Frostweave","Winterheart",Stat.SPI,Effect.FROSTBIND);case DRAGON->new Profile("Dragon Arcanist","Starfall",Stat.INT,Effect.ASTRAL_SURGE);case TEMPERED->new Profile("Runesilk","Rune Scepter",Stat.INT,Effect.EMBER_BRAND);case CHAMPION->new Profile("Astral Covenant","Astral Rod",Stat.SPI,Effect.FROSTBIND);case ASCENDANT->new Profile("Eternal Archmage","Cosmic Scepter",Stat.INT,Effect.ASTRAL_SURGE);};
+            case ROGUE -> switch(t){case ADVENTURER->new Profile("Duskwalker","Whisperfang",Stat.DEX,Effect.SHADOWSTEP);case VETERAN->new Profile("Venomveil","Viper's Kiss",Stat.STR,Effect.VENOM_EDGE);case DRAGON->new Profile("Dragon Nightblade","Eclipse",Stat.ATK,Effect.ECLIPSE_VEIL);case TEMPERED->new Profile("Silent Veil","Silent Fang",Stat.DEX,Effect.SHADOWSTEP);case CHAMPION->new Profile("Phantom Court","Phantom Fang",Stat.STR,Effect.VENOM_EDGE);case ASCENDANT->new Profile("Eternal Shadow","Night's End",Stat.ATK,Effect.ECLIPSE_VEIL);};
+            case CLERIC -> switch(t){case ADVENTURER->new Profile("Dawn Sanctified","Dawnlight",Stat.SPI,Effect.DAWN_MERCY);case VETERAN->new Profile("Silver Covenant","Mercy's Hand",Stat.VIT,Effect.SACRED_SHELTER);case DRAGON->new Profile("Dragon Sanctified","Seraph's Grace",Stat.SPI,Effect.SERAPHIC_RENEWAL);case TEMPERED->new Profile("Ivory Chapel","Ivory Light",Stat.SPI,Effect.DAWN_MERCY);case CHAMPION->new Profile("Radiant Covenant","Radiant Scepter",Stat.VIT,Effect.SACRED_SHELTER);case ASCENDANT->new Profile("Celestial Seraph","Divine Scepter",Stat.SPI,Effect.SERAPHIC_RENEWAL);};
+            case NECROMANCER -> switch(t){case ADVENTURER->new Profile("Graveborn","Gravetouch",Stat.INT,Effect.GRAVE_CHILL);case VETERAN->new Profile("Bone Covenant","Marrowbinder",Stat.VIT,Effect.BONE_WARD);case DRAGON->new Profile("Dragon Graveborn","Soulreaper",Stat.SPI,Effect.SOUL_HARVEST);case TEMPERED->new Profile("Crypt Warden","Crypt Rod",Stat.INT,Effect.GRAVE_CHILL);case CHAMPION->new Profile("Ossuary Lord","Ossuary Staff",Stat.VIT,Effect.BONE_WARD);case ASCENDANT->new Profile("Eternal Lich","Death's Scepter",Stat.SPI,Effect.SOUL_HARVEST);};
+            case HEXSLINGER -> switch(t){case ADVENTURER->new Profile("Ash Hexweaver","Ashmark",Stat.DEX,Effect.ASH_CURSE);case VETERAN->new Profile("Runebound","Runebreaker",Stat.INT,Effect.RUNE_FRACTURE);case DRAGON->new Profile("Dragon Hexweaver","Doomsigil",Stat.ATK,Effect.DOOM_MARK);case TEMPERED->new Profile("Rune Outlaw","Rune Caster",Stat.DEX,Effect.ASH_CURSE);case CHAMPION->new Profile("Void Marshal","Void Caster",Stat.INT,Effect.RUNE_FRACTURE);case ASCENDANT->new Profile("Eternal Hex","Fate Caster",Stat.ATK,Effect.DOOM_MARK);};
         };
     }
     enum WeaponKind {
@@ -218,10 +218,16 @@ final class EquipmentRules {
         add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,30,"Stormbolt");
         add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,40,"Dragonbolt");
         add(out,ClassSet.RANGER,WeaponKind.CROSSBOW,50,"Skybreaker");
+        add(out,ClassSet.WARRIOR,WeaponKind.HAMMER,10,"Forgehand");
+        add(out,ClassSet.WARRIOR,WeaponKind.HAMMER,30,"Crowncrusher");
+        add(out,ClassSet.WARRIOR,WeaponKind.HAMMER,50,"Empirefall");
+        add(out,ClassSet.CLERIC,WeaponKind.HAMMER,10,"Silver Bell");
+        add(out,ClassSet.CLERIC,WeaponKind.HAMMER,30,"Solar Verdict");
+        add(out,ClassSet.CLERIC,WeaponKind.HAMMER,50,"Heavenfall");
         return List.copyOf(out);
     }
     private static void add(List<Definition> out,ClassSet owner,WeaponKind kind,int level,String name){
-        Tier tier=level>=40?Tier.DRAGON:level>=20?Tier.VETERAN:Tier.ADVENTURER;
+        Tier tier=Arrays.stream(Tier.values()).filter(t->t.level==level).findFirst().orElseThrow();
         String id=owner.id+"_"+kind.name().toLowerCase(Locale.ROOT)+"_"+level;
         out.add(new Definition(id,name,owner,tier,Slot.WEAPON,kind,level));
     }
