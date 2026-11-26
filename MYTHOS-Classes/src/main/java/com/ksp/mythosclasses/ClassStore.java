@@ -4,20 +4,11 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import java.nio.file.*;
 import java.util.*;
-import com.ksp.mythosclasses.ClassRules.*;
+import com.ksp.mythosclasses.ClassRules.Role;
 
 final class ClassStore {
     private static final Gson JSON=new GsonBuilder().setPrettyPrinting().create();
-    static final class Profile {
-        String role;
-        long xp;
-        int power,vitality,agility,spirit;
-        Role selected(){return Role.parse(role);}
-        int spent(){return power+vitality+agility+spirit;}
-        int stat(Stat s){return switch(s){case POWER->power;case VITALITY->vitality;case AGILITY->agility;case SPIRIT->spirit;};}
-        void allocate(Stat s,int n){switch(s){case POWER->power+=n;case VITALITY->vitality+=n;case AGILITY->agility+=n;case SPIRIT->spirit+=n;}}
-    }
-    private static final class Data {Map<String,Profile> players=new HashMap<>();}
+    private static final class Data {Map<String,String> players=new HashMap<>();}
     private Data data=new Data();
     private Path file;
     boolean ready;
@@ -26,22 +17,23 @@ final class ClassStore {
         data=Files.exists(path)?JSON.fromJson(Files.readString(path),Data.class):new Data();
         if(data==null||data.players==null)throw new IllegalStateException("Invalid class store");
         for(var entry:data.players.entrySet()){
-            UUID.fromString(entry.getKey());Profile p=entry.getValue();
-            if(p==null||p.selected()==null||p.xp<0||p.xp>MAX_XP)throw new IllegalStateException("Invalid class profile");
-            for(Stat s:Stat.values())if(p.stat(s)<0||p.stat(s)>MAX_STAT)throw new IllegalStateException("Invalid stat");
-            if(p.spent()>points(p.xp))throw new IllegalStateException("Invalid stat budget");
+            UUID.fromString(entry.getKey());
+            if(Role.parse(entry.getValue())==null)throw new IllegalStateException("Invalid class");
         }
         ready=true;
     }
-    Profile get(UUID id){return data.players.get(id.toString());}
-    void put(UUID id,Profile p){data.players.put(id.toString(),p);}
-    void remove(UUID id){data.players.remove(id.toString());}
-    void save()throws Exception{
+    Role get(UUID id){return ready?Role.parse(data.players.get(id.toString())):null;}
+    void assign(UUID id,Role role)throws Exception{
         if(!ready)throw new IllegalStateException("Class storage unavailable");
+        String key=id.toString(),old=data.players.get(key);
+        if(role==null)data.players.remove(key);else data.players.put(key,role.id());
         Path temp=file.resolveSibling(file.getFileName()+".tmp");
         try{
             Files.writeString(temp,JSON.toJson(data));
             Files.move(temp,file,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
-        }catch(Exception e){ready=false;throw e;}
+        }catch(Exception e){
+            if(old==null)data.players.remove(key);else data.players.put(key,old);
+            ready=false;throw e;
+        }
     }
 }
