@@ -1,4 +1,4 @@
-# MYTHOS Classes 0.1.1
+# MYTHOS Classes 0.1.2
 
 Server-only Forge 1.21.1 / 52.1.5 / Java 21 mod. No custom registries, client code or network channels. Vanilla client compatibility intended, pending runtime validation. Install JAR on server only.
 
@@ -11,7 +11,7 @@ Server-only Forge 1.21.1 / 52.1.5 / Java 21 mod. No custom registries, client co
 
 IDs: warrior, heavy_knight, ranger, mage, rogue, cleric, necromancer.
 
-Class identity persists in world/mythos-classes.json with atomic writes. No weapon assignments, restrictions on vanilla items, placeholder weapons, XP or combat abilities.
+Class identity persists in world/mythos-classes.json with atomic writes. No weapon assignments, restrictions on vanilla items, placeholder weapons or combat abilities.
 
 ## Integration
 Future MYTHOS equipment mods define their own allowed class IDs. On the logical server thread use ClassApi.available(), ClassApi.classId(UUID), ClassApi.validClass(String), and ClassApi.canUse(UUID, Collection<String>). Empty collection means unrestricted, null or invalid policy denied. Restricted equipment denies unassigned players or unavailable storage. Equipment mods must actually call the API and enforce equip/attack/use restrictions in their server handlers. No restrictions are registered by this foundation. Class selection is persistent and administrators can change it. CI checks class IDs; runtime compatibility and persistence must be tested.
@@ -25,4 +25,13 @@ Each class starts with a budget of 60 base stats (strength, defense, vitality, d
 - /class points grant <player> <amount> (permission 2)
 - /class points reset <player> (permission 2, refunds all allocated points)
 
-ClassApi.stats(UUID) returns an immutable snapshot of base, allocated and total stats plus earned/unspent points. ClassApi.grantPoints(UUID,int) is a trusted server-thread reward hook for future progression mods. No automatic XP, leveling, rewards, vanilla attributes or combat modifiers; stats are authoritative data for future integration. Vanilla equipment is untouched. CI checks stat budgets and identifiers; live persistence and allocation require runtime verification.
+ClassApi.stats(UUID) returns an immutable snapshot of base, allocated and total stats plus earned/unspent points. ClassApi.grantPoints(UUID,int) is a trusted server-thread reward hook for future progression mods. No vanilla attributes or combat modifiers; stats are authoritative data for future integration. Vanilla equipment is untouched. CI checks stat budgets and identifiers; live persistence and allocation require runtime verification.
+
+## Player progression (0.1.2)
+Independent MYTHOS XP, level 1–50, cumulative threshold 100*(L-1)*L; maximum 245000 XP. Direct player-attributed hostile Monster kills grant 50 XP in survival/adventure, excluding tagged MYTHOS pets/mounts and allied entities. No PvP, creative or spectator rewards. Pet-attributed kills and environmental kills without player attribution are not counted. No anti-farm/spawner differentiation yet. Every gained level yields 3 allocatable points, derived from XP rather than separately incremented. At level 50 the starting+level budget is 152 before bonus grants. Existing saves default to level 1, retain all allocations and granted points. Class changes retain XP and refund allocations; clear removes profile including XP. Bonus grant budget remains capped at 10000 including starting points, separate from the 147 level points.
+
+- /class level [player] (other player permission 2)
+- /class xp (view own progression)
+- /class xp grant <player> <amount> (permission 2)
+
+ClassApi.progression(UUID) and ClassApi.grantXp(UUID,int) support future quests/dungeons. API returns actual award, level changes and points; caller handles notification for external grants. No client networking, no modifications to vanilla XP or attributes. CI tests progression boundaries; runtime death attribution, persistence and vanilla client compatibility still require verification.
