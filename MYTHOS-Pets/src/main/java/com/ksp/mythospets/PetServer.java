@@ -81,7 +81,7 @@ final class PetServer {
     private static class Store { Map<String,Account> accounts=new HashMap<>(); }
     private static final class Active {
         final UUID owner; final Definition definition; final Mob entity;
-        UUID target; long targetUntil,nextAbility,nextAdvanced; boolean advancedUsed;
+        UUID target; long targetUntil,nextAbility,nextAdvanced; 
         UUID castTarget; int cast; long impactAt,finishAt,nextSupport; boolean impacted;
         int landingTicks; Vec3 flightVelocity=Vec3.ZERO;
         Active(UUID owner,Definition definition,Mob entity){this.owner=owner;this.definition=definition;this.entity=entity;}
@@ -469,46 +469,47 @@ final class PetServer {
         if(used)a.nextAbility=tick+PetProgression.cooldown(d.cooldown,stats(a));else a.nextAbility=tick+10;
     }
     private static String moveName(Definition d,int level){
-        if(d.id.equals("ember_dragon"))return switch(level){case 10->"Cinder Shock";case 25->"Inferno Brand";default->"Phoenix Ward";};
+        if(d.id.equals("ember_dragon"))return switch(level){case 10->"Cinder Shock";case 25->"Inferno Brand";default->"Dragon Ward";};
         if(d.id.equals("premium_mooncat"))return switch(level){case 10->"Lunar Rend";case 25->"Astral Aegis";default->"Moon Renewal";};
         return switch(level){case 10->"Companion Strike";case 25->"Guardian Bond";default->"Vital Spark";};
     }
-    // A separate, bounded automatic move rotation. Existing base attacks remain
+    // Highest unlocked offensive tier, with emergency defensive priority. Existing base attacks remain
     // available at every level. Only one extra move is selected per cooldown.
     private boolean advanced(ServerPlayer p,Active a){
         var stat=stats(a);if(stat.level()<10||tick<a.nextAdvanced||a.cast!=0)return false;
         LivingEntity enemy=combatTarget(p,a,a.target,8);if(enemy==null)return false;
         var level=p.serverLevel();int move=10;
         if(stat.level()>=40&&p.getHealth()<=p.getMaxHealth()*0.65F)move=40;
-        else if(stat.level()>=25&&a.advancedUsed)move=25;
+        else if(stat.level()>=25)move=25;
         boolean dragon=a.definition.id.equals("ember_dragon"),cat=a.definition.id.equals("premium_mooncat");
         if(move==40){
-            p.heal((dragon?2:cat?4:3)*stat.healing());
-            p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(80,stat),0));
-            if(dragon)p.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE,PetProgression.duration(160,stat),0));
-            if(cat)p.addEffect(new MobEffectInstance(MobEffects.REGENERATION,PetProgression.duration(80,stat),0));
+            p.heal((dragon?6:cat?8:6)*stat.healing());
+            p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(160,stat),1));
+            p.addEffect(new MobEffectInstance(MobEffects.ABSORPTION,PetProgression.duration(200,stat),1));
+            if(dragon)p.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE,PetProgression.duration(240,stat),0));
+            if(cat)p.addEffect(new MobEffectInstance(MobEffects.REGENERATION,PetProgression.duration(120,stat),1));
             level.sendParticles(ParticleTypes.HEART,p.getX(),p.getY()+1.5,p.getZ(),5,0.3,0.4,0.3,0.03);
             level.sendParticles(dragon?ParticleTypes.FLAME:ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),18,0.45,0.6,0.45,0.03);
             level.playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.AMETHYST_BLOCK_CHIME,SoundSource.NEUTRAL,0.75F,1.0F);
         }else if(move==25){
             if(dragon){
-                if(enemy.hurt(level.damageSources().mobAttack(a.entity),3*stat.attack()))enemy.igniteForSeconds(5);
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),8*stat.attack())){enemy.igniteForSeconds(7);enemy.addEffect(new MobEffectInstance(MobEffects.WEAKNESS,PetProgression.duration(120,stat),0));}
                 level.sendParticles(ParticleTypes.FLAME,enemy.getX(),enemy.getY()+0.8,enemy.getZ(),22,0.35,0.45,0.35,0.06);
             }else{
-                p.addEffect(new MobEffectInstance(MobEffects.ABSORPTION,PetProgression.duration(100,stat),0));
-                if(cat)p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(80,stat),0));
+                p.addEffect(new MobEffectInstance(MobEffects.ABSORPTION,PetProgression.duration(160,stat),1));
+                p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,PetProgression.duration(120,stat),0));
+                if(enemy.hurt(level.damageSources().mobAttack(a.entity),(cat?5:4)*stat.attack()))enemy.addEffect(new MobEffectInstance(MobEffects.WEAKNESS,PetProgression.duration(100,stat),0));
                 level.sendParticles(ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),18,0.45,0.6,0.45,0.04);
             }
         }else{
-            if(enemy.hurt(level.damageSources().mobAttack(a.entity),2*stat.attack())){
+            if(enemy.hurt(level.damageSources().mobAttack(a.entity),(dragon?4:cat?3:3)*stat.attack())){
                 enemy.addEffect(new MobEffectInstance(MobEffects.WEAKNESS,PetProgression.duration(60,stat),0));
                 if(dragon)enemy.igniteForSeconds(2);
                 if(cat)enemy.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,PetProgression.duration(80,stat),0));
             }
             level.sendParticles(dragon?ParticleTypes.FLAME:cat?ParticleTypes.SWEEP_ATTACK:ParticleTypes.CRIT,enemy.getX(),enemy.getY()+0.8,enemy.getZ(),cat?1:8,0.25,0.25,0.25,0.05);
         }
-        if(move!=40)a.advancedUsed=!a.advancedUsed;
-        a.nextAdvanced=tick+PetProgression.cooldown(300,stat);
+        a.nextAdvanced=tick+PetProgression.cooldown(move==40?400:move==25?260:300,stat);
         advancedLock.merge(a.owner,a.nextAdvanced,Math::max);
         p.displayClientMessage(Component.literal(petName(a.owner,a.definition)+" used "+moveName(a.definition,move)),true);
         return true;
@@ -516,9 +517,9 @@ final class PetServer {
     private static String moveDetails(Definition d,int l){
         boolean dragon=d.id.equals("ember_dragon"),cat=d.id.equals("premium_mooncat");
         return switch(l){
-            case 10 -> "2 base damage + Weakness I"+(dragon?" + 2s burn":cat?" + Slowness I":"");
-            case 25 -> dragon?"3 base damage + 5s burn":cat?"Absorption I + Resistance I":"Absorption I";
-            default -> dragon?"2 base healing + Resistance I + Fire Resistance":cat?"4 base healing + Resistance I + Regeneration I":"3 base healing + Resistance I";
+            case 10 -> (dragon?"4":"3")+" base damage + Weakness I"+(dragon?" + 2s burn":cat?" + Slowness I":"");
+            case 25 -> dragon?"8 base damage + 7s burn + Weakness I":cat?"5 base damage + Weakness I + Absorption II + Resistance I":"4 base damage + Weakness I + Absorption II + Resistance I";
+            default -> dragon?"6 base healing + Resistance II + Absorption II + Fire Resistance":cat?"8 base healing + Resistance II + Absorption II + Regeneration II":"6 base healing + Resistance II + Absorption II";
         };
     }
     private int progress(CommandSourceStack s,String id,boolean moves)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
