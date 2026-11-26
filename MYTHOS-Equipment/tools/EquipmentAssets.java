@@ -144,6 +144,32 @@ public final class EquipmentAssets {
                 if(cross){m.box(1,12.95,7.94,15.5,13.08,8.07,1);if(active)m.box(7.91,5.3,7.8,8.09,18,8.2,1);}
                 else {for(int i=0;i<32;i++){double y=1+i*15.0/32;double x=8-(active?2.3:0)*Math.sin(i*Math.PI/32);m.box(x-.065,y,7.94,x+.065,y+.50,8.06,1);}}
             }
+            case GRIMOIRE -> {
+                m.box(3,3,6.5,13,14,9.5,3);
+                m.box(3.5,3.5,6.7,12.6,13.5,9.3,1);
+                m.box(2.8,2.8,6.1,13.3,14.2,6.8,7);
+                m.box(2.8,2.8,9.2,13.3,14.2,9.9,7);
+                m.box(2.5,3,6.1,3.6,14,9.9,3);
+                for(int i=0;i<12;i++)m.box(12.5,3.7+i*.8,6.8,12.8,3.9+i*.8,9.1,2);
+                for(double x:new double[]{3,11.7})for(double y:new double[]{3,12.6})m.box(x,y,5.9,x+1.3,y+1.3,6.3,2);
+                m.box(7.7,5,5.8,8.3,12,6.15,2);m.box(5,8.2,5.8,11,8.8,6.15,2);
+                for(int i=0;i<12;i++){double a=i*Math.PI/6;double x=8+2.5*Math.cos(a),y=8.5+2.5*Math.sin(a);m.box(x-.25,y-.25,5.65,x+.25,y+.25,6.1,5);}
+            }
+            case ORB -> {
+                m.gem(5,6.5);
+                for(int i=0;i<24;i++){double a=i*Math.PI/12;double x=8+3.6*Math.cos(a),z=8+3.6*Math.sin(a);m.box(x-.28,8-.3,z-.28,x+.28,8+.3,z+.28,2);}
+                m.rod(3.5,5.2,2.5,2.5,7);
+            }
+            case LANTERN -> {
+                m.rod(3,4,5.4,5.4,2);m.rod(11,12,5.4,5.4,2);m.gem(4,5.8);
+                for(int x:new int[]{-1,1})for(int z:new int[]{-1,1})m.box(8+x*2.4-.22,4,8+z*2.4-.22,8+x*2.4+.22,11,8+z*2.4+.22,7);
+                m.box(6,12,7.5,6.5,14,8.5,2);m.box(9.5,12,7.5,10,14,8.5,2);m.box(6,13.5,7.5,10,14,8.5,2);
+            }
+            case TOTEM -> {
+                m.rod(2,13,3.2,2.7,6);m.bands(3,12,3.5,6);m.gem(12,2.4);
+                for(int i=0;i<6;i++){double y=5+i*.9;double w=3.2-i*.21;m.box(8-w,y,7,8+w,y+.5,9,2);}
+                m.box(6,9,6.2,7.4,10.1,7,5);m.box(8.6,9,6.2,10,10.1,7,5);
+            }
             case SHIELD -> {
                 for(int i=0;i<36;i++){double t=(i+.5)/36,y=0+i*.45;double w=6.4*(t<.27?.18+.82*t/.27:1-.12*Math.max(0,t-.85)/.15);
                     m.box(8-w,y,7.25,8+w,y+.45,8.65,7);m.box(8-w+.32,y,7.0,8+w-.32,y+.45,7.27,4);
@@ -185,7 +211,7 @@ public final class EquipmentAssets {
         // Complete vanilla box unwraps (head, torso, arms, legs); paint each face independently.
         BufferedImage im=new BufferedImage(512,256,BufferedImage.TYPE_INT_ARGB);Graphics2D g=im.createGraphics();g.scale(8,8);
         Color steel=metal(c,t),gold=trim(c,t),cloth=new Color(c.color);
-        boolean light=c==ClassSet.MAGE||c==ClassSet.NECROMANCER||c==ClassSet.RANGER||c==ClassSet.ROGUE||c==ClassSet.HEXSLINGER;
+        boolean light=c==ClassSet.MAGE||c==ClassSet.NECROMANCER||c==ClassSet.RANGER||c==ClassSet.ROGUE||c==ClassSet.HEXSLINGER||c==ClassSet.SUMMONER;
         if(layer==1){
             cube(g,0,0,8,8,8,steel,gold,cloth,light,true,t.ordinal());
             cube(g,16,16,8,12,4,steel,gold,cloth,light,false,t.ordinal());
