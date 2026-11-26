@@ -16,3 +16,7 @@ Baseline: commit 99137887b2a18ce66640df6759898e8860a84e49, [CI passed](https://g
 | 10 Performance/multiplayer | Pending | Mixed-client session, reconnect, stress and frame-time measurements, documented hardware and limits |
 
 Do not mark an integration milestone complete based solely on standalone unit tests. Keep vanilla access and server authority. Record commit and CI links plus in-game evidence when available.
+
+## Asset cache increment
+
+Content-addressed local cache implemented with bounded writes, SHA-256 verification, atomic publication, and corrupt-file recovery tests. Transport, total cache quota, eviction and runtime integration remain outstanding. CI pending for this increment.
