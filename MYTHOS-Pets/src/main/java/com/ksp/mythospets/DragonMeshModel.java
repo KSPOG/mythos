@@ -6,6 +6,12 @@ import com.mojang.math.Axis;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
+import net.minecraft.resources.ResourceLocation;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Angular articulated mesh with connected bevel rings and hard normals,
@@ -15,6 +21,8 @@ import net.minecraft.util.Mth;
 final class DragonMeshModel extends EntityModel<DragonEntity> {
     private static final int[] SIDES = {-1, 1};
     private int lod;
+    private static final ResourceLocation ANATOMY = ResourceLocation.fromNamespaceAndPath("mythospets", "meshes/ember_dragon.anatomy");
+    private Anatomy anatomy;
     private static final int EMBER = 4;
     private static final int FULL_LIGHT = 0xF000F0;
 
@@ -38,20 +46,18 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
 
     @Override
     public void renderToBuffer(PoseStack stack, VertexConsumer vertices, int light, int overlay, int color) {
+        if (anatomy == null) anatomy = Anatomy.load();
         Painter p = new Painter(stack, vertices, light, overlay, color, lod);
         stack.pushPose();
         stack.translate(0, Mth.sin(age * 0.12F) * 0.008F, 0);
         // Long reptilian torso, plated belly and curved neck.
-        p.hull(new float[][]{
-            {-7.3F,13.4F,1.45F,1.85F},{-5.2F,14.0F,2.35F,2.65F},{-3.3F,14.4F,2.8F,2.9F},
-            {-0.5F,15,2.65F,2.55F},{2.5F,15.1F,2.1F,1.95F},
-            {4.5F,14.8F,2.6F,2.45F},{6.2F,14.8F,2.45F,2.2F},{8,15.2F,1.35F,1.35F}},FUR);
-        p.hull(new float[][]{{-5,16.8F,1.4F,0.9F},{-2,17.2F,1.95F,1.25F},{3,17.3F,1.35F,0.7F},{5.5F,16.8F,0.65F,0.45F}},MANE);
+        p.hull(anatomy.torso,FUR);
+        p.hull(anatomy.belly,MANE);
         for(int plate=0;plate<6;plate++) {
             p.plate(0,18.25F,-4+plate*1.15F,1.7F,0.35F,0.45F,MANE);
             p.plate(0,18.42F,-3.5F+plate*1.15F,1.35F,0.12F,0.13F,EMBER);
         }
-        p.hull(new float[][]{{-10,8.1F,1.15F,1.3F},{-9,8.6F,1.3F,1.45F},{-8,9.7F,1.45F,1.75F},{-7,10.8F,1.7F,2.0F},{-6,12.2F,2.0F,2.3F},{-4,14.0F,2.35F,2.5F}},FUR);
+        p.hull(anatomy.neck,FUR);
         for(int i=0;i<4;i++){
             p.plate(0,9.3F+i*1.2F,-9+i*1.15F,0.8F+i*0.12F,0.25F,0.64F,MANE);
         }
@@ -60,25 +66,26 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
         stack.mulPose(Axis.YP.rotationDegrees(yaw));
         stack.mulPose(Axis.XP.rotationDegrees(pitch));
         // Connected angular skull, wedge muzzle, raised cheek and crown ridges.
-        p.hull(new float[][]{{-4.9F,0.35F,0.72F,0.5F},{-4.2F,0.12F,0.95F,0.72F},
-            {-2.3F,-0.1F,1.32F,1.05F},{-0.7F,-0.2F,1.8F,1.4F},
-            {1.2F,0,1.65F,1.3F},{2.3F,0.1F,0.75F,0.8F}},FUR);
+        p.hull(anatomy.skull,FUR);
         p.plate(0,-1.2F,-1.1F,0.64F,0.44F,1.75F,MANE);
         for(int side:SIDES)
             p.plate(side*1.47F,0.22F,0.1F,0.46F,0.73F,1.6F,FUR);
         stack.pushPose();
-        p.translate(0,0.75F,-0.6F);
+        p.translate(0,0.85F,-0.6F);
         stack.mulPose(Axis.XP.rotation(-0.025F+Mth.sin(age*0.08F)*0.012F));
-        p.hull(new float[][]{{-4.1F,0,0.48F,0.24F},{-2.6F,0.1F,0.77F,0.35F},{0.6F,-0.1F,1.25F,0.5F}},MANE);
+        p.hull(anatomy.jaw,FUR);
         p.plate(0,0.03F,-2.6F,0.42F,0.05F,0.9F,MANE);
         stack.popPose();
         for(int side:SIDES){
-            p.plate(side*1.67F,-0.52F,-1.55F,0.22F,0.23F,0.55F,EMBER);
-            p.plate(side*1.86F,-0.53F,-1.55F,0.045F,0.18F,0.07F,FUR);
+            p.plate(side*1.78F,-0.55F,-1.48F,0.15F,0.16F,0.39F,EMBER);
+            p.plate(side*1.91F,-0.55F,-1.48F,0.025F,0.14F,0.055F,FUR);
             p.taper(side*1.38F,-0.9F,-2.4F,side*1.75F,-0.98F,-0.3F,0.31F,0.14F,FUR);
             p.plate(side*0.81F,-0.03F,-4.35F,0.18F,0.11F,0.24F,FUR);
-            p.taper(side*1.15F,-0.9F,1.1F,side*2.05F,-2.5F,3.2F,0.53F,0.25F,GOLD);
-            p.taper(side*2.05F,-2.5F,3.2F,side*2.45F,-2.9F,5.2F,0.25F,0.025F,GOLD);
+            p.horn(side);
+            for(int ridge=0;ridge<5;ridge++) {
+                float z=0.7F+ridge*0.48F;
+                p.taper(side*(1.4F-ridge*0.10F),-1.0F,z,side*(1.9F-ridge*0.13F),-2.1F+ridge*0.09F,z+0.9F,0.36F,0.025F,GOLD);
+            }
             p.taper(side*1.5F,0.45F,0.7F,side*2.3F,0.1F,2.6F,0.31F,0.025F,GOLD);
             for(int tooth=0;tooth<3;tooth++)
                 p.taper(side*(1.1F-tooth*0.12F),0.95F,-1.8F-tooth*0.72F,
@@ -93,7 +100,7 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             stack.pushPose();
             p.translate(x,15.5F,z);
             stack.mulPose(Axis.XP.rotation(stride));
-            p.plate(0,0.8F,0,1.35F,2.0F,i<2?1.4F:2.1F,FUR);
+            p.plate(0,0.8F,0,i<2?1.45F:1.7F,2.15F,i<2?1.6F:2.35F,FUR);
             p.taper(0,0,0,0,3.2F,i<2?-0.5F:1.0F,i<2?1.05F:1.35F,0.72F,FUR);
             p.translate(0,3.2F,i<2?-0.3F:1.0F);
             stack.mulPose(Axis.XP.rotation(Math.max(0,-stride)*0.7F));
@@ -175,6 +182,41 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             pivot[1]+rx*Mth.sin(roll)+y*Mth.cos(roll),pivot[2]+rz};
     }
 
+    /** Editable anatomical cross sections in model pixels; loaded once per renderer. */
+    private record Anatomy(float[][] torso,float[][] belly,float[][] neck,float[][] skull,float[][] jaw) {
+        static Anatomy load() {
+            var sections=new java.util.HashMap<String,List<float[]>>();
+            String section=null;
+            try(var reader=new BufferedReader(new InputStreamReader(
+                Minecraft.getInstance().getResourceManager().getResourceOrThrow(ANATOMY).open(),StandardCharsets.UTF_8))) {
+                for(String line;(line=reader.readLine())!=null;) {
+                    line=line.strip();
+                    if(line.isEmpty()||line.startsWith("#"))continue;
+                    if(line.startsWith("[")) {
+                        section=line.substring(1,line.length()-1);
+                        if(sections.putIfAbsent(section,new ArrayList<>())!=null)throw new IllegalArgumentException("Duplicate section "+section);
+                    } else {
+                        if(section==null)throw new IllegalArgumentException("Missing section");
+                        String[] fields=line.split("\\s+");
+                        if(fields.length!=4)throw new IllegalArgumentException("Expected z y width height");
+                        float[] ring=new float[4];
+                        for(int i=0;i<4;i++){ring[i]=Float.parseFloat(fields[i]);if(!Float.isFinite(ring[i]))throw new IllegalArgumentException("Nonfinite ring");}
+                        if(ring[2]<=0||ring[3]<=0)throw new IllegalArgumentException("Invalid radius");
+                        List<float[]> rows=sections.get(section);
+                        if(!rows.isEmpty()&&rows.get(rows.size()-1)[0]>=ring[0])throw new IllegalArgumentException("Unordered rings");
+                        rows.add(ring);
+                    }
+                }
+                return new Anatomy(required(sections,"torso"),required(sections,"belly"),required(sections,"neck"),required(sections,"skull"),required(sections,"jaw"));
+            } catch(Exception e){throw new IllegalStateException("Cannot load embedded Ember Dragon anatomy",e);}
+        }
+        private static float[][] required(java.util.Map<String,List<float[]>> sections,String name) {
+            List<float[]> rows=sections.get(name);
+            if(rows==null||rows.size()<2||rows.size()>128)throw new IllegalArgumentException("Invalid section "+name);
+            return rows.toArray(float[][]::new);
+        }
+    }
+
     private static final class Painter {
         private final PoseStack stack;
         private final VertexConsumer vertices;
@@ -205,25 +247,41 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             stack.popPose();
         }
 
-        // Beveled octagonal cross-sections; connected rings with hard face normals.
+        // Connected anatomy with a finer curved profile, preserving dorsal ridges.
         void hull(float[][] rings,int material) {
             int count=rings.length;
-            float[][][] points=new float[count][8][3];
-            float[][] profile={{-0.55F,-1},{0.55F,-1},{1,-0.48F},{1,0.48F},
-                {0.55F,1},{-0.55F,1},{-1,0.48F},{-1,-0.48F}};
-            for(int i=0;i<count;i++) for(int j=0;j<8;j++)
-                points[i][j]=new float[]{profile[j][0]*rings[i][2],rings[i][1]+profile[j][1]*rings[i][3],rings[i][0]};
-            for(int i=0;i<count-1;i++) for(int j=0;j<8;j++){
-                int k=(j+1)%8;
-                face(points[i][j],points[i][k],points[i+1][k],points[i+1][j],material);
+            int sides=count>=5?(lod==0?32:lod==1?24:lod==2?16:8):8;
+            float[][][] points=new float[count][sides][3];
+            for(int i=0;i<count;i++) for(int j=0;j<sides;j++) {
+                float angle=-Mth.HALF_PI+j*Mth.TWO_PI/sides;
+                float x=Mth.cos(angle),y=Mth.sin(angle);
+                float power=count>=5?0.76F:0.58F;
+                x=Math.copySign((float)Math.pow(Math.abs(x),power),x);
+                y=Math.copySign((float)Math.pow(Math.abs(y),power),y);
+                points[i][j]=new float[]{x*rings[i][2],rings[i][1]+y*rings[i][3],rings[i][0]};
+            }
+            for(int i=0;i<count-1;i++) for(int j=0;j<sides;j++){
+                int k=(j+1)%sides;
+                float u0=j/(float)sides,u1=(j+1)/(float)sides;
+                float v0=i/(float)(count-1),v1=(i+1)/(float)(count-1);
+                texturedFace(points[i][j],points[i][k],points[i+1][k],points[i+1][j],material,u0,v0,u1,v1);
             }
             float[] first={0,rings[0][1],rings[0][0]};
             float[] last={0,rings[count-1][1],rings[count-1][0]};
-            for(int j=0;j<8;j++){
-                int k=(j+1)%8;
+            for(int j=0;j<sides;j++){
+                int k=(j+1)%sides;
                 face(first,points[0][k],points[0][j],points[0][j],material);
                 face(last,points[count-1][j],points[count-1][k],points[count-1][k],material);
             }
+        }
+
+        void horn(int side) {
+            // Continuous curved horn; rings overlap slightly at articulated bends.
+            float[][] points={{side*1.25F,-0.95F,0.85F},{side*1.85F,-2.0F,1.45F},
+                {side*2.15F,-3.15F,2.0F},{side*2.1F,-4.3F,2.85F},
+                {side*1.78F,-5.1F,3.7F},{side*1.5F,-5.55F,4.55F}};
+            float[] radii={0.77F,0.63F,0.46F,0.30F,0.14F,0.018F};
+            for(int i=0;i<points.length-1;i++)link(points[i],points[i+1],radii[i],radii[i+1],GOLD);
         }
 
         void plate(float x,float y,float z,float rx,float ry,float rz,int material){
@@ -242,6 +300,26 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             float length=(float)Math.sqrt(nx*nx+ny*ny+nz*nz);
             if(length<0.00001F)return;
             for(float[] v:new float[][]{a,b,c,d})emit(v[0],v[1],v[2],nx/length,ny/length,nz/length,material);
+        }
+
+        void texturedFace(float[] a,float[] b,float[] c,float[] d,int material,float u0,float v0,float u1,float v1) {
+            float ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2];
+            float vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
+            float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+            float length=(float)Math.sqrt(nx*nx+ny*ny+nz*nz);
+            if(length<0.00001F)return;
+            float[][] points={a,b,c,d};
+            float[] us={u0,u1,u1,u0},vs={v0,v0,v1,v1};
+            for(int i=0;i<4;i++)emitUv(points[i][0],points[i][1],points[i][2],nx/length,ny/length,nz/length,material,us[i],vs[i]);
+        }
+
+        void emitUv(float x,float y,float z,float nx,float ny,float nz,int material,float u,float v) {
+            int[] sample=PALETTE[material];
+            float baseU=(sample[0]-8)/64F,baseV=(sample[1]-8)/64F;
+            vertices.addVertex(stack.last(),x/16,y/16,z/16).setColor(color)
+                .setUv(baseU+(0.002F+0.246F*u),baseV+(0.002F+0.246F*v))
+                .setOverlay(overlay).setLight(material==EMBER?FULL_LIGHT:light)
+                .setNormal(stack.last(),nx,ny,nz);
         }
 
         void emit(float x,float y,float z,float nx,float ny,float nz,int material) {
