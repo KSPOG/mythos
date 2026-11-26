@@ -49,9 +49,11 @@ public final class MythosEquipment {
     private static String key(ClassSet c,Tier t){return t.name().toLowerCase(Locale.ROOT)+"_"+c.id;}
     private static Item create(Definition d){
         Item.Properties p=new Item.Properties().stacksTo(1);
+        if(d.slot()==Slot.SHIELD)return new ShieldItem(p.durability(336+128*d.tier().ordinal()));
         if(d.slot()==Slot.WEAPON){
-            if(d.owner()==ClassSet.RANGER)return new BowItem(p.durability(384+256*d.tier().ordinal()));
-            return new SwordItem(Tiers.IRON,p.attributes(SwordItem.createAttributes(Tiers.IRON,3+d.tier().ordinal(),-2.4F)));
+            if(d.kind()==WeaponKind.BOW)return new BowItem(p.durability(384+256*d.tier().ordinal()));
+            if(d.kind()==WeaponKind.CROSSBOW)return new CrossbowItem(p.durability(465+256*d.tier().ordinal()));
+            return new SwordItem(Tiers.IRON,p.attributes(SwordItem.createAttributes(Tiers.IRON,d.kind().damage+d.tier().ordinal(),d.kind().speed-4F)));
         }
         ArmorItem.Type type=switch(d.slot()){
             case HEAD->ArmorItem.Type.HELMET;case CHEST->ArmorItem.Type.CHESTPLATE;
