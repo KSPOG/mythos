@@ -13,10 +13,19 @@ final class PetProgression {
         while(lo<hi){int mid=(lo+hi+1)/2;if(threshold(mid)<=xp)lo=mid;else hi=mid-1;}
         return lo;
     }
+    enum Role {
+        DPS(.035F,.010F,.009F,.008F,.009F),
+        HEALER(.012F,.040F,.006F,.009F,.016F),
+        GUARDIAN(.015F,.020F,.005F,.006F,.025F),
+        SUPPORT(.018F,.022F,.010F,.012F,.020F),
+        CONTROL(.023F,.012F,.008F,.009F,.025F);
+        final float attack,healing,agility,haste,duration;
+        Role(float a,float h,float g,float c,float d){attack=a;healing=h;agility=g;haste=c;duration=d;}
+    }
     record Stats(int level,float attack,float healing,float agility,float haste,float duration){}
-    static Stats stats(long xp){
+    static Stats stats(long xp,Role role){
         int l=level(xp),n=l-1;
-        return new Stats(l,1+n*0.025F,1+n*0.025F,1+n*0.0075F,1+n*0.006F,1+n*0.012F);
+        return new Stats(l,1+n*role.attack,1+n*role.healing,1+n*role.agility,1+n*role.haste,1+n*role.duration);
     }
     static int cooldown(int base,Stats s){return Math.max(20,Math.round(base/s.haste()));}
     static int duration(int base,Stats s){return Math.round(base*s.duration());}
