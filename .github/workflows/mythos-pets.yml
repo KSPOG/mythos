@@ -45,6 +45,7 @@ jobs:
                   'pack.mcmeta',
                   'assets/mythospets/textures/entity/mooncat.png',
                   'com/ksp/mythospets/PetClient.class',
+                  'com/ksp/mythospets/MooncatMeshModel.class',
                   'com/ksp/mythospets/PetEntities.class',
                   'com/ksp/mythospets/PetServer.class',
               }
@@ -61,7 +62,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-pets-0.3.0
+          name: mythos-pets-0.3.1
           path: |
             MYTHOS-Pets/build/libs/*.jar
             MYTHOS-Pets/README.md
