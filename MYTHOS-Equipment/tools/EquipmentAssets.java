@@ -67,11 +67,9 @@ public final class EquipmentAssets {
         void box(double x,double y,double z,double X,double Y,double Z,int material){box(x,y,z,X,Y,Z,material,null);}
         void box(double x,double y,double z,double X,double Y,double Z,int material,String rotation){
             if(vanillaBowBasis){
-                // Map the original -X firing axis to the vanilla sprite's +X,+Y diagonal.
-                // A half-turn of the bounds followed by a legal 45-degree Z element rotation.
-                double nx=16-X,nX=16-x,ny=16-Y,nY=16-y;
-                x=nx;X=nX;y=ny;Y=nY;
-                rotation="\"rotation\":{\"origin\":[8,8,8],\"axis\":\"z\",\"angle\":45,\"rescale\":false}";
+                // Keep the firing axis horizontal in the native hand pose.
+                // Rotate around the grip, not around the individual segment centers.
+                rotation="\"rotation\":{\"origin\":[8,8,8],\"axis\":\"z\",\"angle\":-22.5,\"rescale\":false}";
             }
             double u=(material%4)*4+.08,v=(material/4)*8+.08;
             String uv=String.format(Locale.ROOT,"[%.3f,%.3f,%.3f,%.3f]",u,v,u+3.84,v+7.84);
