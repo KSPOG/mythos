@@ -28,3 +28,6 @@ Replaces all dragon ellipsoids with connected beveled cross-section hulls, point
 
 ## 0.3.6 — Anatomical refinement
 Reference-driven revision: shorter reptilian muzzle, nearly closed resting jaw, thicker neck-to-chest transition, developed thighs and forelegs, three visible toes and talons per foot, refined wing posture and subdivided curved membrane patches with fixed shared edges. Membrane tessellation varies by distance. Original Ember Dragon palette and identity retained. Procedural geometry, not a hand-sculpted or fully UV-painted asset. Client visuals and animation still require in-game validation.
+
+## 0.4.0 — reference-inspired asset foundation
+Dragon torso, neck, belly, skull and jaw profiles are embedded in assets/mythospets/meshes/ember_dragon.anatomy. The client reads and validates the profiles lazily and builds UV-mapped ring surfaces with distance-based resolution. A deterministic Java build-time generator produces a 2048x2048 material atlas with scale, horn and membrane patterns. This is a custom parametric asset format, not glTF/GLB or a weighted skeletal model. Existing joint animation and fullbright accents remain. Normal maps, separate emissive maps, Blender import, animation blending and professional sculpting are future work. Test appearance and resource loading in-game. No ownership or server gameplay changes.
