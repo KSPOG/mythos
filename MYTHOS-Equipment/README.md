@@ -1,4 +1,4 @@
-# MYTHOS Equipment 0.1.3
+# MYTHOS Equipment 0.1.4
 
 Forge 1.21.1 / 52.1.5 / Java 21. Equipment JAR on client AND server; MYTHOS Classes 0.1.4 on server. Stacked PR depends on Classes PR #63.
 
@@ -24,3 +24,6 @@ CI checks the catalog, all rarity roll ranges, generated assets and compile. Cli
 
 ## 0.1.3
 375 items, 48 complete class sets across levels 1/10/20/30/40/50; 192 armor pieces, 18 shields, 165 weapons. Added articulated armor model extension and larger inventory weapon render. Six tier stat ranges. Existing added level 10/30/50 weapon rolls outside new ranges may be regenerated on inventory validation. Custom armor model runtime visual validation pending.
+
+## 0.1.4
+Fix integrated server crash when Classes is absent. Local creative preview allowed without Classes; survival remains restricted, dedicated servers still require Classes. Includes previous lazy armor model initialization fix. Install matching Equipment JAR on both sides.
