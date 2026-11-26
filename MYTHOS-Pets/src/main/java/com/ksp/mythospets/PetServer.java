@@ -318,13 +318,18 @@ final class PetServer {
             if((!a.impacted||a.cast==BREATH)&&target==null){finishCast(a);return false;}
             if(target!=null){
                 if(a.entity instanceof DragonEntity d)fly(p,a,d,target,true);
-                else face(a.entity,target.position().subtract(a.entity.position()));
+                else face(a.entity,(a.cast==BLESS?p.position():target.position()).subtract(a.entity.position()));
             }
             if(a.cast==BREATH&&a.entity instanceof DragonEntity d){
                 if(tick>=a.impactAt&&tick<=a.impactAt+23&&target!=null){
                     a.impacted=true;breathTick(p,a,d,target);
                 }else d.stream(Vec3.ZERO,0);
                 return true;
+            }
+            if(a.cast==BLESS&&a.entity instanceof MooncatEntity m&&tick%4==0){
+                var level=p.serverLevel();double angle=tick*0.28;
+                for(int i=0;i<4;i++){double q=angle+i*Math.PI/2;level.sendParticles(ParticleTypes.END_ROD,m.getX()+Math.cos(q)*0.65,m.getY()+0.25+(tick%20)*0.035,m.getZ()+Math.sin(q)*0.65,1,0,0,0,0);}
+                level.sendParticles(ParticleTypes.END_ROD,p.getX()+Math.cos(angle)*0.8,p.getY()+0.4+(tick%20)*0.06,p.getZ()+Math.sin(angle)*0.8,1,0,0,0,0);
             }
             if(!a.impacted&&tick>=a.impactAt){
                 a.impacted=true;if(target!=null)impact(p,a,target);
@@ -341,7 +346,9 @@ final class PetServer {
         if(tick>=a.nextSupport&&p.getHealth()<=p.getMaxHealth()*0.70F
             &&combatTarget(p,a,a.target,8)!=null){
             a.nextSupport=tick+240;
-            startCast(a,target,dragon?GUARD:BLESS,10,24);return true;
+            startCast(a,target,dragon?GUARD:BLESS,dragon?10:MooncatEntity.BLESS_IMPACT,dragon?24:MooncatEntity.BLESS_DURATION);
+            if(a.entity instanceof MooncatEntity m){m.blessingRecipient(p.getId());face(m,p.position().subtract(m.position()));}
+            return true;
         }
         double range=dragon?7:2.6;
         if(a.entity.distanceToSqr(target)>range*range){
@@ -376,6 +383,9 @@ final class PetServer {
             }
             case BLESS -> {
                 p.heal(4);
+                if(a.entity instanceof MooncatEntity m)m.blessingImpact();
+                level.sendParticles(ParticleTypes.HEART,p.getX(),p.getY()+1.8,p.getZ(),5,0.35,0.25,0.35,0.02);
+                level.playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.AMETHYST_BLOCK_CHIME,SoundSource.NEUTRAL,0.9F,1.25F);
                 p.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED,100,0));
                 level.sendParticles(ParticleTypes.END_ROD,p.getX(),p.getY()+1,p.getZ(),24,0.45,0.6,0.45,0.025);
                 level.playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.CAT_PURR,SoundSource.NEUTRAL,0.7F,1.1F);
