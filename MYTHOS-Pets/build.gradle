@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id 'java'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
@@ -29,7 +31,7 @@ tasks.register('generatePetTextures') {
     doLast {
         def output = generatedTextures.get().file('assets/mythospets/textures/entity/mooncat.png').asFile
         output.parentFile.mkdirs()
-        output.bytes = java.util.Base64.decoder.decode(mooncatTexture.asFile.text.trim())
+        output.bytes = Base64.getDecoder().decode(mooncatTexture.asFile.text.trim())
     }
 }
 tasks.named('processResources') {
