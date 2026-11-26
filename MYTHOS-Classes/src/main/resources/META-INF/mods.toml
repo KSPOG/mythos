@@ -1,0 +1,21 @@
+modLoader="javafml"
+loaderVersion="[52,53)"
+license="All Rights Reserved"
+[[mods]]
+modId="mythosclasses"
+version="0.1.4"
+displayName="MYTHOS Classes"
+displayTest="IGNORE_ALL_VERSION"
+description='''Server-side player classes and RPG progression.'''
+[[dependencies.mythosclasses]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.mythosclasses]]
+modId="forge"
+mandatory=true
+versionRange="[52.1.5,53)"
+ordering="NONE"
+side="BOTH"
