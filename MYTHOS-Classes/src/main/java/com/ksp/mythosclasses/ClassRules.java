@@ -4,6 +4,11 @@ import java.util.Locale;
 
 final class ClassRules {
     static final int START_POINTS=5, MAX_POINTS=10000, MAX_STAT=100;
+    static final int MAX_LEVEL=50, POINTS_PER_LEVEL=3;
+    static int threshold(int level){int n=Math.max(0,Math.min(MAX_LEVEL,level)-1);return 100*n*(n+1);}
+    static final int MAX_XP=threshold(MAX_LEVEL);
+    static int level(int xp){int lo=1,hi=MAX_LEVEL;while(lo<hi){int mid=(lo+hi+1)/2;if(threshold(mid)<=xp)lo=mid;else hi=mid-1;}return lo;}
+    static int levelPoints(int xp){return (level(xp)-1)*POINTS_PER_LEVEL;}
     enum Stat {
         STRENGTH, DEFENSE, VITALITY, DEXTERITY, INTELLIGENCE, SPIRIT;
         String id(){return name().toLowerCase(Locale.ROOT);}
