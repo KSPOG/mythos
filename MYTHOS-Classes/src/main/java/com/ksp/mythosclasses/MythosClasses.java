@@ -11,6 +11,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraft.world.entity.monster.Monster;
@@ -25,17 +27,22 @@ import java.util.*;
 public final class MythosClasses {
     private static final org.slf4j.Logger LOG=com.mojang.logging.LogUtils.getLogger();
     private final ClassStore store=new ClassStore();
+    private int nameplateTick;
     public MythosClasses(){
         var bus=MinecraftForge.EVENT_BUS;
         bus.addListener(this::start);bus.addListener(this::stop);bus.addListener(this::commands);
         bus.addListener(EventPriority.LOWEST,this::death);
+        bus.addListener(this::login);bus.addListener(this::nameplates);
     }
     private void start(ServerStartedEvent e){
-        ClassApi.attach(store);
+        nameplateTick=0;ClassApi.attach(store);
+        LevelNameplates.cleanup(e.getServer());
         try{store.load(e.getServer().getWorldPath(LevelResource.ROOT).resolve("mythos-classes.json"));}
         catch(Exception ex){LOG.error("Class storage unavailable",ex);}
     }
-    private void stop(ServerStoppingEvent e){store.ready=false;ClassApi.detach(store);}
+    private void stop(ServerStoppingEvent e){LevelNameplates.cleanup(e.getServer());store.ready=false;ClassApi.detach(store);}
+    private void login(PlayerEvent.PlayerLoggedInEvent e){if(e.getEntity() instanceof ServerPlayer p)LevelNameplates.refresh(p);}
+    private void nameplates(TickEvent.ServerTickEvent.Post e){if(++nameplateTick>=20){nameplateTick=0;LevelNameplates.refreshAll(e.getServer());}}
     private Role role(ServerPlayer p){return store.get(p.getUUID());}
     private int ok(CommandSourceStack s,String msg){s.sendSuccess(()->Component.literal(msg),false);return 1;}
     private int fail(CommandSourceStack s,String msg){s.sendFailure(Component.literal(msg));return 0;}
@@ -43,6 +50,7 @@ public final class MythosClasses {
         if(role==null||!store.ready)return fail(s,"Unknown class or storage unavailable.");
         if(!admin&&role(p)!=null)return fail(s,"Class already selected; ask an administrator to change it.");
         try{store.assign(p.getUUID(),role);}catch(Exception ex){LOG.error("Class assignment failed",ex);return fail(s,"Class save failed.");}
+        LevelNameplates.refresh(p);
         return ok(s,p.getGameProfile().getName()+" selected "+role.label+".");
     }
     private int info(CommandSourceStack s,ServerPlayer p){
@@ -68,6 +76,7 @@ public final class MythosClasses {
         result.ifPresent(v->{
             if(v.awarded()==0)return;
             if(v.newLevel()>v.oldLevel()){
+                LevelNameplates.refresh(p);
                 p.sendSystemMessage(Component.literal("MYTHOS | Level "+v.newLevel()+" reached! +"+v.statPoints()+" stat points."));
                 p.serverLevel().playSound(null,p.getX(),p.getY(),p.getZ(),SoundEvents.PLAYER_LEVELUP,SoundSource.PLAYERS,0.7F,1.1F);
             }else p.displayClientMessage(Component.literal("MYTHOS +"+v.awarded()+" XP"),true);
@@ -100,7 +109,7 @@ public final class MythosClasses {
         root.then(Commands.literal("choose").then(Commands.argument("id",StringArgumentType.word()).suggests((c,b)->SharedSuggestionProvider.suggest(Arrays.stream(Role.values()).map(Role::id),b)).executes(c->assign(c.getSource(),c.getSource().getPlayerOrException(),Role.parse(StringArgumentType.getString(c,"id")),false))));
         root.then(Commands.literal("set").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).then(Commands.argument("id",StringArgumentType.word()).suggests((c,b)->SharedSuggestionProvider.suggest(Arrays.stream(Role.values()).map(Role::id),b)).executes(c->assign(c.getSource(),EntityArgument.getPlayer(c,"player"),Role.parse(StringArgumentType.getString(c,"id")),true)))));
         root.then(Commands.literal("clear").requires(s->s.hasPermission(2)).then(Commands.argument("player",EntityArgument.player()).executes(c->{
-            try{store.assign(EntityArgument.getPlayer(c,"player").getUUID(),null);return ok(c.getSource(),"Class cleared.");}
+            try{var p=EntityArgument.getPlayer(c,"player");store.assign(p.getUUID(),null);LevelNameplates.refresh(p);return ok(c.getSource(),"Class cleared.");}
             catch(Exception ex){LOG.error("Class reset failed",ex);return fail(c.getSource(),"Class save failed.");}
         })));
         root.then(Commands.literal("stats").executes(c->stats(c.getSource(),c.getSource().getPlayerOrException())).then(Commands.argument("player",EntityArgument.player()).requires(s->s.hasPermission(2)).executes(c->stats(c.getSource(),EntityArgument.getPlayer(c,"player")))));
