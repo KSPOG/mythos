@@ -1,0 +1,10 @@
+plugins { id 'java-library' }
+group = 'com.ksp.mythos.model'
+version = '0.1.0'
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+tasks.register('verifyRegistry', JavaExec) {
+ dependsOn testClasses
+ classpath = sourceSets.test.runtimeClasspath
+ mainClass = 'com.ksp.mythos.model.RegistryTest'
+}
+tasks.named('check') { dependsOn 'verifyRegistry' }
