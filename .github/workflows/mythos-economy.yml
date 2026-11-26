@@ -30,7 +30,7 @@ jobs:
         run: ./gradlew --no-daemon build
       - uses: actions/upload-artifact@v4
         with:
-          name: mythos-economy-0.3.0
+          name: mythos-economy-0.3.1
           path: |
             MYTHOS-Economy/build/libs/*.jar
             MYTHOS-Economy/README.md

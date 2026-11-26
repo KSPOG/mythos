@@ -59,9 +59,34 @@ public final class Merchants {
         new Shop("raid","Raid Merchant",VillagerProfession.NONE,List.of())
     );
     private final GoldShops gold=new GoldShops();
+    private final Presets presets=new Presets();
+    private final Map<String,Removal> removals=new HashMap<>();
+    private record Removal(UUID npc,long expires){}
+    private static final org.slf4j.Logger LOG=com.mojang.logging.LogUtils.getLogger();
+    private Map<String,Presets.Preset> defaults(){
+        var result=new TreeMap<String,Presets.Preset>();
+        for(var type:SHOPS){
+            var items=new GoldShops.Shop();items.restockSeconds=3600;
+            for(var product:type.products){String id=BuiltInRegistries.ITEM.getKey(product.item).toString();long price=Math.max(1,(product.price+product.amount-1)/product.amount);items.offers.add(new GoldShops.Offer(id,price,0,64,64,false));}
+            var creatures=new TreeMap<String,Ledger.CreatureOffer>();
+            if(type.id.equals("stable")){
+                creatures.put("mount:traveller",new Ledger.CreatureOffer("gold",2500,10,10,false));
+                creatures.put("mount:pack_donkey",new Ledger.CreatureOffer("gold",5000,5,5,false));
+                creatures.put("mount:desert_camel",new Ledger.CreatureOffer("mount_token",150,5,5,false));
+                creatures.put("mount:royal_warhorse",new Ledger.CreatureOffer("gold",75000,2,2,false));
+            }else if(type.id.equals("pet")){
+                creatures.put("pet:swift_fox",new Ledger.CreatureOffer("gold",20000,5,5,false));
+                creatures.put("pet:cat",new Ledger.CreatureOffer("pet_token",250,5,5,false));
+                creatures.put("pet:sheep",new Ledger.CreatureOffer("gold",3500,10,10,false));
+            }
+            result.put(type.id,new Presets.Preset(type.id,items,creatures));
+        }
+        return result;
+    }
     public Merchants(){
         var bus=MinecraftForge.EVENT_BUS;
-        bus.addListener((net.minecraftforge.event.server.ServerStartedEvent e)->gold.start(e.getServer()));
+        bus.addListener((net.minecraftforge.event.server.ServerStartedEvent e)->{gold.start(e.getServer());removals.clear();try{presets.defaults(defaults());}catch(Exception ex){LOG.error("Preset load failed",ex);}});
+        bus.addListener((ServerStoppingEvent e)->removals.clear());
         bus.addListener(this::commands);bus.addListener(this::interact);
         bus.addListener(this::specific);bus.addListener(this::join);
 
@@ -72,7 +97,7 @@ public final class Merchants {
         v.setCustomNameVisible(true);
     }
     private void join(EntityJoinLevelEvent e){
-        if(!e.getLevel().isClientSide()&&e.getEntity() instanceof Villager v&&managed(v))protect(v);
+        if(!e.getLevel().isClientSide()&&e.getEntity() instanceof Villager v&&managed(v)){if(gold.available()&&gold.isRemoved(v.getUUID()))e.setCanceled(true);else protect(v);}
     }
     private int fail(CommandSourceStack s,String message){s.sendFailure(Component.literal(message));return 0;}
     private int ok(CommandSourceStack s,String message){s.sendSuccess(()->Component.literal(message),false);return 1;}
@@ -89,7 +114,7 @@ public final class Merchants {
         return s.getLevel().getEntitiesOfClass(Villager.class,new AABB(s.getPosition(),s.getPosition()).inflate(8),Merchants::managed).stream()
             .min(Comparator.comparingDouble(v->v.position().distanceToSqr(s.getPosition()))).orElse(null);
     }
-    private void open(ServerPlayer p,Villager v){if(CreatureShops.kind(v).isEmpty())gold.open(p,v);else CreatureShops.open(p,v);}
+    private void open(ServerPlayer p,Villager v){if(!gold.available()||gold.isRemoved(v.getUUID())){p.sendSystemMessage(Component.literal("Merchant unavailable"));return;}if(CreatureShops.kind(v).isEmpty())gold.open(p,v);else CreatureShops.open(p,v);}
     private void interact(PlayerInteractEvent.EntityInteract e){
         if(e.getEntity() instanceof ServerPlayer p&&e.getTarget() instanceof Villager v&&managed(v)){
             e.setCanceled(true);open(p,v);
@@ -155,6 +180,57 @@ public final class Merchants {
         var result=EconomyApi.configureCreature(server,v.getUUID(),key,offer);
         return result.success()?ok(s,result.message()):fail(s,result.message());
     }
+    private static String type(Villager v){return v.getTags().stream().filter(t->t.startsWith("mythos_merchant_type_")).map(t->t.substring("mythos_merchant_type_".length())).findFirst().orElse("");}
+    private List<Villager> nearby(CommandSourceStack s,double radius){return s.getLevel().getEntitiesOfClass(Villager.class,new AABB(s.getPosition(),s.getPosition()).inflate(radius),v->managed(v)&&v.isAlive()&&!gold.isRemoved(v.getUUID()));}
+    private Villager target(CommandSourceStack s,String id){var matches=nearby(s,128).stream().filter(v->v.getUUID().toString().equals(id)||v.getTags().contains(PREFIX+id)||v.getDisplayName().getString().equalsIgnoreCase(id)).toList();return matches.size()==1?matches.get(0):null;}
+    private int listMerchants(CommandSourceStack s){var list=nearby(s,128);for(var v:list)ok(s,v.getDisplayName().getString()+" | "+v.getTags().stream().filter(t->t.startsWith(PREFIX)).findFirst().orElse("")+" | "+v.blockPosition().toShortString()+" | "+v.getUUID());return ok(s,list.size()+" loaded nearby merchants");}
+    private String actor(CommandSourceStack s){return s.getEntity()==null?"console":s.getEntity().getUUID().toString();}
+    private int removeRequest(CommandSourceStack s,Villager v){
+        if(v==null)return fail(s,"Merchant not found or ambiguous");
+        String busy=gold.busy(v);if(busy!=null)return fail(s,busy);
+        removals.put(actor(s),new Removal(v.getUUID(),System.currentTimeMillis()+30000));
+        return ok(s,"Remove "+v.getDisplayName().getString()+" ("+v.getUUID()+")? /merchant remove confirm within 30 seconds.");
+    }
+    private int removeConfirm(CommandSourceStack s){
+        var request=removals.remove(actor(s));if(request==null||request.expires<System.currentTimeMillis())return fail(s,"No active removal request");
+        var v=nearby(s,128).stream().filter(n->n.getUUID().equals(request.npc)).findFirst().orElse(null);
+        if(v==null)return fail(s,"Original merchant no longer nearby");
+        String busy=gold.busy(v);if(busy!=null)return fail(s,busy);
+        if(!EconomyApi.available(s.getServer()))return fail(s,"Economy unavailable");
+        if(!gold.markRemoved(v))return fail(s,"Could not save removal");
+        var result=EconomyApi.replaceCreatureOffers(s.getServer(),v.getUUID(),Map.of());
+        v.discard();
+        LOG.info("Merchant removed actor={} npc={} creatureCleanup={}",actor(s),v.getUUID(),result.success());
+        return result.success()?ok(s,"Merchant removed; player ownership unaffected"):fail(s,"NPC disabled and removed; creature offer cleanup failed, check economy storage");
+    }
+    private int move(CommandSourceStack s,String id){
+        var v=target(s,id);if(v==null)return fail(s,"No unique loaded merchant within 128 blocks");
+        String busy=gold.busy(v);if(busy!=null)return fail(s,busy);
+        var pos=BlockPos.containing(s.getPosition());var feet=Vec3.atBottomCenterOf(pos);var level=s.getLevel();
+        if(!level.hasChunkAt(pos)||!level.getWorldBorder().isWithinBounds(v.getBoundingBox().move(feet.subtract(v.position())))||!level.noCollision(v,v.getBoundingBox().move(feet.subtract(v.position())))||!level.getFluidState(pos).isEmpty()||!level.getBlockState(pos.below()).isFaceSturdy(level,pos.below(),net.minecraft.core.Direction.UP))return fail(s,"Stand at a safe clear destination");
+        v.teleportTo(feet.x,feet.y,feet.z);return ok(s,"Moved "+v.getDisplayName().getString()+"; configuration retained");
+    }
+    private int presetApply(CommandSourceStack s,Villager v,Presets.Preset p){
+        if(v==null||p==null||!type(v).equals(p.type()))return fail(s,"Preset must match merchant type");
+        String busy=gold.busy(v);if(busy!=null)return fail(s,busy);
+        if(!CreatureShops.kind(v).isEmpty()){
+            if(!EconomyApi.available(s.getServer()))return fail(s,"Economy unavailable");
+            var result=EconomyApi.replaceCreatureOffers(s.getServer(),v.getUUID(),p.creatures());
+            return result.success()?ok(s,"Creature preset applied"):fail(s,result.message());
+        }
+        return gold.replace(v,p.items())?ok(s,"Item preset applied"):fail(s,"Preset save failed");
+    }
+    private int presetSave(CommandSourceStack s,String id){
+        var v=nearest(s);if(v==null||gold.busy(v)!=null)return fail(s,"No available nearby merchant");
+        if(!EconomyApi.available(s.getServer()))return fail(s,"Economy unavailable");
+        try{var kind=CreatureShops.kind(v);presets.save(id,new Presets.Preset(type(v),gold.snapshot(v),kind.isEmpty()?Map.of():EconomyApi.creatureOffers(s.getServer(),v.getUUID())));return ok(s,"Saved preset "+id);}catch(Exception ex){return fail(s,"Preset save failed: "+ex.getMessage());}
+    }
+    private int presetSpawn(CommandSourceStack s,String preset,String id,String name){
+        var p=presets.get(preset);if(p==null)return fail(s,"Unknown preset");
+        if(create(s,p.type(),id,name)==0)return 0;
+        var v=target(s,id);if(v==null)return fail(s,"Created NPC but target ambiguous; apply preset manually");
+        return presetApply(s,v,p);
+    }
     private void commands(RegisterCommandsEvent e){
         var root=Commands.literal("merchant").requires(s->s.hasPermission(2));
         root.executes(c->ok(c.getSource(),"Use /merchant types, create, info, offer, remove, restock, rename. Edit nearest merchant within 8 blocks."));
@@ -175,7 +251,23 @@ public final class Merchants {
         var buyArg=Commands.argument("buy",com.mojang.brigadier.arguments.LongArgumentType.longArg(0,GoldShops.MAX_PRICE)).then(sellArg);
         root.then(Commands.literal("offer").then(Commands.argument("item",StringArgumentType.string()).then(buyArg)));
         root.then(Commands.literal("info").executes(c->change(c.getSource(),"info",0,"")));
-        root.then(Commands.literal("remove").then(Commands.argument("item",StringArgumentType.string()).executes(c->{var v=nearest(c.getSource());return v==null?fail(c.getSource(),"No nearby merchant"):ok(c.getSource(),gold.remove(v,StringArgumentType.getString(c,"item")));})));
+        var removeRoot=Commands.literal("remove").executes(c->removeRequest(c.getSource(),nearest(c.getSource())));
+        removeRoot.then(Commands.literal("confirm").executes(c->removeConfirm(c.getSource())));
+        removeRoot.then(Commands.argument("item",StringArgumentType.string()).executes(c->{var v=nearest(c.getSource());return v==null?fail(c.getSource(),"No nearby merchant"):ok(c.getSource(),gold.remove(v,StringArgumentType.getString(c,"item")));}));
+        root.then(removeRoot);
+        root.then(Commands.literal("delete").executes(c->removeRequest(c.getSource(),nearest(c.getSource()))).then(Commands.literal("confirm").executes(c->removeConfirm(c.getSource()))).then(Commands.argument("target",StringArgumentType.string()).executes(c->removeRequest(c.getSource(),target(c.getSource(),StringArgumentType.getString(c,"target"))))));
+        root.then(Commands.literal("move").then(Commands.argument("target",StringArgumentType.string()).executes(c->move(c.getSource(),StringArgumentType.getString(c,"target")))));
+        root.then(Commands.literal("list").executes(c->listMerchants(c.getSource())));
+        var presetRoot=Commands.literal("preset");
+        presetRoot.then(Commands.literal("list").executes(c->ok(c.getSource(),String.join(", ",presets.ids()))));
+        presetRoot.then(Commands.literal("reload").executes(c->{try{presets.reload();return ok(c.getSource(),"Presets reloaded");}catch(Exception ex){return fail(c.getSource(),"Reload failed: "+ex.getMessage());}}));
+        presetRoot.then(Commands.literal("save").then(Commands.argument("preset",StringArgumentType.word()).executes(c->presetSave(c.getSource(),StringArgumentType.getString(c,"preset")))));
+        presetRoot.then(Commands.literal("delete").then(Commands.argument("preset",StringArgumentType.word()).executes(c->{try{presets.delete(StringArgumentType.getString(c,"preset"));return ok(c.getSource(),"Preset deleted");}catch(Exception ex){return fail(c.getSource(),ex.getMessage());}})));
+        presetRoot.then(Commands.literal("info").then(Commands.argument("preset",StringArgumentType.word()).suggests((c,b)->SharedSuggestionProvider.suggest(presets.ids(),b)).executes(c->{var p=presets.get(StringArgumentType.getString(c,"preset"));if(p==null)return fail(c.getSource(),"Unknown preset");ok(c.getSource(),p.type()+" | restock seconds "+p.items().restockSeconds);for(var o:p.items().offers)ok(c.getSource(),o.item+" | "+o.buy+" / "+o.sell+" Gold | "+o.stock+"/"+o.max);p.creatures().forEach((k,v)->ok(c.getSource(),k+" | "+v.price()+" "+v.currency()+" | "+v.stock()+"/"+v.max()));return 1;})));
+        presetRoot.then(Commands.literal("apply").then(Commands.argument("preset",StringArgumentType.word()).suggests((c,b)->SharedSuggestionProvider.suggest(presets.ids(),b)).executes(c->presetApply(c.getSource(),nearest(c.getSource()),presets.get(StringArgumentType.getString(c,"preset"))))));
+        var spawnName=Commands.argument("name",StringArgumentType.greedyString()).executes(c->presetSpawn(c.getSource(),StringArgumentType.getString(c,"preset"),StringArgumentType.getString(c,"id"),StringArgumentType.getString(c,"name")));
+        presetRoot.then(Commands.literal("spawn").then(Commands.argument("preset",StringArgumentType.word()).suggests((c,b)->SharedSuggestionProvider.suggest(presets.ids(),b)).then(Commands.argument("id",StringArgumentType.word()).then(spawnName))));
+        root.then(presetRoot);
         root.then(Commands.literal("restock").executes(c->{var v=nearest(c.getSource());return v==null?fail(c.getSource(),"No nearby merchant"):ok(c.getSource(),gold.restock(v,0,true));})
             .then(Commands.argument("seconds",com.mojang.brigadier.arguments.LongArgumentType.longArg(0,31536000)).executes(c->{var v=nearest(c.getSource());return v==null?fail(c.getSource(),"No nearby merchant"):ok(c.getSource(),gold.restock(v,com.mojang.brigadier.arguments.LongArgumentType.getLong(c,"seconds"),false));})));
         root.then(Commands.literal("pending").requires(s->s.hasPermission(4)).executes(c->ok(c.getSource(),gold.pending())));

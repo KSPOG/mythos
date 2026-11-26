@@ -3,7 +3,7 @@ loaderVersion="[52,53)"
 license="All Rights Reserved"
 [[mods]]
 modId="mythosmerchants"
-version="0.3.0"
+version="0.4.0"
 displayName="MYTHOS Merchants"
 displayTest="IGNORE_ALL_VERSION"
 description='''Persistent merchant NPCs and native trading.'''
@@ -23,6 +23,6 @@ side="BOTH"
 [[dependencies.mythosmerchants]]
 modId="mythoseconomy"
 mandatory=true
-versionRange="[0.3.0,0.4.0)"
+versionRange="[0.3.1,0.4.0)"
 ordering="AFTER"
 side="SERVER"

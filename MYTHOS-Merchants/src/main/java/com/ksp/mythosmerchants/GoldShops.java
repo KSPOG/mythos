@@ -42,7 +42,7 @@ final class GoldShops {
         String id,player,shop,item,phase; int index,count; long price; boolean sale;
     }
     static final class State {
-        Map<String,Shop> shops=new HashMap<>(); Map<String,Pending> pending=new HashMap<>();
+        Map<String,Shop> shops=new HashMap<>(); Map<String,Pending> pending=new HashMap<>(); Set<String> removed=new HashSet<>();
     }
     private State state=new State();
     private Path file; private boolean locked=true;
@@ -51,6 +51,7 @@ final class GoldShops {
         try{
             state=Files.exists(file)?JSON.fromJson(Files.readString(file),State.class):new State();
             if(state==null||state.shops==null||state.pending==null)throw new IllegalStateException("Invalid shop store");
+            if(state.removed==null)state.removed=new HashSet<>();for(String id:state.removed)UUID.fromString(id);
             for(var entry:state.shops.entrySet()){
                 UUID.fromString(entry.getKey());var s=entry.getValue();
                 if(s==null||s.offers==null||s.offers.size()>45||s.restockSeconds<0||s.restockSeconds>31536000||s.lastRestock<0)throw new IllegalStateException("Invalid shop");
@@ -84,7 +85,16 @@ final class GoldShops {
     private Shop shop(Villager v){return state.shops.get(v.getUUID().toString());}
     private boolean pendingShop(String id){return state.pending.values().stream().anyMatch(p->p.shop.equals(id));}
     private boolean pendingPlayer(UUID id){return state.pending.values().stream().anyMatch(p->p.player.equals(id.toString()));}
-    private String busy(Villager v){return locked?"Shop storage locked":pendingShop(v.getUUID().toString())?"Shop has unresolved transaction":null;}
+    boolean isRemoved(UUID id){return state.removed.contains(id.toString());}
+    boolean available(){return !locked;}
+    String busy(Villager v){return locked?"Shop storage locked":pendingShop(v.getUUID().toString())?"Shop has unresolved transaction":null;}
+    static Shop copy(Shop s){
+        var n=new Shop();if(s!=null){n.restockSeconds=s.restockSeconds;for(var o:s.offers)n.offers.add(new Offer(o.item,o.buy,o.sell,o.stock,o.max,o.unlimited));}n.lastRestock=System.currentTimeMillis();return n;
+    }
+    Shop snapshot(Villager v){return copy(shop(v));}
+    static boolean validShop(Shop s){return s!=null&&s.offers!=null&&s.offers.size()<=45&&s.restockSeconds>=0&&s.restockSeconds<=31536000&&s.offers.stream().allMatch(GoldShops::valid)&&s.offers.stream().map(o->o.item).distinct().count()==s.offers.size();}
+    boolean replace(Villager v,Shop s){if(busy(v)!=null||isRemoved(v.getUUID())||!validShop(s))return false;state.shops.put(v.getUUID().toString(),copy(s));return save();}
+    boolean markRemoved(Villager v){if(busy(v)!=null)return false;String id=v.getUUID().toString();state.removed.add(id);state.shops.remove(id);return save();}
     String configure(Villager v,String id,long buy,long sell,int stock,int max,boolean unlimited){
         String problem=busy(v);if(problem!=null)return problem;
         var product=item(id);if(product==null)return "Invalid item";
@@ -139,7 +149,7 @@ final class GoldShops {
         if(applied&&!o.unlimited)o.stock+=p.sale?p.count:-p.count;
         state.pending.remove(p.id);save();
     }
-    private boolean near(ServerPlayer p,Villager v){return p.isAlive()&&!p.isSpectator()&&!p.hasDisconnected()&&v.isAlive()&&v.level()==p.level()&&p.distanceToSqr(v)<=16;}
+    private boolean near(ServerPlayer p,Villager v){return !isRemoved(v.getUUID())&&v.getTags().contains("mythos_merchant")&&p.isAlive()&&!p.isSpectator()&&!p.hasDisconnected()&&v.isAlive()&&v.level()==p.level()&&p.distanceToSqr(v)<=16;}
     private void refreshStock(Villager v){
         var s=shop(v);if(locked||s==null||s.restockSeconds==0||pendingShop(v.getUUID().toString()))return;
         long now=System.currentTimeMillis();
@@ -196,14 +206,16 @@ final class GoldShops {
         }catch(Exception ex){LOG.error("Pending merchant transaction "+tx.id,ex);say(p,"Trade pending; contact staff");}
     }
     private final class Menu extends ChestMenu {
-        private final ServerPlayer player;private final Villager npc;private final SimpleContainer display;private final List<String> ids;
+        private final ServerPlayer player;private final Villager npc;private final SimpleContainer display;private final List<String> ids;private List<String> quotes;
         Menu(int id,Inventory inv,ServerPlayer player,Villager npc){this(id,inv,player,npc,new SimpleContainer(54));}
         private Menu(int id,Inventory inv,ServerPlayer player,Villager npc,SimpleContainer display){
             super(MenuType.GENERIC_9x6,id,inv,display,6);this.player=player;this.npc=npc;this.display=display;
             this.ids=shop(npc).offers.stream().map(o->o.item).toList();render();
         }
+        private List<String> quotes(Shop s){return s.offers.stream().map(o->o.item+":"+o.buy+":"+o.sell).toList();}
         private void render(){
             display.clearContent();var s=shop(npc);if(s==null)return;
+            quotes=quotes(s);
             for(int i=0;i<Math.min(45,s.offers.size());i++){
                 var o=s.offers.get(i);var stack=plain(o,1);
                 stack.set(DataComponents.LORE,new ItemLore(List.of(Component.literal("Buy: "+(o.buy==0?"disabled":o.buy+" Gold")),Component.literal("Sell: "+(o.sell==0?"disabled":o.sell+" Gold")),Component.literal("Stock: "+(o.unlimited?"Unlimited":o.stock+"/"+o.max)),Component.literal("Left buy 1 / right sell 1"),Component.literal("Shift-left buy 10 / shift-right sell 10"))));
@@ -217,7 +229,7 @@ final class GoldShops {
         @Override public void clicked(int slot,int button,ClickType type,Player p){
             // Block all transfers, including player-side shifts, hotbar swaps, drag and throw.
             if(!stillValid(p)||slot<0||slot>=45||(type!=ClickType.PICKUP&&type!=ClickType.QUICK_MOVE)||(button!=0&&button!=1))return;
-            var s=shop(npc);if(s==null||slot>=ids.size()||slot>=s.offers.size()||!ids.get(slot).equals(s.offers.get(slot).item)){player.closeContainer();return;}
+            var s=shop(npc);if(s==null||!quotes(s).equals(quotes)||slot>=ids.size()||slot>=s.offers.size()||!ids.get(slot).equals(s.offers.get(slot).item)){player.closeContainer();return;}
             trade(player,npc,slot,button==1,type==ClickType.QUICK_MOVE?10:1);render();
         }
         @Override public void removed(Player p){super.removed(p);}

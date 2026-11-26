@@ -167,6 +167,11 @@ public final class Ledger {
         else {if(!n.creatureOffers.containsKey(id)&&creatureOffers(shop).size()>=45)return reject("Offer limit");n.creatureOffers.put(id,offer);}
         return commit(n,"Offer saved");
     }
+    public synchronized Receipt replaceCreatureOffers(UUID shop,Map<String,CreatureOffer> offers){
+        if(locked||shop==null||offers==null||offers.size()>45||offers.entrySet().stream().anyMatch(e->!creatureKey(e.getKey())||!validOffer(e.getValue(),e.getKey())))return reject("Invalid creature offers");
+        var n=copyState();String prefix=shop+"/";n.creatureOffers.keySet().removeIf(k->k.startsWith(prefix));
+        offers.forEach((k,v)->n.creatureOffers.put(prefix+k,v));return commit(n,"Creature catalog saved");
+    }
     public synchronized Receipt purchaseCreature(UUID shop,UUID player,String key,String currency,long price){
         if(locked||shop==null||player==null||!creatureKey(key)||state.sequence==Long.MAX_VALUE)return reject("Invalid purchase");
         String id=shop+"/"+key;var offer=state.creatureOffers.get(id);
