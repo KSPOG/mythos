@@ -33,23 +33,23 @@ final class ArmorVisuals implements IClientItemExtensions {
                 ModelPart bone=bones[piece.bone()];if(!bone.visible)continue;
                 stack.pushPose();bone.translateAndRotate(stack);
                 for(var f:piece.faces()){
-                    vertex(stack,out,f.a(),f,light,overlay,color,.1F,.1F);
-                    vertex(stack,out,f.b(),f,light,overlay,color,.9F,.1F);
-                    vertex(stack,out,f.c(),f,light,overlay,color,.9F,.9F);
-                    vertex(stack,out,f.c(),f,light,overlay,color,.9F,.9F);
+                    vertex(stack,out,f.a(),f.na(),f.material(),light,overlay,color,f.ua(),f.va());
+                    vertex(stack,out,f.b(),f.nb(),f.material(),light,overlay,color,f.ub(),f.vb());
+                    vertex(stack,out,f.c(),f.nc(),f.material(),light,overlay,color,f.uc(),f.vc());
+                    vertex(stack,out,f.c(),f.nc(),f.material(),light,overlay,color,f.uc(),f.vc());
                 }
                 stack.popPose();
             }
         }
-        private static void vertex(PoseStack stack,VertexConsumer out,ArmorPolygon.V v,ArmorPolygon.Face f,int light,int overlay,int color,float u,float w){
+        private static void vertex(PoseStack stack,VertexConsumer out,ArmorPolygon.V v,ArmorPolygon.V n,int material,int light,int overlay,int color,float u,float w){
             out.addVertex(stack.last(),v.x()/16,v.y()/16,v.z()/16).setColor(color)
-                .setUv((f.material()+u)/8F,w*.5F).setOverlay(overlay).setLight(light).setNormal(stack.last(),f.nx(),f.ny(),f.nz());
+                .setUv((material+.02F+.96F*u)/8F,.01F+w*.48F).setOverlay(overlay).setLight(light).setNormal(stack.last(),n.x(),n.y(),n.z());
         }
     }
     @Override public HumanoidModel<?> getHumanoidArmorModel(LivingEntity entity,ItemStack stack,EquipmentSlot slot,HumanoidModel<?> original){
         if(model==null){Definition d=definition.get();if(d==null)return original;model=new PolygonModel(d);}
         double distance=Minecraft.getInstance().gameRenderer.getMainCamera().getPosition().distanceToSqr(entity.position());
-        model.lod=distance<=64?0:distance<=256?1:2;
+        model.lod=distance<=25?0:distance<=144?1:2;
         model.head.copyFrom(original.head);model.hat.copyFrom(original.hat);model.body.copyFrom(original.body);
         model.rightArm.copyFrom(original.rightArm);model.leftArm.copyFrom(original.leftArm);
         model.rightLeg.copyFrom(original.rightLeg);model.leftLeg.copyFrom(original.leftLeg);

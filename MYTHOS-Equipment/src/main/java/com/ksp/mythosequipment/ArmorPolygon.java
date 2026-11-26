@@ -6,25 +6,60 @@ import com.ksp.mythosequipment.EquipmentRules.*;
 /** Immutable local-space triangle mesh, generated once per armor item and LOD. */
 final class ArmorPolygon {
     record V(float x,float y,float z){}
-    record Face(V a,V b,V c,float nx,float ny,float nz,int material){}
+    record Face(V a,V b,V c,float nx,float ny,float nz,int material,V na,V nb,V nc,float ua,float va,float ub,float vb,float uc,float vc){}
     record Piece(int bone,List<Face> faces){}
     private final List<Piece> pieces=new ArrayList<>();
     private List<Face> faces;
+    private int detail;
     private void bone(int b){faces=new ArrayList<>();pieces.add(new Piece(b,faces));}
     private void tri(V a,V b,V c,int mat){
         float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z,vx=c.x-a.x,vy=c.y-a.y,vz=c.z-a.z;
         float x=uy*vz-uz*vy,y=uz*vx-ux*vz,z=ux*vy-uy*vx,l=(float)Math.sqrt(x*x+y*y+z*z);
-        if(l>1e-6F)faces.add(new Face(a,b,c,x/l,y/l,z/l,mat));
+        if(l>1e-6F){V n=new V(x/l,y/l,z/l);faces.add(new Face(a,b,c,n.x,n.y,n.z,mat,n,n,n,.1F,.1F,.9F,.1F,.9F,.9F));}
     }
     // Swept elliptical rings: y, center x, center z, radius x, radius z.
-    private void hull(int n,int mat,float[][] rings){
-        V[][] v=new V[rings.length][n];
+    private static V unit(float x,float y,float z){
+        float l=(float)Math.sqrt(x*x+y*y+z*z);return l>1e-6F?new V(x/l,y/l,z/l):new V(0,-1,0);
+    }
+    private void curved(V a,V b,V c,V na,V nb,V nc,int mat,float ua,float va,float ub,float vb,float uc,float vc){
+        float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z,vx=c.x-a.x,vy=c.y-a.y,vz=c.z-a.z;
+        float x=uy*vz-uz*vy,y=uz*vx-ux*vz,z=ux*vy-uy*vx,l=(float)Math.sqrt(x*x+y*y+z*z);
+        if(l>1e-6F)faces.add(new Face(a,b,c,x/l,y/l,z/l,mat,na,nb,nc,ua,va,ub,vb,uc,vc));
+    }
+    private static float interpolate(float a,float b,float c,float d,float t){
+        float m0=(c-a)*.35F,m1=(d-b)*.35F,t2=t*t,t3=t2*t;
+        return (2*t3-3*t2+1)*b+(t3-2*t2+t)*m0+(-2*t3+3*t2)*c+(t3-t2)*m1;
+    }
+    private void hull(int n,int mat,float[][] authored){
+        // Refine curved surfaces along their height as well as circumference.
+        // Small faceted ornaments intentionally retain hard edges.
+        boolean smooth=n>=10;
+        int subdivisions=smooth&&detail==0?2:1;
+        float[][] rings=new float[(authored.length-1)*subdivisions+1][5];
+        for(int r=0;r<rings.length;r++){
+            int k=Math.min(r/subdivisions,authored.length-2);float t=(r-k*subdivisions)/(float)subdivisions;
+            for(int j=0;j<5;j++){
+                float a=authored[Math.max(0,k-1)][j],b=authored[k][j],c=authored[k+1][j],d=authored[Math.min(authored.length-1,k+2)][j];
+                rings[r][j]=j==0?b+(c-b)*t:Math.max(j>=3?.015F:-100F,interpolate(a,b,c,d,t));
+            }
+        }
+        V[][] v=new V[rings.length][n],norm=new V[rings.length][n];
         for(int r=0;r<rings.length;r++)for(int k=0;k<n;k++){
             double a=2*Math.PI*k/n;float[] q=rings[r];
             v[r][k]=new V(q[1]+q[3]*(float)Math.cos(a),q[0],q[2]+q[4]*(float)Math.sin(a));
         }
+        for(int r=0;r<rings.length;r++)for(int k=0;k<n;k++){
+            V before=v[Math.max(0,r-1)][k],after=v[Math.min(rings.length-1,r+1)][k];
+            V left=v[r][(k+n-1)%n],right=v[r][(k+1)%n];
+            float ax=after.x-before.x,ay=after.y-before.y,az=after.z-before.z,bx=right.x-left.x,by=right.y-left.y,bz=right.z-left.z;
+            norm[r][k]=unit(ay*bz-az*by,az*bx-ax*bz,ax*by-ay*bx);
+        }
         for(int r=0;r<rings.length-1;r++)for(int k=0;k<n;k++){
-            int j=(k+1)%n;tri(v[r][k],v[r+1][k],v[r+1][j],mat);tri(v[r][k],v[r+1][j],v[r][j],mat);
+            int j=(k+1)%n;float u=k/(float)n,w=(k+1)/(float)n,y=r/(float)(rings.length-1),z=(r+1)/(float)(rings.length-1);
+            if(smooth){
+                curved(v[r][k],v[r+1][k],v[r+1][j],norm[r][k],norm[r+1][k],norm[r+1][j],mat,u,y,u,z,w,z);
+                curved(v[r][k],v[r+1][j],v[r][j],norm[r][k],norm[r+1][j],norm[r][j],mat,u,y,w,z,w,y);
+            }else{tri(v[r][k],v[r+1][k],v[r+1][j],mat);tri(v[r][k],v[r+1][j],v[r][j],mat);}
         }
         for(int k=0;k<n;k++){int j=(k+1)%n;float[] a=rings[0],b=rings[rings.length-1];tri(new V(a[1],a[0],a[2]),v[0][k],v[0][j],mat);tri(new V(b[1],b[0],b[2]),v[rings.length-1][j],v[rings.length-1][k],mat);}
     }
@@ -42,7 +77,7 @@ final class ArmorPolygon {
         hull(n,mat,new float[][]{{y,x,z,.03F,.03F},{y+h*.3F,x,z,rx,rz},{y+h*.72F,x,z,rx*.8F,rz*.8F},{y+h,x,z,.03F,.03F}});
     }
     static List<Piece> build(Definition d,int lod){
-        ArmorPolygon m=new ArmorPolygon();var p=ArmorDesign.of(d.owner(),d.tier());int t=d.tier().ordinal(),n=lod==0?16:lod==1?10:6;float b=p.bulk();
+        ArmorPolygon m=new ArmorPolygon();m.detail=lod;var p=ArmorDesign.of(d.owner(),d.tier());int t=d.tier().ordinal(),n=lod==0?40:lod==1?16:6;float b=p.bulk();
         switch(d.slot()){
             case HEAD -> {
                 m.bone(0);
