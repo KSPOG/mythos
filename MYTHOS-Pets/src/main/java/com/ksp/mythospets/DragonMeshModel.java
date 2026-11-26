@@ -158,9 +158,10 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
             p.plate(side*1.91F,-0.55F,-1.48F,0.025F,0.14F*blink,0.055F,FUR);
             p.taper(side*1.38F,-0.9F,-2.4F,side*1.75F,-0.98F,-0.3F,0.31F,0.14F,FUR);
             p.plate(side*0.81F,-0.03F,-4.35F,0.18F,0.11F,0.24F,FUR);
+            p.plate(side*1.32F,-0.78F,1.10F,0.91F,0.70F,1.05F,FUR);
             p.horn(side);
-            for(int ridge=0;ridge<5;ridge++) {
-                float z=0.7F+ridge*0.48F;
+            for(int ridge=0;ridge<2;ridge++) {
+                float z=1.2F+ridge*0.72F;
                 p.taper(side*(1.4F-ridge*0.10F),-1.0F,z,side*(1.9F-ridge*0.13F),-2.1F+ridge*0.09F,z+0.9F,0.36F,0.025F,GOLD);
             }
             p.taper(side*1.5F,0.45F,0.7F,side*2.3F,0.1F,2.6F,0.31F,0.025F,GOLD);
@@ -447,13 +448,61 @@ final class DragonMeshModel extends EntityModel<DragonEntity> {
                 cy+Math.copySign((float)Math.pow(Math.abs(y),0.76F),y)*(ry+rise),z};
         }
 
+        // A single swept horn surface, using continuous frames and UVs.
         void horn(int side) {
-            // Continuous curved horn; rings overlap slightly at articulated bends.
-            float[][] points={{side*1.25F,-0.95F,0.85F},{side*1.85F,-2.0F,1.45F},
-                {side*2.15F,-3.15F,2.0F},{side*2.1F,-4.3F,2.85F},
-                {side*1.78F,-5.1F,3.7F},{side*1.5F,-5.55F,4.55F}};
-            float[] radii={0.77F,0.63F,0.46F,0.30F,0.14F,0.018F};
-            for(int i=0;i<points.length-1;i++)link(points[i],points[i+1],radii[i],radii[i+1],GOLD);
+            float[][] control={{side*1.28F,-0.75F,1.10F},{side*1.94F,-1.85F,1.65F},
+                {side*2.40F,-3.0F,2.38F},{side*2.48F,-4.18F,3.20F},
+                {side*2.22F,-5.10F,4.20F},{side*1.85F,-5.58F,5.10F}};
+            float[] radius={0.92F,0.76F,0.55F,0.34F,0.16F,0.008F};
+            int segments=lod==0?64:lod==1?40:lod==2?24:12;
+            int sides=lod==0?32:lod==1?24:lod==2?16:8;
+            float[][][] rings=new float[segments+1][sides][3];
+            float[][][] normals=new float[segments+1][sides][3];
+            for(int i=0;i<=segments;i++){
+                float t=i/(float)segments;
+                float[] center=hornCenter(control,t);
+                float[] before=hornCenter(control,Math.max(0,t-0.001F));
+                float[] after=hornCenter(control,Math.min(1,t+0.001F));
+                org.joml.Vector3f tangent=new org.joml.Vector3f(after[0]-before[0],after[1]-before[1],after[2]-before[2]).normalize();
+                org.joml.Vector3f axis=new org.joml.Vector3f(1,0,0);
+                axis.sub(new org.joml.Vector3f(tangent).mul(axis.dot(tangent))).normalize();
+                org.joml.Vector3f binormal=new org.joml.Vector3f(tangent).cross(axis).normalize();
+                float f=t*(radius.length-1);
+                int k=Math.min((int)f,radius.length-2);
+                float rad=Mth.lerp(f-k,radius[k],radius[k+1]);
+                for(int j=0;j<sides;j++){
+                    float angle=j*Mth.TWO_PI/sides;
+                    float ridge=1+0.035F*Mth.cos(angle*5+0.4F*t)*(1-t);
+                    org.joml.Vector3f normal=new org.joml.Vector3f(axis).mul(Mth.cos(angle))
+                        .add(new org.joml.Vector3f(binormal).mul(Mth.sin(angle)));
+                    rings[i][j]=new float[]{center[0]+normal.x*rad*ridge,center[1]+normal.y*rad*ridge,center[2]+normal.z*rad*ridge};
+                    normals[i][j]=new float[]{normal.x,normal.y,normal.z};
+                }
+            }
+            for(int i=0;i<segments;i++)for(int j=0;j<sides;j++){
+                int k=(j+1)%sides;
+                hornVertex(rings[i][j],normals[i][j],j/(float)sides,i/(float)segments);
+                hornVertex(rings[i][k],normals[i][k],(j+1)/(float)sides,i/(float)segments);
+                hornVertex(rings[i+1][k],normals[i+1][k],(j+1)/(float)sides,(i+1)/(float)segments);
+                hornVertex(rings[i+1][j],normals[i+1][j],j/(float)sides,(i+1)/(float)segments);
+            }
+            float[] end=hornCenter(control,1);
+            for(int j=0;j<sides;j++)face(end,rings[segments][j],rings[segments][(j+1)%sides],rings[segments][(j+1)%sides],GOLD);
+        }
+
+        private static float[] hornCenter(float[][] points,float t){
+            float f=t*(points.length-1);
+            int i=Math.min((int)f,points.length-2);
+            float u=f-i,u2=u*u,u3=u2*u;
+            float[] a=points[Math.max(0,i-1)],b=points[i],c=points[i+1],d=points[Math.min(points.length-1,i+2)];
+            float[] result=new float[3];
+            for(int k=0;k<3;k++)result[k]=0.5F*((2*b[k])+(-a[k]+c[k])*u+
+                (2*a[k]-5*b[k]+4*c[k]-d[k])*u2+(-a[k]+3*b[k]-3*c[k]+d[k])*u3);
+            return result;
+        }
+
+        private void hornVertex(float[] p,float[] n,float u,float v){
+            emitUv(p[0],p[1],p[2],n[0],n[1],n[2],GOLD,u,v);
         }
 
         void plate(float x,float y,float z,float rx,float ry,float rz,int material){
