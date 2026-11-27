@@ -6,7 +6,7 @@ Baseline: commit 99137887b2a18ce66640df6759898e8860a84e49, [CI passed](https://g
 |---|---|---|
 | 1 Registry | Core CI passed | Validated registration, duplicate rejection, deterministic fallback; integration API documented |
 | 2 Optional Forge client | Partial | Real Forge 1.21.1 handshake, authenticated connection binding, vanilla login and reconnect tests |
-| 3 GLB renderer | Pending | Bounded mesh decoding, actual textured mesh on GPU, correct transforms, cleanup and visual evidence |
+| 3 GLB renderer | Partial | Bounded mesh decoding, actual textured mesh on GPU, correct transforms, cleanup and visual evidence |
 | 4 Vanilla fallback | Pending | Mixed clients see equivalent entities without duplicates; fallback on missing assets |
 | 5 Asset sync/cache | Partial | Verified bytes, bounded downloads, atomic cache, invalidation, corrupt asset rejection |
 | 6 Animation | Pending | Skeletal skinning, interpolation, blending, attachment transforms, visible in-game test |
@@ -28,3 +28,7 @@ Previous cache CI passed at [928244e](https://github.com/KSPOG/mythos/actions/ru
 ## GLB decoding increment
 
 Added strict GLB v2 container parser with bounded JSON and binary chunks, UTF-8 validation, alignment and length checks, rejection of unknown/extra chunks, and isolated read-only binary data. Regression tests cover malformed headers, chunks, truncation and invalid UTF-8. This is structural parsing only; JSON semantics, accessor validation, texture decoding, GPU upload and in-game rendering remain outstanding. CI pending.
+
+## Mesh accessor increment
+
+Bounded float and unsigned triangle index decoding added at [53a692c](https://github.com/KSPOG/mythos/commit/53a692ca2b8969cc01a09348133151bdf7e6cf2f); [CI passed](https://github.com/KSPOG/mythos/actions/runs/46065052375) before dedicated accessor tests. Added regression coverage for interleaving, buffer position, alignment, truncation, count limits, non-finite values and unsigned index bounds; wired into Gradle check. New test CI pending. Semantic JSON validation, aggregate mesh budgets, textures and GPU rendering remain open.
