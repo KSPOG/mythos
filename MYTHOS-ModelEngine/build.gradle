@@ -9,7 +9,7 @@ tasks.register('verifyRegistry', JavaExec) {
 }
 tasks.named('check') { dependsOn 'verifyRegistry' }
 
-['CapabilityTest', 'AssetVerifierTest', 'VerifiedAssetCacheTest'].each { testName ->
+['CapabilityTest', 'AssetVerifierTest', 'VerifiedAssetCacheTest', 'GlbContainerTest'].each { testName ->
     tasks.register("verify${testName}", JavaExec) {
         dependsOn testClasses
         classpath = sourceSets.test.runtimeClasspath
