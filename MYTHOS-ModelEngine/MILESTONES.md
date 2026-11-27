@@ -24,3 +24,7 @@ Content-addressed local cache implemented with bounded writes, SHA-256 verificat
 ## Cache quota increment
 
 Previous cache CI passed at [928244e](https://github.com/KSPOG/mythos/actions/runs/45892300131). Added configurable published-cache quota (default 512 MiB) and oldest-modified-first eviction after successful verification. One private cache instance per root is required; temporary download space is additional (up to one asset). Transport, crash cleanup, active asset lifetime and runtime integration remain open. New quota tests await CI.
+
+## GLB decoding increment
+
+Added strict GLB v2 container parser with bounded JSON and binary chunks, UTF-8 validation, alignment and length checks, rejection of unknown/extra chunks, and isolated read-only binary data. Regression tests cover malformed headers, chunks, truncation and invalid UTF-8. This is structural parsing only; JSON semantics, accessor validation, texture decoding, GPU upload and in-game rendering remain outstanding. CI pending.
