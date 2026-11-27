@@ -27,3 +27,4 @@ jobs:
           java -cp build/classes com.ksp.mythos.model.CapabilityTest
           java -cp build/classes com.ksp.mythos.model.AssetVerifierTest
           java -cp build/classes com.ksp.mythos.model.VerifiedAssetCacheTest
+          java -cp build/classes com.ksp.mythos.model.GlbContainerTest
